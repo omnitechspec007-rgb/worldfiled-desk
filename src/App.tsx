@@ -61,7 +61,7 @@ function SystemHealth() {
     try {
       const res = await fetch("/.netlify/functions/health");
       const data = await res.json();
-      setHealth({ state: "done", database: data.database, detail: data.detail });
+      setHealth({ state: "done", database: String(data.database), detail: String(data.detail) });
     } catch {
       setHealth({ state: "error", detail: "Could not reach the health function." });
     }
@@ -93,7 +93,97 @@ function SystemHealth() {
   );
 }
 
+type Auth = "loading" | "in" | "out" | "not_configured" | "error";
+
+function Login({ onDone, notConfigured }: { onDone: () => void; notConfigured: boolean }) {
+  const [pass, setPass] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch("/.netlify/functions/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "login", passphrase: pass }),
+      });
+      if (res.ok) onDone();
+      else setMsg(res.status === 401 ? "Incorrect passphrase." : "Sign-in is unavailable. Check Netlify settings.");
+    } catch {
+      setMsg("Could not reach the server.");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="login">
+      <form className="panel" onSubmit={submit}>
+        <span className="brand-name dark">The World, Filed.</span>
+        <h1>WorldFiled Desk</h1>
+        {notConfigured ? (
+          <p className="status bad">
+            Not configured: set EDITOR_PASSPHRASE and SESSION_SECRET in Netlify environment variables, then redeploy.
+          </p>
+        ) : (
+          <>
+            <label htmlFor="pp">Editor passphrase</label>
+            <input
+              id="pp"
+              type="password"
+              autoComplete="current-password"
+              value={pass}
+              onChange={(e) => setPass(e.target.value)}
+              autoFocus
+            />
+            <button className="primary" disabled={busy || pass.length === 0}>
+              {busy ? "Signing in…" : "SIGN IN"}
+            </button>
+            {msg && <p className="status bad">{msg}</p>}
+          </>
+        )}
+      </form>
+    </div>
+  );
+}
+
 export default function App() {
+  const [auth, setAuth] = useState<Auth>("loading");
+
+  const refresh = async () => {
+    try {
+      const res = await fetch("/.netlify/functions/auth");
+      if (res.status === 503) return setAuth("not_configured");
+      const data = await res.json();
+      setAuth(data.authenticated ? "in" : "out");
+    } catch {
+      setAuth("error");
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const logout = async () => {
+    await fetch("/.netlify/functions/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "logout" }),
+    });
+    setAuth("out");
+  };
+
+  if (auth === "loading") return <div className="login"><p className="status">Loading…</p></div>;
+  if (auth === "error")
+    return <div className="login"><p className="status bad">Could not reach the server.</p></div>;
+  if (auth !== "in") return <Login onDone={() => void refresh()} notConfigured={auth === "not_configured"} />;
+  return <Desk onLogout={() => void logout()} />;
+}
+
+function Desk({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -108,6 +198,7 @@ export default function App() {
             </NavLink>
           ))}
         </nav>
+        <button className="linklike" onClick={onLogout}>Sign out</button>
         <span className="desk-label">WorldFiled Desk · v0.1</span>
       </aside>
       <main>

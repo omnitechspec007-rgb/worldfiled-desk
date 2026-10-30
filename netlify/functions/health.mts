@@ -1,13 +1,19 @@
 // Server-side database health check.
 // Fails closed: anything other than a confirmed, successful read is reported as a problem.
 
+import { isAuthenticated } from "../lib/session.mts";
+
 const json = (body: Record<string, string>, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
-export default async () => {
+export default async (req: Request) => {
+  if (!isAuthenticated(req)) {
+    return json({ database: "locked", detail: "Sign in as the editor to view system health." }, 401);
+  }
+
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
