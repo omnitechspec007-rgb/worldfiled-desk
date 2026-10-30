@@ -12,13 +12,14 @@ function secret(): string | null {
 }
 
 export function isConfigured(): boolean {
-  return Boolean(process.env.EDITOR_PASSPHRASE) && secret() !== null;
+  return Boolean(process.env.EDITOR_PASSPHRASE?.trim()) && secret() !== null;
 }
 
 export function passphraseMatches(input: string): boolean {
-  const expected = process.env.EDITOR_PASSPHRASE;
+  // Trim both sides: pasted values often carry an invisible trailing space or newline.
+  const expected = process.env.EDITOR_PASSPHRASE?.trim();
   if (!expected) return false;
-  const a = createHash("sha256").update(input).digest();
+  const a = createHash("sha256").update(input.trim()).digest();
   const b = createHash("sha256").update(expected).digest();
   return timingSafeEqual(a, b);
 }
