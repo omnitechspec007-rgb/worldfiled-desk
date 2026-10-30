@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
-import ResearchControl from "./ResearchControl";
+import Dashboard from "./Dashboard";
+import StoryDesk from "./StoryDesk";
+import EvidenceRoom from "./EvidenceRoom";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
-  { to: "/research", label: "Research Control" },
   { to: "/stories", label: "Story Desk" },
   { to: "/evidence", label: "Evidence Room" },
   { to: "/review", label: "Editorial Review" },
-  { to: "/production", label: "Production Studio" },
   { to: "/health", label: "System Health" },
 ];
 
@@ -24,38 +24,18 @@ function Placeholder({ title, phase, note }: { title: string; phase: string; not
   );
 }
 
-function Dashboard() {
-  return (
-    <section>
-      <h1>Dashboard</h1>
-      <div className="panel">
-        <button className="primary" disabled title="Research is not built yet">
-          RUN RESEARCH
-        </button>
-        <p className="status">Disabled: the research pipeline arrives in Phase 2. Nothing is running.</p>
-      </div>
-      <div className="grid">
-        {["Stories discovered", "Awaiting verification", "Awaiting editorial review", "Approved stories"].map(
-          (label) => (
-            <div className="panel stat" key={label}>
-              <span className="stat-label">{label}</span>
-              <span className="stat-value">—</span>
-              <span className="stat-note">No data yet</span>
-            </div>
-          )
-        )}
-      </div>
-    </section>
-  );
-}
-
 type Health =
   | { state: "loading" }
   | { state: "done"; database: string; detail: string }
   | { state: "error"; detail: string };
 
+type SourceRow = { id: string; name: string; country_scope: string | null; retrieval_status: string; last_checked_at: string | null; last_error: string | null };
+
 function SystemHealth() {
   const [health, setHealth] = useState<Health>({ state: "loading" });
+  const [sources, setSources] = useState<SourceRow[]>([]);
+  const [regions, setRegions] = useState<{ region: string; healthy: number; total: number }[]>([]);
+  const [note, setNote] = useState("");
 
   const check = async () => {
     setHealth({ state: "loading" });
@@ -66,17 +46,31 @@ function SystemHealth() {
     } catch {
       setHealth({ state: "error", detail: "Could not reach the health function." });
     }
+    try {
+      const [s, st] = await Promise.all([fetch("/.netlify/functions/sources"), fetch("/.netlify/functions/status")]);
+      if (s.ok) setSources((await s.json()).sources);
+      if (st.ok) {
+        const d = await st.json();
+        setRegions(d.regions);
+        setNote(d.latest?.error_summary ?? "");
+      }
+    } catch {
+      /* shown as missing data */
+    }
   };
 
   useEffect(() => {
     void check();
   }, []);
 
+  const order: Record<string, number> = { failing: 0, degraded: 1, untested: 2, healthy: 3 };
+  const sorted = [...sources].sort((a, b) => (order[a.retrieval_status] ?? 9) - (order[b.retrieval_status] ?? 9) || a.name.localeCompare(b.name));
+
   return (
     <section>
       <h1>System Health</h1>
       <div className="panel">
-        <h2>Database connectivity</h2>
+        <h2>Database</h2>
         {health.state === "loading" && <p className="status">Checking…</p>}
         {health.state === "error" && <p className="status bad">FAILED — {health.detail}</p>}
         {health.state === "done" && (
@@ -87,8 +81,31 @@ function SystemHealth() {
         <button onClick={() => void check()}>Check again</button>
       </div>
       <div className="panel">
-        <h2>Not yet monitored</h2>
-        <p>Source retrieval health, failed jobs, usage limits and AI status will appear here in later phases.</p>
+        <h2>Regional coverage</h2>
+        <p>A region with no reachable source is a gap in coverage. It does not mean nothing happened there.</p>
+        <div className="chips">
+          {regions.map((r) => (
+            <span key={r.region} className={r.healthy > 0 ? "chip on" : "chip bad"}>{r.region}: {r.healthy}/{r.total}</span>
+          ))}
+        </div>
+        {note && <p className="status bad">Last run: {note}</p>}
+      </div>
+      <div className="panel">
+        <h2>Sources ({sources.length})</h2>
+        <p>Tested automatically on every run. Problems are listed first. Failed sources are switched off until they respond again.</p>
+        <table>
+          <thead><tr><th>Source</th><th>Where</th><th>Status</th><th>Detail</th></tr></thead>
+          <tbody>
+            {sorted.map((s) => (
+              <tr key={s.id}>
+                <td>{s.name}</td>
+                <td>{s.country_scope ?? "—"}</td>
+                <td className={s.retrieval_status === "healthy" ? "ok" : s.retrieval_status === "untested" ? "" : "bad"}>{s.retrieval_status}</td>
+                <td>{s.last_error ?? (s.last_checked_at ? `checked ${new Date(s.last_checked_at).toLocaleString()}` : "not tested yet")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   );
@@ -205,22 +222,12 @@ function Desk({ onLogout }: { onLogout: () => void }) {
       <main>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/research" element={<ResearchControl />} />
-          <Route
-            path="/stories"
-            element={<Placeholder title="Story Desk" phase="Phase 4" note="Searchable, filterable discovered stories." />}
-          />
-          <Route
-            path="/evidence"
-            element={<Placeholder title="Evidence Room" phase="Phase 3" note="Claims, evidence passages, contradictions and source links." />}
-          />
+          <Route path="/stories" element={<StoryDesk />} />
+          <Route path="/evidence" element={<EvidenceRoom />} />
+          <Route path="/evidence/:id" element={<EvidenceRoom />} />
           <Route
             path="/review"
-            element={<Placeholder title="Editorial Review" phase="Phase 4" note="Edit, reject or approve. Approval will always require a deliberate human action." />}
-          />
-          <Route
-            path="/production"
-            element={<Placeholder title="Production Studio" phase="Phase 5" note="Text-card copy, captions and approval-gated exports." />}
+            element={<Placeholder title="Editorial Review" phase="a later stage" note="Approve, reject or request more research. Nothing can be approved or exported yet, because claim checking is not built. Approval will always need a deliberate human action." />}
           />
           <Route path="/health" element={<SystemHealth />} />
         </Routes>
