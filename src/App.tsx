@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
+import ResearchControl from "./ResearchControl";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
@@ -204,10 +205,7 @@ function Desk({ onLogout }: { onLogout: () => void }) {
       <main>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route
-            path="/research"
-            element={<Placeholder title="Research Control" phase="Phase 2" note="Choose coverage, categories and limits, and resume runs." />}
-          />
+          <Route path="/research" element={<ResearchControl />} />
           <Route
             path="/stories"
             element={<Placeholder title="Story Desk" phase="Phase 4" note="Searchable, filterable discovered stories." />}
