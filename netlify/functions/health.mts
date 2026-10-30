@@ -29,8 +29,11 @@ export default async () => {
   }
 
   try {
+        const headers: Record<string, string> = { apikey: key.trim() };
+    // Older JWT-style keys (start with "eyJ") also need the Authorization header.
+    if (key.trim().startsWith("eyJ")) headers.Authorization = `Bearer ${key.trim()}`;
     const res = await fetch(`${parsed.origin}/rest/v1/`, {
-      headers: { apikey: key, Authorization: `Bearer ${key}` },
+      headers,
       signal: AbortSignal.timeout(8000),
     });
     if (res.ok) {
