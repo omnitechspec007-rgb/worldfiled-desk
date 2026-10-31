@@ -15,7 +15,7 @@ export default async (req: Request) => {
     const latest = runs[0] ?? null;
     const stages = latest ? await db<any[]>(`research_run_stages?run_id=eq.${latest.id}&select=stage,status,attempt,detail,error`) : [];
     const sources = await db<any[]>("source_registry?select=country_scope,retrieval_status");
-    const stories = await db<any[]>("stories?select=id&limit=2000");
+    const stories = await db<any[]>("stories?select=id,editorial_status&limit=5000");
     const links = await db<any[]>("story_source_links?select=story_id&limit=5000");
     const perStory = new Map<string, number>();
     for (const l of links) perStory.set(l.story_id, (perStory.get(l.story_id) ?? 0) + 1);
@@ -29,6 +29,8 @@ export default async (req: Request) => {
       stages: summarize(stages),
       counts: {
         stories: stories.length,
+        awaitingReview: stories.filter((x) => x.editorial_status === "in_review").length,
+        approved: stories.filter((x) => x.editorial_status === "approved").length,
         multiOutlet: [...perStory.values()].filter((n) => n > 1).length,
         sourcesHealthy: sources.filter((s) => s.retrieval_status === "healthy").length,
         sourcesNeedAttention: sources.filter((s) => ["failing", "degraded"].includes(s.retrieval_status)).length,

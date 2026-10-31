@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Scores, type Score } from "./Scores";
 
 type Src = { id: string; title: string; url: string; outlet: string; scope: string | null; region: string; tier: string; publishedAt: string | null; retrievedAt: string | null; depth: string; summary?: string | null };
-type Story = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; sources: Src[] };
+type Decision = { decision: string; notes: string | null; created_at: string };
+type Story = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; sources: Src[]; scores?: Score[]; decisions?: Decision[]; editorialStatus?: string };
 
 const fmt = (d: string | null) => (d ? new Date(d).toLocaleString() : "date not given by source");
 
@@ -51,6 +53,16 @@ export default function EvidenceRoom() {
                 {s.summary && <p className="summary">{s.summary}</p>}
               </div>
             ))}
+          </div>
+          <div className="panel">
+            <h2>Scores and reasons</h2>
+            <Scores scores={story.scores ?? []} />
+            {story.decisions && story.decisions.length > 0 && (
+              <>
+                <h3>Your decisions</h3>
+                {story.decisions.map((d, i) => <p className="meta" key={i}>{new Date(d.created_at).toLocaleString()}: {d.decision.replace("_", " ")}{d.notes ? ` — ${d.notes}` : ""}</p>)}
+              </>
+            )}
           </div>
           <div className="panel">
             <h2>Independence and verification</h2>

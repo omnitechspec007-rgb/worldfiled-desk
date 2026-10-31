@@ -269,3 +269,25 @@ td.bad { color: var(--bad); font-weight: 600; }
 select { font: inherit; padding: 8px 10px; border: 1px solid var(--navy); background: var(--cream); color: var(--navy); }
 label.inline { flex-direction: row; align-items: center; gap: 8px; }
 .stat-note a { color: var(--navy); }
+
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tab.on { background: var(--navy); color: var(--cream); }
+.rank { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8a5a00; margin: 0 0 4px; }
+.story h2 a { color: var(--navy); text-decoration: none; }
+.why { font-size: 0.9rem; margin: 8px 0; }
+details { margin: 10px 0; }
+summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+table.scores td { vertical-align: top; font-size: 0.85rem; }
+table.scores td.dim { white-space: nowrap; font-weight: 600; }
+table.scores td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.comps { margin: 6px 0 0; padding-left: 18px; font-size: 0.8rem; opacity: 0.85; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+.actions a { color: var(--navy); font-size: 0.9rem; }
+.confirm { margin-top: 12px; padding: 14px; border: 1px solid var(--gold); background: #fffaf0; display: flex; flex-direction: column; gap: 10px; }
+label.pick { padding: 6px 0; font-size: 0.95rem; }
+textarea { width: 100%; font: inherit; padding: 10px; border: 1px solid var(--navy); background: var(--cream); color: var(--navy); margin-bottom: 10px; }
+.phone { width: 270px; min-height: 480px; margin: 12px auto; padding: 16px 12px; background: var(--navy); display: flex; flex-direction: column; gap: 10px; border-radius: 10px; }
+.phone .card { background: var(--cream); color: var(--navy); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; border-left: 4px solid var(--gold); }
+.phone .card strong { font-family: "Source Serif 4", Georgia, serif; font-size: 0.95rem; }
+.phone .card em { font-size: 0.68rem; opacity: 0.7; }
+.phone small { margin-top: auto; color: var(--gold); font-size: 0.65rem; text-align: center; }

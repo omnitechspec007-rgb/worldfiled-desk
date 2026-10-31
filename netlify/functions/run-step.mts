@@ -3,7 +3,7 @@
 // completed work: the next call resumes from the saved state.
 import { isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
-import { STAGES, stageCluster, stageDiscover, stagePrepare, type StageName } from "../lib/pipeline.mts";
+import { STAGES, stageCluster, stageDiscover, stagePrepare, stageRank } from "../lib/pipeline.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -29,6 +29,8 @@ export const summarize = (rows: any[]) =>
       items: d.items ?? null,
       stories: d.stories ?? null,
       multiSource: d.multiSource ?? null,
+      shortlisted: d.shortlisted ?? null,
+      candidates: d.candidates ?? null,
     };
   });
 
@@ -75,7 +77,13 @@ export default async (req: Request) => {
     try {
       const prev = row?.detail ?? {};
       const result =
-        next === "prepare" ? await stagePrepare() : next === "discover" ? await stageDiscover(prev) : await stageCluster(runId);
+        next === "prepare"
+          ? await stagePrepare()
+          : next === "discover"
+            ? await stageDiscover(prev)
+            : next === "cluster"
+              ? await stageCluster(runId)
+              : await stageRank(runId);
       await upsertStage({
         status: result.done ? "completed" : "running",
         detail: result.detail,

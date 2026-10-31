@@ -13,16 +13,21 @@ const seed = await import(`${root}lib/seed-sources.mts`);
 const runsFn = (await import(`${root}functions/runs.mts`)).default;
 const stepFn = (await import(`${root}functions/run-step.mts`)).default;
 const { clusterItems } = await import(`${root}lib/cluster.mts`);
+const decideFn = (await import(`${root}functions/decide.mts`)).default;
+const exportFn = (await import(`${root}functions/export.mts`)).default;
 const cookie = session.makeSessionCookie().split(";")[0];
 
 // ---------- fake PostgREST ----------
 const UNIQUE: Record<string, string[]> = {
   source_registry: ["name"], retrieved_sources: ["url_hash"], research_runs: ["idempotency_key"],
   research_run_stages: ["run_id", "stage"], stories: ["cluster_key"], story_source_links: ["story_id", "source_id"],
+  story_scores: ["story_id", "model_version", "dimension"], shortlist: ["run_id", "story_id"],
 };
 let tables: Record<string, any[]> = {};
 let failNext: { table: string; method: string } | null = null;
-const reset = () => { tables = {}; failNext = null; };
+let missing = new Set<string>();
+let seq = 0;
+const reset = () => { tables = {}; failNext = null; missing = new Set(); };
 const T = (n: string) => (tables[n] ??= []);
 
 function matches(row: any, params: URLSearchParams) {
@@ -30,6 +35,7 @@ function matches(row: any, params: URLSearchParams) {
     if (["select", "order", "limit", "on_conflict"].includes(k)) continue;
     if (v.startsWith("eq.")) { if (String(row[k]) !== v.slice(3)) return false; }
     else if (v.startsWith("in.(")) { if (!v.slice(4, -1).split(",").includes(String(row[k]))) return false; }
+    else if (v.startsWith("neq.")) { if (String(row[k]) === v.slice(4)) return false; }
     else if (v.startsWith("gte.")) { if (!(String(row[k] ?? "") >= v.slice(4))) return false; }
     else if (v === "not.is.null") { if (row[k] == null) return false; }
     else if (v === "is.null") { if (row[k] != null) return false; }
@@ -40,6 +46,7 @@ function postgrest(url: URL, init: any) {
   const table = url.pathname.split("/rest/v1/")[1];
   const m = init.method ?? "GET";
   if (failNext && failNext.table === table && failNext.method === m) { failNext = null; return new Response("{}", { status: 500 }); }
+  if (missing.has(table)) return new Response("{}", { status: 404 });
   const rows = T(table);
   const p = url.searchParams;
   const prefer = init.headers?.Prefer ?? "";
@@ -47,6 +54,12 @@ function postgrest(url: URL, init: any) {
     let out = rows.filter((r) => matches(r, p));
     const ord = p.get("order"); if (ord) { const [c, d] = ord.split("."); out = [...out].sort((a, b) => String(a[c] ?? "").localeCompare(String(b[c] ?? "")) * (d === "desc" ? -1 : 1)); }
     const lim = Number(p.get("limit") ?? 0); if (lim) out = out.slice(0, lim);
+    if (table === "stories" && (p.get("select") ?? "").includes("story_source_links")) {
+      out = out.map((st) => ({ ...st, story_source_links: T("story_source_links").filter((l) => l.story_id === st.id).map((l) => {
+        const rs = T("retrieved_sources").find((r) => r.id === l.source_id);
+        return { role: l.role, retrieved_sources: rs ? { ...rs, source_registry: T("source_registry").find((g) => g.id === rs.registry_id) ?? null } : null };
+      }) }));
+    }
     return new Response(JSON.stringify(out), { status: 200 });
   }
   if (m === "POST") {
@@ -55,12 +68,14 @@ function postgrest(url: URL, init: any) {
     for (const item of list) {
       const dup = keys.length ? rows.find((r) => keys.every((k) => r[k] === item[k])) : null;
       if (dup) { if (prefer.includes("merge-duplicates")) Object.assign(dup, item); continue; }
-      const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), status: table === "research_runs" ? "created" : undefined, ...item };
+      const row: any = { id: crypto.randomUUID(), created_at: new Date(Date.now() + seq++).toISOString(), status: table === "research_runs" ? "created" : undefined, ...item };
       if (table === "research_runs") row.status = item.status ?? "created";
+      if (table === "stories") row.editorial_status = item.editorial_status ?? "pending";
       rows.push(row);
     }
     return new Response(null, { status: 201 });
   }
+  if (m === "DELETE") { tables[table] = rows.filter((r) => !matches(r, p)); return new Response(null, { status: 204 }); }
   if (m === "PATCH") { for (const r of rows.filter((r) => matches(r, p))) Object.assign(r, JSON.parse(init.body)); return new Response(null, { status: 204 }); }
   return new Response("{}", { status: 405 });
 }
@@ -173,6 +188,61 @@ const stories1 = T("stories").length, links1 = T("story_source_links").length;
 const r2 = await start(); assert.notEqual(r2.run.id, runId); // previous run completed -> new run
 end = await runToEnd(r2.run.id);
 assert.equal(T("stories").length, stories1); assert.equal(T("story_source_links").length, links1); ok("a second full run adds no duplicate stories or links");
+
+console.log("Scoring stage and shortlist");
+reset(); behaviour = {}; shared = {};
+r = await start(); end = await runToEnd(r.run.id);
+assert.equal(end.run.status, "completed");
+const picks = T("shortlist").filter((x) => x.selected);
+assert(picks.length > 0 && picks.length <= 12); ok(`shortlist created (${picks.length} selected) in the run`);
+assert(picks.every((x) => x.reason.length > 15 && x.rank >= 1)); ok("every shortlisted story has a rank and a reason");
+assert(T("story_scores").length > 0 && new Set(T("story_scores").map((x) => `${x.story_id}|${x.dimension}`)).size === T("story_scores").length); ok("scores saved once per story and dimension");
+const dims = new Set(T("story_scores").map((x) => x.dimension));
+for (const d of ["recency", "novelty", "evidence_quality", "source_independence", "editorial_significance", "human_relevance", "curiosity", "geographic_spread"]) assert(dims.has(d), d);
+ok("each dimension is stored separately");
+assert(T("story_scores").every((x) => x.reason.length > 5)); ok("every stored score has a plain-words reason");
+assert(picks.every((x) => T("stories").find((s) => s.id === x.story_id).editorial_status === "in_review")); ok("shortlisted stories are marked awaiting review");
+const scoreCount = T("story_scores").length;
+const r3 = await start(); end = await runToEnd(r3.run.id);
+assert.equal(T("story_scores").length, scoreCount); ok("a second run re-scores without duplicating score rows");
+
+console.log("Scoring tables not installed");
+reset(); behaviour = {}; shared = {}; missing = new Set(["shortlist", "story_scores"]);
+r = await start(); end = await runToEnd(r.run.id);
+assert(end.error && /002_scoring\.sql/.test(end.error)); assert.equal(end.run.status, "incomplete"); ok("missing migration gives a clear message and an incomplete run (not a false success)");
+assert(["prepare", "discover", "cluster"].every((n) => T("research_run_stages").find((x) => x.stage === n)?.status === "completed")); ok("earlier stages stay saved");
+missing = new Set(); end = await runToEnd(r.run.id);
+assert.equal(end.run.status, "completed"); ok("after the migration is run, Resume completes the same run");
+
+console.log("Built-in list changes");
+reset(); behaviour = {}; shared = {};
+T("source_registry").push({ id: crypto.randomUUID(), name: "EurekAlert", feed_url: "https://www.eurekalert.org/rss.xml", reliability_note: "tier:primary; built-in candidate, health tested automatically", retrieval_status: "failing", enabled: false });
+T("source_registry").push({ id: crypto.randomUUID(), name: "Phys.org", feed_url: "https://old.example.com/feed", reliability_note: "tier:reporting; built-in candidate, health tested automatically", retrieval_status: "failing", enabled: false });
+T("source_registry").push({ id: crypto.randomUUID(), name: "My own note", feed_url: null, reliability_note: null, retrieval_status: "untested", enabled: false });
+fetched.length = 0; r = await start(); end = await runToEnd(r.run.id);
+assert.equal(T("source_registry").find((x) => x.name === "EurekAlert").retrieval_status, "disabled"); assert(!fetched.some((u) => u.includes("eurekalert"))); ok("retired built-in source disabled and never fetched");
+assert.equal(T("source_registry").find((x) => x.name === "Phys.org").feed_url, "https://phys.org/rss-feed/"); assert.equal(T("source_registry").find((x) => x.name === "Phys.org").retrieval_status, "healthy"); ok("corrected feed address replaces the old one and is retested");
+assert(T("source_registry").some((x) => x.name === "My own note")); ok("other existing rows are preserved");
+
+console.log("Approval workflow");
+const story = T("shortlist").find((x) => x.selected);
+const sid = story.story_id;
+assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true }, null)).status, 401); ok("decisions require sign-in");
+assert.equal((await call(decideFn, { storyId: sid, decision: "approved" })).status, 400); ok("approval without the deliberate acknowledgement is refused");
+assert.equal((await call(decideFn, { storyId: "nope", decision: "approved", acknowledged: true })).status, 400); ok("bad story id rejected");
+assert.equal((await call(decideFn, { storyId: sid, decision: "publish", acknowledged: true })).status, 400); ok("unknown decision rejected");
+assert.equal(T("editorial_decisions").length, 0); ok("refused attempts leave no decision record");
+assert.equal((await call(exportFn, { storyIds: [sid] })).status, 409); assert.equal(T("export_records").length, 0); ok("unapproved story cannot be exported");
+assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" })).status, 200);
+assert.equal(T("stories").find((x) => x.id === sid).editorial_status, "approved"); assert.equal(T("editorial_decisions").length, 1); assert(T("audit_events").some((a) => a.event_type === "story_approved" && a.entity_id === sid)); ok("approval saved with notes, status updated and audit event written");
+const ex = await call(exportFn, { storyIds: [sid] }); const pkg = await ex.json();
+assert.equal(ex.status, 200); assert.equal(pkg.cards.length, 1); assert.equal(T("export_records").length, 1); ok("approved story exports a draft and records the export");
+assert(pkg.cards[0].links.every((l: any) => l.url.startsWith("https://")) && (pkg.cards[0].attribution === null || pkg.cards[0].attribution.startsWith("According to"))); ok("draft contains only collected facts, attributed, with source links");
+assert(/Sources:/.test(pkg.caption) && pkg.caption.includes(pkg.cards[0].links[0].url)); ok("caption carries the source links");
+assert.equal((await call(exportFn, { storyIds: [] })).status, 400); assert.equal((await call(exportFn, { storyIds: Array(7).fill(sid) })).status, 400); ok("export size limits enforced");
+assert.equal((await call(decideFn, { storyId: sid, decision: "rejected", notes: "Changed my mind" })).status, 200);
+assert.equal((await call(exportFn, { storyIds: [sid] })).status, 409); ok("a later rejection withdraws export permission");
+assert.equal(T("export_records").length, 1); ok("no export record created after withdrawal");
 
 console.log("Clustering rules");
 const c = clusterItems([

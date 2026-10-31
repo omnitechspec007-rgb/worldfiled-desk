@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; stories: number | null; multiSource: number | null };
+type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; stories: number | null; multiSource: number | null; shortlisted: number | null; candidates: number | null };
 type Status = {
   latest: { id: string; status: string; error_summary: string | null; created_at: string; completed_at: string | null } | null;
   stages: Stage[];
-  counts: { stories: number; multiOutlet: number; sourcesHealthy: number; sourcesNeedAttention: number; sourcesUntested: number; sourcesTotal: number };
+  counts: { awaitingReview: number; approved: number; stories: number; multiOutlet: number; sourcesHealthy: number; sourcesNeedAttention: number; sourcesUntested: number; sourcesTotal: number };
   regions: { region: string; healthy: number; total: number }[];
 };
 
@@ -13,6 +13,7 @@ const LABEL: Record<string, string> = {
   prepare: "Load built-in sources",
   discover: "Check sources and collect stories",
   cluster: "Group coverage into stories",
+  rank: "Score stories and build the shortlist",
 };
 
 const newKey = () => crypto.randomUUID().replace(/-/g, "");
@@ -21,6 +22,7 @@ function describe(s: Stage) {
   if (s.status === "completed" && s.stage === "discover")
     return `${s.healthy} of ${s.total} sources reachable · ${s.items} items collected${s.problems ? ` · ${s.problems} need attention` : ""}`;
   if (s.status === "completed" && s.stage === "cluster") return `${s.stories} stories (${s.multiSource} covered by more than one outlet)`;
+  if (s.status === "completed" && s.stage === "rank") return `${s.shortlisted} stories shortlisted from ${s.candidates} candidates`;
   if (s.status === "running" && s.stage === "discover") return `${s.finished ?? 0} of ${s.total ?? "…"} sources checked`;
   if (s.status === "failed") return `Failed: ${s.error}`;
   return s.status === "pending" ? "Waiting" : s.status === "completed" ? "Done" : "Working…";
@@ -117,10 +119,14 @@ export default function Dashboard() {
           </ol>
         )}
         {status?.latest?.error_summary && !busy && <p className="status bad">Last run note: {status.latest.error_summary}</p>}
+        {(msg + (status?.latest?.error_summary ?? "")).includes("002_scoring.sql") && (
+          <p className="caution">One-time setup needed: open Supabase, go to SQL Editor, paste the contents of supabase/migrations/002_scoring.sql from your repo, run it, then click Resume.</p>
+        )}
       </div>
 
       <div className="grid">
         <div className="panel stat"><span className="stat-label">Stories found</span><span className="stat-value">{c?.stories ?? "—"}</span><span className="stat-note"><Link to="/stories">Open Story Desk</Link></span></div>
+        <div className="panel stat"><span className="stat-label">Awaiting your review</span><span className="stat-value">{c?.awaitingReview ?? "—"}</span><span className="stat-note"><Link to="/review">Open Editorial Review</Link> · {c?.approved ?? 0} approved</span></div>
         <div className="panel stat"><span className="stat-label">Covered by 2+ outlets</span><span className="stat-value">{c?.multiOutlet ?? "—"}</span><span className="stat-note">Not the same as independently confirmed</span></div>
         <div className="panel stat"><span className="stat-label">Sources reachable</span><span className="stat-value">{c ? `${c.sourcesHealthy}/${c.sourcesTotal}` : "—"}</span><span className="stat-note">{c && c.sourcesNeedAttention > 0 ? `${c.sourcesNeedAttention} need attention` : c && c.sourcesUntested === c.sourcesTotal ? "Not tested yet" : " "}</span></div>
         <div className="panel stat"><span className="stat-label">Regions with a live source</span><span className="stat-value">{status ? `${status.regions.filter((r) => r.healthy > 0).length}/7` : "—"}</span><span className="stat-note"><Link to="/health">Details in System Health</Link></span></div>
@@ -128,7 +134,7 @@ export default function Dashboard() {
 
       <div className="panel">
         <h2>Not built yet</h2>
-        <p>Full-text evidence retrieval, claim checking, story scoring and the curiosity engine, and approval and export are still to come. Stories on this desk are <strong>unscored and unverified</strong>.</p>
+        <p>Full-text evidence retrieval, claim checking and original-source tracing are still to come. Stories are scored by rules, but every story is <strong>unverified</strong>: only headlines and short summaries have been read.</p>
       </div>
     </section>
   );

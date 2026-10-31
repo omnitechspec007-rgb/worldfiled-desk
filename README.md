@@ -3,12 +3,12 @@
 Evidence-first global news research desk for **The World, Filed.**
 *What happened. What changed. What matters.*
 
-## Status (Stage 1 of the one-button rebuild)
+## Status
 
-- Working in tests (simulated feeds and database): one-click run, 34 built-in sources across 7 regions, automatic source testing, resumable stages, duplicate-click safety, story grouping.
-- NOT yet verified live: real feed retrieval from Netlify. First click on the deployed site is the live test.
-- NOT built: full-text evidence, claim checking, scoring, curiosity engine, approval and export.
-- Run the simulated-engine tests with `npm test`.
+- Working in simulated tests (`npm test`, 78 checks): one-click run, 34 built-in sources across 7 regions, automatic source testing, resumable stages, duplicate-click safety, story grouping, rule-based scoring and diverse shortlist, approve/reject with audit trail, approval-gated draft export.
+- Verified live: sign-in, database connection, real feed retrieval (first run reached 30 of 34 sources).
+- One-time setup for scoring: run `supabase/migrations/002_scoring.sql` in the Supabase SQL Editor.
+- NOT built: full-text evidence, claim checking, original-source tracing, AI. See `docs/SCORING.md` for scoring limits.
 
 ## Earlier status (Milestone 1 — foundation)
 

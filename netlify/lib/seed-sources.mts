@@ -33,13 +33,14 @@ export const SEED_SOURCES: Seed[] = [
   { name: "UN News", publisher: "United Nations", scope: "Global · United Nations", category: I, feed: "https://news.un.org/feed/subscribe/en/news/all/rss.xml", site: "https://news.un.org", tier: "primary" },
   { name: "WHO News", publisher: "World Health Organization", scope: "Global · WHO", category: P, feed: "https://www.who.int/rss-feeds/news-english.xml", site: "https://www.who.int/news", tier: "primary" },
   { name: "Nature", publisher: "Nature Portfolio", scope: "Global · Research journal", category: S, feed: "https://www.nature.com/nature.rss", site: "https://www.nature.com/nature", tier: "primary" },
-  { name: "EurekAlert", publisher: "AAAS", scope: "Global · Research institutions", category: S, feed: "https://www.eurekalert.org/rss.xml", site: "https://www.eurekalert.org", tier: "primary" },
   { name: "Mongabay", publisher: "Mongabay", scope: "Global · Environment", category: E, feed: "https://news.mongabay.com/feed/", site: "https://news.mongabay.com", tier: "reporting" },
-  { name: "Rest of World", publisher: "Rest of World", scope: "Global · Technology outside the West", category: T, feed: "https://restofworld.org/feed/", site: "https://restofworld.org", tier: "reporting" },
+  { name: "Phys.org", publisher: "Science X", scope: "Global · Research news", category: S, feed: "https://phys.org/rss-feed/", site: "https://phys.org", tier: "reporting" },
+  { name: "KrASIA", publisher: "KrASIA", scope: "Asia · Regional technology", category: T, feed: "https://kr-asia.com/feed", site: "https://kr-asia.com", tier: "reporting" },
   // Africa
   { name: "Africanews", publisher: "Africanews", scope: "Africa · Pan-African", category: W, feed: "https://www.africanews.com/feed/rss", site: "https://www.africanews.com", tier: "reporting" },
   { name: "Daily Maverick", publisher: "Daily Maverick", scope: "Africa · South Africa", category: G, feed: "https://www.dailymaverick.co.za/dmrss/", site: "https://www.dailymaverick.co.za", tier: "reporting" },
   { name: "Premium Times", publisher: "Premium Times", scope: "Africa · Nigeria", category: G, feed: "https://www.premiumtimesng.com/feed", site: "https://www.premiumtimesng.com", tier: "reporting" },
+  { name: "Techpoint Africa", publisher: "Techpoint Africa", scope: "Africa · Nigeria", category: T, feed: "https://techpoint.africa/feed/", site: "https://techpoint.africa", tier: "reporting" },
   { name: "TechCabal", publisher: "TechCabal", scope: "Africa · Nigeria", category: T, feed: "https://techcabal.com/feed/", site: "https://techcabal.com", tier: "reporting" },
   // Asia
   { name: "The Hindu (National)", publisher: "The Hindu", scope: "Asia · India", category: G, feed: "https://www.thehindu.com/news/national/feeder/default.rss", site: "https://www.thehindu.com", tier: "reporting" },
@@ -58,8 +59,8 @@ export const SEED_SOURCES: Seed[] = [
   { name: "Buenos Aires Times", publisher: "Buenos Aires Times", scope: "Latin America · Argentina", category: G, feed: "https://www.batimes.com.ar/feed", site: "https://www.batimes.com.ar", tier: "reporting" },
   // Middle East
   { name: "Al Jazeera", publisher: "Al Jazeera Media Network", scope: "Middle East · Qatar", category: I, feed: "https://www.aljazeera.com/xml/rss/all.xml", site: "https://www.aljazeera.com", tier: "reporting" },
-  { name: "Times of Israel", publisher: "The Times of Israel", scope: "Middle East · Israel", category: G, feed: "https://www.timesofisrael.com/feed/", site: "https://www.timesofisrael.com", tier: "reporting" },
   { name: "Arab News", publisher: "Arab News", scope: "Middle East · Saudi Arabia", category: B, feed: "https://www.arabnews.com/rss.xml", site: "https://www.arabnews.com", tier: "reporting" },
+  { name: "The National", publisher: "The National", scope: "Middle East · United Arab Emirates", category: B, feed: "https://www.thenationalnews.com/arc/outboundfeeds/rss/?outputType=xml", site: "https://www.thenationalnews.com", tier: "reporting" },
   { name: "Middle East Eye", publisher: "Middle East Eye", scope: "Middle East · Regional", category: I, feed: "https://www.middleeasteye.net/rss", site: "https://www.middleeasteye.net", tier: "reporting" },
   // Oceania
   { name: "ABC News Australia", publisher: "Australian Broadcasting Corporation", scope: "Oceania · Australia", category: G, feed: "https://www.abc.net.au/news/feed/51120/rss.xml", site: "https://www.abc.net.au/news", tier: "reporting" },

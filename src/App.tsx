@@ -3,26 +3,17 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import Dashboard from "./Dashboard";
 import StoryDesk from "./StoryDesk";
 import EvidenceRoom from "./EvidenceRoom";
+import EditorialReview from "./EditorialReview";
+import Production from "./Production";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
   { to: "/stories", label: "Story Desk" },
   { to: "/evidence", label: "Evidence Room" },
   { to: "/review", label: "Editorial Review" },
+  { to: "/production", label: "Production Studio" },
   { to: "/health", label: "System Health" },
 ];
-
-function Placeholder({ title, phase, note }: { title: string; phase: string; note: string }) {
-  return (
-    <section>
-      <h1>{title}</h1>
-      <div className="panel">
-        <p className="status">NOT BUILT YET — planned for {phase}</p>
-        <p>{note}</p>
-      </div>
-    </section>
-  );
-}
 
 type Health =
   | { state: "loading" }
@@ -225,10 +216,8 @@ function Desk({ onLogout }: { onLogout: () => void }) {
           <Route path="/stories" element={<StoryDesk />} />
           <Route path="/evidence" element={<EvidenceRoom />} />
           <Route path="/evidence/:id" element={<EvidenceRoom />} />
-          <Route
-            path="/review"
-            element={<Placeholder title="Editorial Review" phase="a later stage" note="Approve, reject or request more research. Nothing can be approved or exported yet, because claim checking is not built. Approval will always need a deliberate human action." />}
-          />
+          <Route path="/review" element={<EditorialReview />} />
+          <Route path="/production" element={<Production />} />
           <Route path="/health" element={<SystemHealth />} />
         </Routes>
       </main>
