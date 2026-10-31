@@ -97,10 +97,12 @@ const PATTERNS: { id: string; label: string; re: RegExp; why: string }[] = [
   { id: "accountability", label: "Competing interests or accountability", re: CUES.accountability, why: "scrutiny of who decided what, and in whose interest" },
 ];
 
-const text = (s: StoryInput) => [s.headline, ...s.sources.map((x) => x.title), ...s.sources.map((x) => x.summary ?? "")].join(" ");
+// "law and order" means policing or public safety, not legislation: remove it before keyword matching.
+const clean = (t: string) => t.replace(/\blaw[\s-]+and[\s-]+order\b/gi, " ");
+const text = (s: StoryInput) => clean([s.headline, ...s.sources.map((x) => x.title), ...s.sources.map((x) => x.summary ?? "")].join(" "));
 
 export function scoreStory(story: StoryInput, now = Date.now()): Scored {
-  const headline = story.headline;
+  const headline = clean(story.headline);
   const all = text(story);
   const outlets = new Set(story.sources.map((s) => s.outlet)).size;
   const regionCount = new Map<string, number>();
@@ -117,7 +119,7 @@ export function scoreStory(story: StoryInput, now = Date.now()): Scored {
 
   // --- Recency
   const rec = hours < 6 ? 5 : hours < 12 ? 4 : hours < 24 ? 3 : hours < 48 ? 2 : hours < 72 ? 1 : 0;
-  add("recency", rec, 5, Number.isFinite(hours) ? `Newest report is about ${Math.round(hours)} hour(s) old.` : "No usable publication date, so recency is unknown (scored 0).");
+  add("recency", rec, 5, Number.isFinite(hours) ? (hours < 1 ? "Newest report is less than an hour old." : `Newest report is about ${Math.round(hours)} hour(s) old.`) : "No usable publication date, so recency is unknown (scored 0).");
 
   // --- Novelty
   const fresh = (now - Date.parse(story.createdAt)) / 3_600_000 < 36;
@@ -135,7 +137,7 @@ export function scoreStory(story: StoryInput, now = Date.now()): Scored {
   const wire = hit(all, CUES.wire);
   let ind = outlets <= 1 ? 0 : regions.length >= 2 ? 2 : 1;
   if (wire.length && ind > 0) ind -= 1;
-  add("source_independence", ind, 5, `${outlets <= 1 ? "Single outlet: no independent confirmation." : `${outlets} outlets in ${regions.length} region(s), but they may all repeat one announcement`}${wire.length ? `; wire-service wording found (${wire.join(", ")}), so outlets may share one origin` : ""}. Capped at 2 of 5 until original sources can be traced.`);
+  add("source_independence", ind, 5, `${outlets <= 1 ? "Single outlet: no independent confirmation" : `${outlets} outlets in ${regions.length} region(s), but they may all repeat one announcement`}${wire.length ? `; wire-service wording found (${wire.join(", ")}), so outlets may share one origin` : ""}. Capped at 2 of 5 until original sources can be traced.`);
 
   // --- Geographic spread of coverage
   add("geographic_spread", regions.length >= 3 ? 5 : regions.length === 2 ? 3 : 1, 5, `Covered from ${regions.length} region(s): ${regions.join(", ")}.`);
@@ -222,13 +224,19 @@ export type Pick = { scored: Scored; priority: number; selected: boolean; rank: 
 
 const UNDERREPORTED = ["Africa", "Latin America", "Oceania", "Middle East"];
 const INSTITUTIONAL = ["Laws and regulations", "Government and institutional decisions", "Public policy"];
+// "Corroborated" here means only: two or more outlets, or an official source. It does NOT mean verified.
+export const isCorroborated = (s: Scored) => s.outlets >= 2 || s.hasPrimary;
 
 export function buildShortlist(items: Scored[], size = 12, opts = { regionCap: 4, categoryCap: 3, underreportedSlots: 3 }): { picks: Pick[]; heldBack: Pick[] } {
   const ranked = items.map((s) => ({ s, p: priorityOf(s) })).sort((a, b) => b.p - a.p || a.s.story.id.localeCompare(b.s.story.id));
+  const strong = ranked.filter((x) => isCorroborated(x.s));
+  const weak = ranked.filter((x) => !isCorroborated(x.s));
+  const tiered = [...strong, ...weak]; // corroborated stories are always considered first
   const chosen = new Map<string, { s: Scored; p: number; why: string }>();
   const regionN = new Map<string, number>(), catN = new Map<string, number>();
+  const note = (x: { s: Scored }) => (isCorroborated(x.s) ? "" : " Single outlet: unconfirmed.");
   const take = (x: { s: Scored; p: number }, why: string) => {
-    chosen.set(x.s.story.id, { ...x, why });
+    chosen.set(x.s.story.id, { ...x, why: why + note(x) });
     regionN.set(x.s.dominantRegion, (regionN.get(x.s.dominantRegion) ?? 0) + 1);
     catN.set(x.s.story.category ?? "", (catN.get(x.s.story.category ?? "") ?? 0) + 1);
   };
@@ -236,35 +244,36 @@ export function buildShortlist(items: Scored[], size = 12, opts = { regionCap: 4
 
   // Reserved slots first, so strong-curiosity stories cannot crowd out underreported or quiet ones.
   const usedRegions = new Set<string>();
-  for (const x of ranked) {
+  for (const x of tiered) {
     if (usedRegions.size >= opts.underreportedSlots) break;
     if (UNDERREPORTED.includes(x.s.dominantRegion) && !usedRegions.has(x.s.dominantRegion) && decent(x)) {
       usedRegions.add(x.s.dominantRegion);
-      take(x, `Reserved slot for an under-reported region (${x.s.dominantRegion}): its best-scoring story.`);
+      take(x, `Reserved slot for an under-reported region (${x.s.dominantRegion}): its best-supported story.`);
     }
   }
-  const sci = ranked.find((x) => !chosen.has(x.s.story.id) && x.s.story.category === "Scientific discoveries" && decent(x));
+  const sci = tiered.find((x) => !chosen.has(x.s.story.id) && x.s.story.category === "Scientific discoveries" && decent(x));
   if (sci) take(sci, "Reserved slot for a scientific development.");
-  const quiet = ranked.find((x) => !chosen.has(x.s.story.id) && x.s.hasPrimary && INSTITUTIONAL.includes(x.s.story.category ?? "") && decent(x));
+  const quiet = tiered.find((x) => !chosen.has(x.s.story.id) && x.s.hasPrimary && INSTITUTIONAL.includes(x.s.story.category ?? "") && decent(x));
   if (quiet) take(quiet, "Reserved slot for an official institutional change, which may not be dramatic but matters.");
 
   const skipped = new Map<string, string>();
-  for (const x of ranked) {
-    if (chosen.size >= size) break;
-    if (chosen.has(x.s.story.id)) continue;
-    if ((regionN.get(x.s.dominantRegion) ?? 0) >= opts.regionCap) { skipped.set(x.s.story.id, `Region cap reached (${opts.regionCap} stories already selected from ${x.s.dominantRegion}).`); continue; }
-    if ((catN.get(x.s.story.category ?? "") ?? 0) >= opts.categoryCap) { skipped.set(x.s.story.id, `Category cap reached (${opts.categoryCap} stories already selected in "${x.s.story.category}").`); continue; }
-    take(x, `Top priority: significance ${x.s.get("editorial_significance").toFixed(1)}/5, curiosity ${x.s.curiosity}/100, ${x.s.outlets} outlet(s).`);
-  }
-  // Second pass: if the category cap left empty places, relax ONLY the category cap (never the
-  // region cap) and say so. The list may stay shorter than requested if diversity limits bind.
-  for (const x of ranked) {
-    if (chosen.size >= size) break;
-    if (chosen.has(x.s.story.id)) continue;
-    if ((regionN.get(x.s.dominantRegion) ?? 0) >= opts.regionCap) continue;
-    take(x, `Added after the category limit was relaxed to fill the list: significance ${x.s.get("editorial_significance").toFixed(1)}/5, curiosity ${x.s.curiosity}/100, ${x.s.outlets} outlet(s).`);
-  }
-  const order = [...chosen.values()].sort((a, b) => b.p - a.p || a.s.story.id.localeCompare(b.s.story.id));
+  const fill = (pool: typeof ranked, label: string, relaxCategory: boolean) => {
+    for (const x of pool) {
+      if (chosen.size >= size) break;
+      if (chosen.has(x.s.story.id)) continue;
+      if ((regionN.get(x.s.dominantRegion) ?? 0) >= opts.regionCap) { skipped.set(x.s.story.id, `Region cap reached (${opts.regionCap} stories already selected from ${x.s.dominantRegion}).`); continue; }
+      if (!relaxCategory && (catN.get(x.s.story.category ?? "") ?? 0) >= opts.categoryCap) { skipped.set(x.s.story.id, `Category cap reached (${opts.categoryCap} stories already selected in "${x.s.story.category}").`); continue; }
+      take(x, `${label}: significance ${x.s.get("editorial_significance").toFixed(1)}/5, curiosity ${x.s.curiosity}/100, ${x.s.outlets} outlet(s).`);
+    }
+  };
+  fill(strong, "Top priority among supported stories", false);
+  fill(weak, "Included only to fill the list", false);
+  // Last resort: relax ONLY the category cap (never the region cap), and say so.
+  fill(strong, "Added after the category limit was relaxed", true);
+  fill(weak, "Added after the category limit was relaxed, only to fill the list", true);
+
+  // Corroborated stories first, then by priority.
+  const order = [...chosen.values()].sort((a, b) => Number(isCorroborated(b.s)) - Number(isCorroborated(a.s)) || b.p - a.p || a.s.story.id.localeCompare(b.s.story.id));
   const picks: Pick[] = order.map((x, i) => ({ scored: x.s, priority: x.p, selected: true, rank: i + 1, reason: x.why }));
   const cutoff = order.length ? order[order.length - 1].p : 0;
   // Nothing major disappears silently: strong-significance stories that missed out are listed with the reason.

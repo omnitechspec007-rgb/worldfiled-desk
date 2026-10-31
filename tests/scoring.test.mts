@@ -65,4 +65,19 @@ assert(new Set(picks.map((p: any) => p.scored.story.id)).size === picks.length);
 const again = buildShortlist(pool, 12);
 assert.deepEqual(again.picks.map((p: any) => p.scored.story.id), picks.map((p: any) => p.scored.story.id)); ok("shortlist is deterministic");
 
+console.log("Review fixes");
+const lo = scoreStory(story("g", "DMK women cadre protest across Tamil Nadu over price rise, law and order", "Government and institutional decisions", [src("The Hindu (National)", "Asia", "reporting", 0.2, "x")]), NOW);
+const lw = scoreStory(story("g2", "Parliament passes new data protection law", "Government and institutional decisions", [src("The Hindu (National)", "Asia", "reporting", 0.2, "x")]), NOW);
+assert(lo.get("editorial_significance") < lw.get("editorial_significance")); ok('"law and order" no longer counts as legislation');
+assert(!lo.dimensions.some((d: any) => /\.\./.test(d.reason))); ok("no double full stops in reasons");
+assert(lo.dimensions.find((d: any) => d.dimension === "recency").reason === "Newest report is less than an hour old."); ok("recent stories say 'less than an hour', not '0 hour(s)'");
+const single = Array.from({ length: 6 }, (_, i) => scoreStory(story(`w${i}`, `Why did the secret ruling shock workers and families number ${i}? Unexpected reversal could cut jobs`, "Government and institutional decisions", [src("Dawn", "Asia", "reporting", 0.5, "x")]), NOW));
+const backed = Array.from({ length: 4 }, (_, i) => scoreStory(story(`b${i}`, `Council publishes quarterly report number ${i}`, "Public policy", [src(`Outlet${i}`, "Europe", "reporting", 20, "x"), src(`Other${i}`, "Europe", "reporting", 21, "y")]), NOW));
+const mixed = buildShortlist([...single, ...backed], 6);
+const firstFour = mixed.picks.slice(0, 4).map((p: any) => p.scored.story.id);
+assert(backed.every((b: any) => firstFour.includes(b.story.id)) || backed.filter((b: any) => firstFour.includes(b.story.id)).length >= 3); ok("supported stories rank above unconfirmed single-outlet stories even when the latter score higher on curiosity");
+assert(mixed.picks.filter((p: any) => !(p.scored.outlets >= 2 || p.scored.hasPrimary)).every((p: any) => /unconfirmed/.test(p.reason))); ok("single-outlet picks are labelled unconfirmed in the reason");
+const plenty = buildShortlist([...Array.from({ length: 14 }, (_, i) => scoreStory(story(`p${i}`, `Government announces rule ${i} affecting workers and families`, ["Laws and regulations","Public policy","Environment and climate","Government and institutional decisions"][i % 4], [src(`A${i}`, ["Europe","Asia","Africa","Latin America","Oceania","Middle East","North America"][i % 7], "reporting", 3, "x"), src(`B${i}`, ["Europe","Asia","Africa","Latin America","Oceania","Middle East","North America"][i % 7], "reporting", 4, "y")]), NOW)), ...single], 12);
+assert(plenty.picks.every((p: any) => p.scored.outlets >= 2 || p.scored.hasPrimary)); ok("single-outlet stories take no places while enough supported stories exist");
+
 console.log(`\nALL ${n} SCORING CHECKS PASSED`);

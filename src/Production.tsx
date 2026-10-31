@@ -6,7 +6,9 @@ type Card = { storyId: string; headline: string; category: string | null; attrib
 export default function Production() {
   const [stories, setStories] = useState<Story[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
-  const [pkg, setPkg] = useState<{ cards: Card[]; caption: string; note: string } | null>(null);
+  const [pkg, setPkg] = useState<{ cards: Card[]; caption: string; prompt: string; note: string } | null>(null);
+  const [duration, setDuration] = useState<60 | 90>(60);
+  const [angle, setAngle] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -31,7 +33,7 @@ export default function Production() {
       const res = await fetch("/.netlify/functions/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storyIds: picked }),
+        body: JSON.stringify({ storyIds: picked, durationSeconds: duration, angle }),
       });
       const d = await res.json();
       if (res.status === 409) setMsg("One of these stories is no longer approved. Nothing was exported.");
@@ -58,6 +60,10 @@ export default function Production() {
               {s.headline}
             </label>
           ))}
+          <div className="row">
+            <label>Video length<select value={duration} onChange={(e) => setDuration(Number(e.target.value) as 60 | 90)}><option value={60}>60 seconds</option><option value={90}>90 seconds</option></select></label>
+            <label>Angle (optional)<input value={angle} maxLength={160} onChange={(e) => setAngle(e.target.value)} placeholder="e.g. what this means for ordinary families" /></label>
+          </div>
           <button className="primary" disabled={picked.length === 0 || busy} onClick={() => void make()}>{busy ? "CREATING…" : "CREATE DRAFT"}</button>
         </div>
       )}
@@ -76,6 +82,12 @@ export default function Production() {
               <small>The World, Filed.</small>
             </div>
             <p className="meta">Layout guide: one static 9:16 composition. All cards visible for the full six seconds. No transitions, no reveals, no intro or closing card. Logo small. Source links go in the caption.</p>
+          </div>
+          <div className="panel">
+            <h2>Prompt for Claude</h2>
+            <p className="meta">Copy this into a new Claude chat. It contains only the approved stories' collected facts, the house format, and rules against inventing anything. Read the output against the sources before you publish.</p>
+            <textarea readOnly value={pkg.prompt} rows={14} />
+            <button className="primary" onClick={() => void navigator.clipboard?.writeText(pkg.prompt)}>Copy prompt</button>
           </div>
           <div className="panel">
             <h2>Caption with sources</h2>

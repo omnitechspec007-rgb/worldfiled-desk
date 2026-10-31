@@ -5,6 +5,7 @@
 // summary, links). It never invents context: "why it matters" is left for the editor.
 import { isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
+import { buildPrompt, type PromptStory } from "../lib/prompt-builder.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -15,9 +16,13 @@ export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   let ids: string[] = [];
+  let duration: 60 | 90 = 60;
+  let angle = "";
   try {
     const body = JSON.parse(await req.text());
     ids = Array.isArray(body.storyIds) ? body.storyIds : [];
+    duration = body.durationSeconds === 90 ? 90 : 60;
+    angle = typeof body.angle === "string" ? body.angle.slice(0, 160) : "";
   } catch {
     return json({ error: "bad_request" }, 400);
   }
@@ -26,6 +31,7 @@ export default async (req: Request) => {
   }
   try {
     const cards: any[] = [];
+    const promptStories: PromptStory[] = [];
     for (const id of ids) {
       const latest = await db<any[]>(`editorial_decisions?story_id=eq.${id}&select=decision,created_at&order=created_at.desc&limit=1`);
       if (latest[0]?.decision !== "approved") return json({ error: "not_approved", storyId: id }, 409);
@@ -38,6 +44,19 @@ export default async (req: Request) => {
       sources.sort((a: any, b: any) => Number(/tier:primary/.test(b.source_registry?.reliability_note ?? "")) - Number(/tier:primary/.test(a.source_registry?.reliability_note ?? "")));
       const lead = sources[0];
       const outlets = [...new Set(sources.map((s: any) => s.source_registry?.name).filter(Boolean))] as string[];
+      promptStories.push({
+        headline: st.headline,
+        category: st.category,
+        regions: [...new Set(sources.map((s: any) => (s.source_registry?.country_scope ?? "").split(" · ")[0]).filter(Boolean))] as string[],
+        facts: sources.slice(0, 5).map((s: any) => ({
+          outlet: s.source_registry?.name ?? "Unknown",
+          title: s.title ?? "",
+          summary: s.extract ?? null,
+          url: s.url,
+          publishedAt: s.published_at ?? null,
+          tier: /tier:primary/.test(s.source_registry?.reliability_note ?? "") ? "primary" : "reporting",
+        })),
+      });
       cards.push({
         storyId: id,
         headline: st.headline,
@@ -61,7 +80,8 @@ export default async (req: Request) => {
     }
     const caption =
       "Sources:\n" + cards.map((c, i) => `${i + 1}. ${c.headline}\n` + c.links.map((l: any) => `   ${l.outlet}: ${l.url}`).join("\n")).join("\n");
-    return json({ cards, caption, note: "Draft built only from collected headlines and short summaries. Read the sources and add 'why it matters' yourself before posting." });
+    const prompt = buildPrompt({ stories: promptStories, durationSeconds: duration, angle });
+    return json({ cards, caption, prompt, note: "Draft built only from collected headlines and short summaries. Read the sources and add 'why it matters' yourself before posting." });
   } catch (e) {
     if (e instanceof DbError) return json({ error: "database", detail: e.message }, e.status);
     return json({ error: "server_error" }, 500);

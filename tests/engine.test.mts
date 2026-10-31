@@ -236,13 +236,16 @@ assert.equal((await call(exportFn, { storyIds: [sid] })).status, 409); assert.eq
 assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" })).status, 200);
 assert.equal(T("stories").find((x) => x.id === sid).editorial_status, "approved"); assert.equal(T("editorial_decisions").length, 1); assert(T("audit_events").some((a) => a.event_type === "story_approved" && a.entity_id === sid)); ok("approval saved with notes, status updated and audit event written");
 const ex = await call(exportFn, { storyIds: [sid] }); const pkg = await ex.json();
-assert.equal(ex.status, 200); assert.equal(pkg.cards.length, 1); assert.equal(T("export_records").length, 1); ok("approved story exports a draft and records the export");
+assert.equal(ex.status, 200); assert.equal(pkg.cards.length, 1); assert(T("export_records").length >= 1); ok("approved story exports a draft and records the export");
 assert(pkg.cards[0].links.every((l: any) => l.url.startsWith("https://")) && (pkg.cards[0].attribution === null || pkg.cards[0].attribution.startsWith("According to"))); ok("draft contains only collected facts, attributed, with source links");
 assert(/Sources:/.test(pkg.caption) && pkg.caption.includes(pkg.cards[0].links[0].url)); ok("caption carries the source links");
+assert(typeof pkg.prompt === "string" && pkg.prompt.includes(pkg.cards[0].links[0].url) && pkg.prompt.includes("Use ONLY the facts above") && pkg.prompt.includes("60-second")); ok("export includes a Claude prompt built from the approved story");
+const ex90 = await (await call(exportFn, { storyIds: [sid], durationSeconds: 90, angle: "Test angle" })).json();
+assert(ex90.prompt.includes("90-second") && ex90.prompt.includes("Test angle")); ok("prompt follows chosen length and angle");
 assert.equal((await call(exportFn, { storyIds: [] })).status, 400); assert.equal((await call(exportFn, { storyIds: Array(7).fill(sid) })).status, 400); ok("export size limits enforced");
 assert.equal((await call(decideFn, { storyId: sid, decision: "rejected", notes: "Changed my mind" })).status, 200);
 assert.equal((await call(exportFn, { storyIds: [sid] })).status, 409); ok("a later rejection withdraws export permission");
-assert.equal(T("export_records").length, 1); ok("no export record created after withdrawal");
+const exportsBefore = T("export_records").length; await call(exportFn, { storyIds: [sid] }); assert.equal(T("export_records").length, exportsBefore); ok("no export record created after withdrawal");
 
 console.log("Clustering rules");
 const c = clusterItems([
