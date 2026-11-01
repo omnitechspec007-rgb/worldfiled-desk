@@ -5,10 +5,13 @@ Evidence-first global news research desk for **The World, Filed.**
 
 ## Status
 
-- Working in simulated tests (`npm test`, 78 checks): one-click run, 34 built-in sources across 7 regions, automatic source testing, resumable stages, duplicate-click safety, story grouping, rule-based scoring and diverse shortlist, approve/reject with audit trail, approval-gated draft export.
-- Verified live: sign-in, database connection, real feed retrieval (first run reached 30 of 34 sources).
-- One-time setup for scoring: run `supabase/migrations/002_scoring.sql` in the Supabase SQL Editor.
-- NOT built: full-text evidence, claim checking, original-source tracing, AI. See `docs/SCORING.md` for scoring limits.
+WorldFiled Desk researches, verifies, scores and selects stories, then writes a story-specific production prompt that you paste into Claude. It does not render, voice or publish anything.
+
+- Working in simulated tests (`npm test`): one-click run, built-in global sources, resumable stages, story grouping, rule-based scoring and diverse shortlist, approve/reject with audit trail, and the Creative Prompt Architect (treatment and role selection, evidence classes, per-deliverable tool selection, brand block, approval gate, prompt history, reference library).
+- Verified live earlier: sign-in, database connection, real feed retrieval (30 of 34 sources on the first run).
+- One-time setup: `supabase/migrations/002_scoring.sql` (done) and `003_creative_prompts.sql` (Prompt History and Reference Library). Until 003 is run, prompts still work but are clearly marked NOT saved.
+- NOT built: full-text evidence, claim extraction, original-source tracing, automatic conflict detection, AI. See `docs/SCORING.md` and `docs/CREATIVE.md`.
+- Optional real-database test of migration 003: `tests/db/migration003.test.mjs` (see its header; not part of `npm test`).
 
 ## Earlier status (Milestone 1 — foundation)
 

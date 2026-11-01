@@ -4,14 +4,18 @@ import Dashboard from "./Dashboard";
 import StoryDesk from "./StoryDesk";
 import EvidenceRoom from "./EvidenceRoom";
 import EditorialReview from "./EditorialReview";
-import Production from "./Production";
+import Architect from "./Architect";
+import ReferenceLibrary from "./ReferenceLibrary";
+import PromptHistory from "./PromptHistory";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
   { to: "/stories", label: "Story Desk" },
   { to: "/evidence", label: "Evidence Room" },
   { to: "/review", label: "Editorial Review" },
-  { to: "/production", label: "Production Studio" },
+  { to: "/architect", label: "Prompt Architect" },
+  { to: "/reference", label: "Reference Library" },
+  { to: "/history", label: "Prompt History" },
   { to: "/health", label: "System Health" },
 ];
 
@@ -208,6 +212,7 @@ function Desk({ onLogout }: { onLogout: () => void }) {
           ))}
         </nav>
         <button className="linklike" onClick={onLogout}>Sign out</button>
+        <a className="logo-download" href="/brand/TWF_final_logo.svg" download="TWF_final_logo.svg">Download official logo (SVG)</a>
         <span className="desk-label">WorldFiled Desk · v0.1</span>
       </aside>
       <main>
@@ -217,7 +222,9 @@ function Desk({ onLogout }: { onLogout: () => void }) {
           <Route path="/evidence" element={<EvidenceRoom />} />
           <Route path="/evidence/:id" element={<EvidenceRoom />} />
           <Route path="/review" element={<EditorialReview />} />
-          <Route path="/production" element={<Production />} />
+          <Route path="/architect" element={<Architect />} />
+          <Route path="/reference" element={<ReferenceLibrary />} />
+          <Route path="/history" element={<PromptHistory />} />
           <Route path="/health" element={<SystemHealth />} />
         </Routes>
       </main>

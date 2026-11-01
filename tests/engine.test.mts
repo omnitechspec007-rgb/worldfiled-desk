@@ -14,17 +14,18 @@ const runsFn = (await import(`${root}functions/runs.mts`)).default;
 const stepFn = (await import(`${root}functions/run-step.mts`)).default;
 const { clusterItems } = await import(`${root}lib/cluster.mts`);
 const decideFn = (await import(`${root}functions/decide.mts`)).default;
-const exportFn = (await import(`${root}functions/export.mts`)).default;
+const creativeFn = (await import(`${root}functions/creative.mts`)).default;
+const referenceFn = (await import(`${root}functions/reference.mts`)).default;
 const cookie = session.makeSessionCookie().split(";")[0];
 
 // ---------- fake PostgREST ----------
 const UNIQUE: Record<string, string[]> = {
   source_registry: ["name"], retrieved_sources: ["url_hash"], research_runs: ["idempotency_key"],
   research_run_stages: ["run_id", "stage"], stories: ["cluster_key"], story_source_links: ["story_id", "source_id"],
-  story_scores: ["story_id", "model_version", "dimension"], shortlist: ["run_id", "story_id"],
+  story_scores: ["story_id", "model_version", "dimension"], shortlist: ["run_id", "story_id"], creative_prompts: ["story_id", "version"], reference_videos: ["original_filename"], style_rules: ["rule_key", "version"],
 };
 let tables: Record<string, any[]> = {};
-let failNext: { table: string; method: string } | null = null;
+let failNext: { table: string; method: string; status?: number } | null = null;
 let missing = new Set<string>();
 let seq = 0;
 const reset = () => { tables = {}; failNext = null; missing = new Set(); };
@@ -45,14 +46,14 @@ function matches(row: any, params: URLSearchParams) {
 function postgrest(url: URL, init: any) {
   const table = url.pathname.split("/rest/v1/")[1];
   const m = init.method ?? "GET";
-  if (failNext && failNext.table === table && failNext.method === m) { failNext = null; return new Response("{}", { status: 500 }); }
+  if (failNext && failNext.table === table && failNext.method === m) { const st = failNext.status ?? 500; failNext = null; return new Response("{}", { status: st }); }
   if (missing.has(table)) return new Response("{}", { status: 404 });
   const rows = T(table);
   const p = url.searchParams;
   const prefer = init.headers?.Prefer ?? "";
   if (m === "GET") {
     let out = rows.filter((r) => matches(r, p));
-    const ord = p.get("order"); if (ord) { const [c, d] = ord.split("."); out = [...out].sort((a, b) => String(a[c] ?? "").localeCompare(String(b[c] ?? "")) * (d === "desc" ? -1 : 1)); }
+    const ord = p.get("order"); if (ord) { const [c, d] = ord.split(",")[0].split("."); out = [...out].sort((a, b) => (typeof a[c] === "number" && typeof b[c] === "number" ? a[c] - b[c] : String(a[c] ?? "").localeCompare(String(b[c] ?? ""))) * (d === "desc" ? -1 : 1)); }
     const lim = Number(p.get("limit") ?? 0); if (lim) out = out.slice(0, lim);
     if (table === "stories" && (p.get("select") ?? "").includes("story_source_links")) {
       out = out.map((st) => ({ ...st, story_source_links: T("story_source_links").filter((l) => l.story_id === st.id).map((l) => {
@@ -65,14 +66,24 @@ function postgrest(url: URL, init: any) {
   if (m === "POST") {
     const body = JSON.parse(init.body); const list = Array.isArray(body) ? body : [body];
     const keys = (p.get("on_conflict")?.split(",")) ?? UNIQUE[table] ?? [];
+    const created: any[] = [];
     for (const item of list) {
+      if (table === "creative_prompts") {
+        // Emulates the database triggers/checks (the real SQL is tested separately on a real Postgres).
+        const dec = T("editorial_decisions").filter((d) => d.story_id === item.story_id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+        if (dec?.decision !== "approved") return new Response("{}", { status: 400 });
+        if (String(item.prompt_text).length > 120000) return new Response("{}", { status: 400 });
+        item.approval_decision_id = dec.id;
+      }
       const dup = keys.length ? rows.find((r) => keys.every((k) => r[k] === item[k])) : null;
       if (dup) { if (prefer.includes("merge-duplicates")) Object.assign(dup, item); continue; }
       const row: any = { id: crypto.randomUUID(), created_at: new Date(Date.now() + seq++).toISOString(), status: table === "research_runs" ? "created" : undefined, ...item };
       if (table === "research_runs") row.status = item.status ?? "created";
       if (table === "stories") row.editorial_status = item.editorial_status ?? "pending";
-      rows.push(row);
+      if (table === "style_rules") row.status = item.status ?? "PROPOSED";
+      rows.push(row); created.push(row);
     }
+    if (prefer.includes("return=representation")) return new Response(JSON.stringify(created), { status: 201 });
     return new Response(null, { status: 201 });
   }
   if (m === "DELETE") { tables[table] = rows.filter((r) => !matches(r, p)); return new Response(null, { status: 204 }); }
@@ -114,6 +125,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
 // ---------- helpers ----------
 const call = (fn: any, body: any, c: string | null = cookie) =>
   fn(new Request("https://x/", { method: "POST", headers: { "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
+const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("https://x/?" + q, { method: "GET", headers: c ? { cookie: c } : {} }));
 const start = async (key = crypto.randomUUID().replace(/-/g, "")) => (await (await call(runsFn, { idempotencyKey: key })).json());
 async function runToEnd(runId: string, max = 40) {
   let last: any;
@@ -232,20 +244,63 @@ assert.equal((await call(decideFn, { storyId: sid, decision: "approved" })).stat
 assert.equal((await call(decideFn, { storyId: "nope", decision: "approved", acknowledged: true })).status, 400); ok("bad story id rejected");
 assert.equal((await call(decideFn, { storyId: sid, decision: "publish", acknowledged: true })).status, 400); ok("unknown decision rejected");
 assert.equal(T("editorial_decisions").length, 0); ok("refused attempts leave no decision record");
-assert.equal((await call(exportFn, { storyIds: [sid] })).status, 409); assert.equal(T("export_records").length, 0); ok("unapproved story cannot be exported");
+assert.equal((await call(creativeFn, { storyId: sid })).status, 409); assert.equal(T("creative_prompts").length, 0); assert.equal((await get(creativeFn, `storyId=${sid}`)).status, 409); ok("unapproved story: no prompt and no recommendation");
+assert.equal((await call(creativeFn, { storyId: sid }, null)).status, 401); assert.equal((await get(creativeFn, "history=1", null)).status, 401); assert.equal((await call(referenceFn, { action: "seed" }, null)).status, 401); ok("architect, history and reference library require sign-in");
 assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" })).status, 200);
 assert.equal(T("stories").find((x) => x.id === sid).editorial_status, "approved"); assert.equal(T("editorial_decisions").length, 1); assert(T("audit_events").some((a) => a.event_type === "story_approved" && a.entity_id === sid)); ok("approval saved with notes, status updated and audit event written");
-const ex = await call(exportFn, { storyIds: [sid] }); const pkg = await ex.json();
-assert.equal(ex.status, 200); assert.equal(pkg.cards.length, 1); assert(T("export_records").length >= 1); ok("approved story exports a draft and records the export");
-assert(pkg.cards[0].links.every((l: any) => l.url.startsWith("https://")) && (pkg.cards[0].attribution === null || pkg.cards[0].attribution.startsWith("According to"))); ok("draft contains only collected facts, attributed, with source links");
-assert(/Sources:/.test(pkg.caption) && pkg.caption.includes(pkg.cards[0].links[0].url)); ok("caption carries the source links");
-assert(typeof pkg.prompt === "string" && pkg.prompt.includes(pkg.cards[0].links[0].url) && pkg.prompt.includes("Use ONLY the facts above") && pkg.prompt.includes("60-second")); ok("export includes a Claude prompt built from the approved story");
-const ex90 = await (await call(exportFn, { storyIds: [sid], durationSeconds: 90, angle: "Test angle" })).json();
-assert(ex90.prompt.includes("90-second") && ex90.prompt.includes("Test angle")); ok("prompt follows chosen length and angle");
-assert.equal((await call(exportFn, { storyIds: [] })).status, 400); assert.equal((await call(exportFn, { storyIds: Array(7).fill(sid) })).status, 400); ok("export size limits enforced");
+console.log("Creative Prompt Architect (approved story)");
+const pv = await (await get(creativeFn, `storyId=${sid}`)).json();
+assert(pv.recommended.key && pv.recommended.roles.length >= 4 && pv.recommended.reason && pv.allTreatments.length >= 6 && pv.deliverables.length === 3 && pv.evidence.sources >= 1); ok("preview recommends a treatment, team and reason, and saves nothing");
+assert.equal(T("creative_prompts").length, 0);
+const g1r = await call(creativeFn, { storyId: sid, deliverable: "script_storyboard", durationSeconds: 60, angle: "Test angle" }); const g1 = await g1r.json();
+assert.equal(g1r.status, 200); assert.equal(g1.saved, true); assert.equal(g1.version, 1); ok("approved story: prompt generated and saved as version 1");
+const firstUrl = T("retrieved_sources").find((r) => T("story_source_links").some((l) => l.story_id === sid && l.source_id === r.id)).url;
+assert(g1.prompt.includes(firstUrl) && g1.prompt.includes("Use ONLY the facts in section B") && g1.prompt.includes("THE WORLD, FILED.") && g1.prompt.includes("Test angle")); ok("prompt carries the real source link, evidence rules, brand and angle");
+assert(g1.tools.needed.length === 0 && /No additional tool/.test(g1.tools.note)); ok("script deliverable needs no extra tool");
+const row1 = T("creative_prompts")[0]; const dec1 = T("editorial_decisions").filter((d) => d.story_id === sid).pop();
+assert.equal(row1.approval_decision_id, dec1.id); assert(row1.evidence_snapshot.sources.length >= 1 && row1.evidence_snapshot.omitted_sources && row1.evidence_snapshot.evidence_limits && row1.evidence_snapshot.claim_classes.length >= 2); ok("saved record links to the approval it relied on and stores the evidence snapshot");
+assert(row1.evidence_snapshot.sources.every((x: any) => x.snippet.length <= 400 && !("full_text" in x))); ok("stored evidence contains no full text and snippets are capped");
+assert(T("audit_events").some((a) => a.event_type === "creative_prompt_created" && a.entity_id === sid)); ok("generation is audited");
+const g2 = await (await call(creativeFn, { storyId: sid, deliverable: "narrated_video", durationSeconds: 90, treatmentKey: "science_discovery", parentId: g1.id, conflictNote: "Outlet A and B give different totals." })).json();
+assert.equal(g2.version, 2); assert.equal(g2.treatment.key, "science_discovery"); assert(g2.tools.needed.some((t: any) => /FFmpeg/.test(t.name))); assert(g2.prompt.includes("different totals") && /\[CONFLICTING\]/.test(g2.prompt)); assert.equal(T("creative_prompts")[1].parent_id, g1.id); ok("regenerate with another approach makes version 2 without re-running research");
+const hist = await (await get(creativeFn, "history=1")).json();
+assert.equal(hist.prompts.length, 2); assert(hist.prompts.every((h: any) => h.approvalCurrent && h.headline)); ok("history lists both versions, approval current");
+const one = await (await get(creativeFn, `id=${g1.id}`)).json(); assert(one.prompt && one.prompt.includes(firstUrl)); ok("a current prompt can be opened and copied");
+assert.equal((await call(creativeFn, { storyId: "bad" })).status, 400); assert.equal((await get(creativeFn, "id=zzz")).status, 400); ok("bad ids rejected");
+const g3 = await (await call(creativeFn, { storyId: sid, deliverable: "nonsense", durationSeconds: 5000, treatmentKey: "nonsense" })).json(); assert.equal(g3.saved, true); assert(g3.prompt.length > 1000); ok("unknown options fall back to safe defaults");
+const countBefore = T("creative_prompts").length;
+failNext = { table: "creative_prompts", method: "POST", status: 400 }; const refused = await call(creativeFn, { storyId: sid }); assert.equal(refused.status, 409); assert.equal(T("creative_prompts").length, countBefore); ok("a database refusal is reported honestly and nothing is saved");
+failNext = { table: "creative_prompts", method: "POST", status: 500 }; assert.equal((await call(creativeFn, { storyId: sid })).status, 502); assert.equal(T("creative_prompts").length, countBefore); ok("a database failure is never reported as saved");
+const reg = T("source_registry")[0]; T("style_rules").push({ id: crypto.randomUUID(), rule_key: "a.b", version: 1, category: "visual", statement: "ONLY-PROPOSED-RULE", status: "PROPOSED" }, { id: crypto.randomUUID(), rule_key: "c.d", version: 1, category: "visual", statement: "THE-APPROVED-RULE", status: "APPROVED" });
+const g4 = await (await call(creativeFn, { storyId: sid })).json(); assert(g4.prompt.includes("THE-APPROVED-RULE") && !g4.prompt.includes("ONLY-PROPOSED-RULE")); ok("only approved style rules reach the prompt"); void reg;
+missing = new Set(["creative_prompts"]); const unsaved = await (await call(creativeFn, { storyId: sid })).json(); assert.equal(unsaved.saved, false); assert.equal(unsaved.notInstalled, true); assert(unsaved.prompt.length > 1000); assert.equal((await (await get(creativeFn, "history=1")).json()).notInstalled, true); missing = new Set(); ok("before migration 003: prompt still works but is clearly marked NOT saved");
+
+console.log("Reference Library");
+T("style_rules").length = 0;
+const lib0 = await (await get(referenceFn, "")).json(); assert.equal(lib0.rules.length, 0); assert.equal((await call(referenceFn, { action: "seed" })).status, 200);
+const lib1 = await (await get(referenceFn, "")).json(); assert.equal(lib1.videos.length, 4); assert(lib1.rules.length >= 7); assert(lib1.rules.every((r: any) => r.status === "PROPOSED") && lib1.videos.every((v: any) => v.inspection_level === "partially_inspected")); ok("seeding loads proposed rules only; no video marked fully inspected");
+await call(referenceFn, { action: "seed" }); assert.equal(T("style_rules").length, lib1.rules.length); assert.equal(T("reference_videos").length, 4); ok("seeding twice creates no duplicates");
+const rid = T("style_rules")[0].id;
+assert.equal((await call(referenceFn, { action: "decide", id: rid, status: "APPROVED" })).status, 200); assert.equal(T("style_rules").find((r) => r.id === rid).status, "APPROVED"); assert(T("audit_events").some((a) => a.event_type === "style_rule_approved" && a.entity_id === rid)); ok("rule approved by the editor and audited");
+assert.equal((await call(referenceFn, { action: "decide", id: rid, status: "REJECTED" })).status, 409); assert.equal(T("style_rules").find((r) => r.id === rid).status, "APPROVED"); ok("a decided rule cannot be flipped");
+assert.equal((await call(referenceFn, { action: "decide", id: rid, status: "MAYBE" })).status, 400); ok("invalid decision rejected");
+assert.equal((await call(referenceFn, { action: "revise", id: rid, statement: "New wording for this rule." })).status, 200);
+const rv = T("style_rules").find((r) => r.rule_key === T("style_rules").find((x) => x.id === rid).rule_key && r.version === 2); assert(rv && rv.status === "PROPOSED"); assert.equal(rv.supersedes_id, rid); assert.equal(T("style_rules").find((r) => r.id === rid).statement.includes("New wording"), false); ok("editing creates a new PROPOSED version and leaves the approved one untouched");
+assert.equal((await call(referenceFn, { action: "revise", id: rid, statement: "no" })).status, 400); ok("too-short wording rejected");
+missing = new Set(["style_rules", "reference_videos"]); assert.equal((await (await get(referenceFn, "")).json()).notInstalled, true); missing = new Set(); ok("before migration 003 the library says NOT INSTALLED");
+
+console.log("Withdrawal: an old approval never authorizes a new prompt");
 assert.equal((await call(decideFn, { storyId: sid, decision: "rejected", notes: "Changed my mind" })).status, 200);
-assert.equal((await call(exportFn, { storyIds: [sid] })).status, 409); ok("a later rejection withdraws export permission");
-const exportsBefore = T("export_records").length; await call(exportFn, { storyIds: [sid] }); assert.equal(T("export_records").length, exportsBefore); ok("no export record created after withdrawal");
+const nBefore = T("creative_prompts").length;
+assert.equal((await call(creativeFn, { storyId: sid })).status, 409); assert.equal((await get(creativeFn, `storyId=${sid}`)).status, 409); assert.equal(T("creative_prompts").length, nBefore); ok("after rejection: no new prompt and no recommendation");
+const stale = await (await get(creativeFn, `id=${g1.id}`)).json(); assert.equal(stale.prompt, null); assert(/no longer current/.test(stale.withheld)); assert.equal(stale.approvalCurrent, false); ok("after rejection: saved prompt is kept but withheld from copying");
+const hist2 = await (await get(creativeFn, "history=1")).json(); assert(hist2.prompts.every((h: any) => h.approvalCurrent === false)); ok("history marks them 'no longer current'");
+await call(decideFn, { storyId: sid, decision: "needs_research" }); assert.equal((await call(creativeFn, { storyId: sid })).status, 409); ok("sent back for research: still blocked");
+assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true })).status, 200);
+assert.equal((await (await get(creativeFn, `id=${g1.id}`)).json()).prompt, null); ok("fresh re-approval does NOT revive an old prompt");
+const g5 = await (await call(creativeFn, { storyId: sid })).json(); assert.equal(g5.saved, true); assert.equal((await (await get(creativeFn, `id=${g5.id}`)).json()).approvalCurrent, true); ok("a new prompt after re-approval is saved and current");
+assert.equal((await call(decideFn, { storyId: sid, decision: "rejected", notes: "Final" })).status, 200);
+
 
 console.log("Clustering rules");
 const c = clusterItems([

@@ -41,7 +41,7 @@ export default function EditorialReview() {
         body: JSON.stringify({ storyId: id, decision, notes, acknowledged: ack }),
       });
       if (!res.ok) throw new Error();
-      setMsg(decision === "approved" ? "Approved. It is now available in the Production Studio." : decision === "rejected" ? "Rejected." : "Marked as needing more research.");
+      setMsg(decision === "approved" ? "Approved. It is now available in the Prompt Architect." : decision === "rejected" ? "Rejected." : "Marked as needing more research.");
       setOpen(null);
       setAck(false);
       setNotes("");

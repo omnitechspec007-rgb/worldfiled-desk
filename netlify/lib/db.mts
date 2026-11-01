@@ -3,9 +3,12 @@
 
 export class DbError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** HTTP status returned by the database service itself, when there was a response (e.g. 400, 404, 409). */
+  upstream?: number;
+  constructor(message: string, status: number, upstream?: number) {
     super(message);
     this.status = status;
+    this.upstream = upstream;
   }
 }
 
@@ -41,7 +44,7 @@ export async function db<T = unknown>(
     throw new DbError("Could not reach the database (timeout or network error).", 502);
   }
   if (!res.ok) {
-    throw new DbError(`Database request failed (status ${res.status}).`, 502);
+    throw new DbError(`Database request failed (status ${res.status}).`, 502, res.status);
   }
   const text = await res.text();
   return (text ? JSON.parse(text) : null) as T;

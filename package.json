@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --no-warnings tests/engine.test.mts && node --experimental-strip-types --no-warnings tests/scoring.test.mts && node --experimental-strip-types --no-warnings tests/prompt.test.mts"
+    "test": "node --experimental-strip-types --no-warnings tests/engine.test.mts && node --experimental-strip-types --no-warnings tests/scoring.test.mts && node --experimental-strip-types --no-warnings tests/architect.test.mts && node --experimental-strip-types --no-warnings tests/brand.test.mts"
   },
   "dependencies": {
     "react": "^18.3.1",
