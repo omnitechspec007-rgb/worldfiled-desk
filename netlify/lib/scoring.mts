@@ -57,10 +57,10 @@ export const CURIOSITY_WEIGHTS: Record<string, number> = {
 // Priority blend used ONLY to order candidates. Curiosity is gated by evidence quality.
 export const PRIORITY_WEIGHTS = { significance: 0.28, curiosity: 0.2, relevance: 0.14, recency: 0.1, novelty: 0.1, evidence: 0.1, independence: 0.08 };
 
-const hit = (text: string, words: RegExp) => [...new Set((text.match(words) ?? []).map((w) => w.toLowerCase()))];
+export const hit = (text: string, words: RegExp) => [...new Set((text.match(words) ?? []).map((w) => w.toLowerCase()))];
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
-const CUES = {
+export const CUES = {
   gap: /\b(why|how|what|who|whether|unexpected|mystery|mysterious|unknown|unexplained|secret|behind|first time|unclear)\b|\?/gi,
   surprise: /\b(reverses|reversal|overturns|strikes down|scraps|u-turn|backtracks|surprising|unexpected|despite|instead|rare|first-ever|record|unprecedented|shock result|unexpectedly)\b/gi,
   consequence: /\b(will|could|ban|bans|banned|new rules|law|ruling|sanctions?|tariffs?|prices?|tax|taxes|shutdown|cuts?|ends|ending|ordered|orders|deadline|takes effect)\b/gi,

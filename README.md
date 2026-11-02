@@ -27,3 +27,7 @@ WorldFiled Desk researches, verifies, scores and selects stories, then writes a 
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only key. Mark as secret. Never use in browser code. |
 
 Netlify: Site configuration → Environment variables.
+
+
+## Edition Desk (local build, not yet pushed)
+See `docs/EDITIONS.md`. Needs migration `004_editions.sql` (not run). Without it the desk still suggests editions and builds prompts, clearly marked NOT saved.

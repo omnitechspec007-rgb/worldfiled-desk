@@ -17,6 +17,8 @@ export type ClaimClass = "OFFICIALLY_DOCUMENTED" | "INDEPENDENTLY_CORROBORATED" 
 export type EvSource = {
   outlet: string;
   region: string;
+  /** Publisher country from the source registry (e.g. "Ghana"); NOT necessarily where the event happened. */
+  outletCountry?: string;
   tier: "primary" | "reporting";
   url: string;
   title: string;
@@ -86,7 +88,12 @@ const validUrl = (u: string) => {
   }
 };
 
-export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string | null; decisionNote?: string | null } = {}): EvidencePack {
+const WIRE = /\b(reuters|associated press|afp|xinhua|pti|anadolu|press release|statement issued)\b/i;
+const toks = (t: string) => new Set(t.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3));
+const jac = (a: Set<string>, b: Set<string>) => { let i = 0; for (const x of a) if (b.has(x)) i++; return a.size + b.size - i === 0 ? 0 : i / (a.size + b.size - i); };
+
+export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string | null; decisionNote?: string | null; refPrefix?: string } = {}): EvidencePack {
+  const px = opts.refPrefix ?? "";
   const all = story.sources;
   const usable: EvSource[] = [];
   const omitted: { outlet: string; reason: string }[] = [];
@@ -104,7 +111,7 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
   for (const s of ordered.slice(MAX_SOURCES)) omitted.push({ outlet: cleanField(s.outlet, 60) || "Unknown", reason: `beyond the ${MAX_SOURCES}-source limit` });
 
   const sources: PackSource[] = chosen.map((s, i) => ({
-    ref: `S${i + 1}`,
+    ref: `${px}S${i + 1}`,
     outlet: cleanField(s.outlet, 60) || "Unknown",
     type: s.tier === "primary" ? "official or primary source" : "news reporting",
     url: s.url,
@@ -119,16 +126,31 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
   const allReportingOutlets = new Set(all.filter((s) => s.tier === "reporting").map((s) => s.outlet));
   const claims: ClaimEntry[] = [];
   let n = 0;
-  const add = (statement: string, cls: ClaimClass, basis: string, refs: string[]) => claims.push({ id: `C${++n}`, statement, class: cls, basis, refs });
+  const add = (statement: string, cls: ClaimClass, basis: string, refs: string[]) => claims.push({ id: `${px}C${++n}`, statement, class: cls, basis, refs });
 
   for (const p of primary) {
     add(`${p.outlet} officially published: "${p.title}"`, "OFFICIALLY_DOCUMENTED", "Establishes what this official source itself documents. It does not verify any other claim in the story.", [p.ref]);
   }
-  if (allReportingOutlets.size >= 2) {
+  // Several outlets are NOT independent if they repeat one announcement: near-identical wording or wire/press-release origin.
+  const sets = reporting.map((r) => toks(`${r.title} ${r.snippet}`));
+  let maxSim = 0;
+  for (let i = 0; i < sets.length; i++) for (let j = i + 1; j < sets.length; j++) if (reporting[i].outlet !== reporting[j].outlet) maxSim = Math.max(maxSim, jac(sets[i], sets[j]));
+  const wireHit = reporting.some((r) => WIRE.test(`${r.title} ${r.snippet}`));
+  const sharedOrigin = allReportingOutlets.size >= 2 && maxSim >= 0.7;
+  if (allReportingOutlets.size >= 2 && !sharedOrigin) {
     add(
       `The event described by the headline ("${cleanField(story.headline, 200)}") is reported by ${allReportingOutlets.size} different outlets.`,
       "INDEPENDENTLY_CORROBORATED",
-      "Matched by headline similarity. Independence judged by outlet name only; a shared wire or original report is not ruled out. Details beyond the headline are not corroborated by this.",
+      "Matched by headline similarity. Independence judged by outlet name only; a shared wire or original report is not ruled out." +
+        (wireHit ? " Wire-service or press-release wording was found, so these outlets may share one origin." : "") +
+        " Details beyond the headline are not corroborated by this.",
+      reporting.map((r) => r.ref)
+    );
+  } else if (sharedOrigin) {
+    add(
+      `The event described by the headline is reported by ${allReportingOutlets.size} outlets using near-identical wording.`,
+      "SINGLE_SOURCE",
+      "The outlets repeat what looks like one announcement or one report. Treated as ONE source, not as independent confirmation.",
       reporting.map((r) => r.ref)
     );
   } else if (allReportingOutlets.size === 1) {
