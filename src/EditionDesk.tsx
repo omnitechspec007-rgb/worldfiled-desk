@@ -6,10 +6,12 @@ type Dev = {
   evidenceStrength: { label: string; why: string }; corroborated: boolean; whatChanged: string; whyInteresting: string[]; audienceQuestion: string;
   surprisingElement: string | null; humanConsequences: string | null; possibleImplications: string | null; missingEvidence: string[]; sensationalismFlags: string[];
   hypothesisNote: string; themes: string[]; locations: Loc[]; geographicInterest: string; outlets: number;
+  fresh: boolean; notFreshWhy: string | null; ageHours: number | null;
+  sources: { outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string }[];
 };
 type Comp = { name: string; points: number; max: number; why: string };
 type Evaluation = {
-  ids: string[]; structure: string; structureLabel: string; suggestedStructure?: string; structureOverride?: boolean; theme: string; catalyst: string | null; title: string; angle: string;
+  ids: string[]; structure: string; structureLabel: string; roundup?: boolean; suggestedStructure?: string; structureOverride?: boolean; theme: string; catalyst: string | null; title: string; angle: string;
   coherence: { score: number | null; verdict: string; components: Comp[] };
   metrics: { curiosityPotential: number; evidenceStrength: { label: string; weakest: string }; timelinessHours: number | null; humanRelevance: number };
   locations: { country: string; basis: string }[];
@@ -27,14 +29,37 @@ type Desk = {
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
 type PromptResult = { saved: boolean; notInstalled?: boolean; note?: string; id?: string; version?: number; prompt: string; roles: { role: string; why: string }[]; tools: { needed: { name: string }[]; note: string }; brandChecklist: string[] };
 
-const STRUCTS = [["multi_country", "Multi-country synthesis"], ["single_country", "Single-country deep dive"], ["event_roundup", "Event-driven thematic roundup"]];
+const STRUCTS = [["multi_country", "Multi-country synthesis"], ["single_country", "Single-country deep dive"], ["event_roundup", "Event-driven thematic roundup"], ["news_roundup", "Multi-topic news roundup (no shared theme)"]];
 const api = "/.netlify/functions/";
 const post = (fn: string, body: unknown) => fetch(api + fn, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const tone = (v: string) => (v === "COHERENT" ? "ok" : v === "SINGLE DEVELOPMENT" ? "" : "bad");
 
+function DevDetail({ d }: { d: Dev }) {
+  return (
+    <div>
+      <h3>Sources</h3>
+      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <h3>Editorial reasoning</h3>
+      <p className="why"><strong>What changed:</strong> {d.whatChanged}</p>
+      <p className="why"><strong>Why it may be interesting:</strong> {d.whyInteresting.join("; ") || "nothing specific found"}</p>
+      <p className="why"><strong>Audience question:</strong> {d.audienceQuestion}</p>
+      {d.surprisingElement && <p className="why"><strong>Surprising element:</strong> {d.surprisingElement}</p>}
+      {d.humanConsequences && <p className="why"><strong>Human consequences:</strong> {d.humanConsequences}</p>}
+      {d.possibleImplications && <p className="why"><strong>Possible implications (not established):</strong> {d.possibleImplications}</p>}
+      <p className="why"><strong>Recommendation:</strong> {d.recommendation}. {d.recommendationWhy}</p>
+      <p className="caution">Evidence: {d.evidenceStrength.why}. Missing: {d.missingEvidence.join(" | ")}</p>
+      {d.sensationalismFlags.length > 0 && <p className="caution">Sensational wording: {d.sensationalismFlags.join(", ")}</p>}
+      <p className="meta">{d.hypothesisNote}</p>
+    </div>
+  );
+}
+
 export default function EditionDesk() {
   const [desk, setDesk] = useState<Desk | null>(null);
-  const [tab, setTab] = useState<"suggested" | "developments" | "mine">("suggested");
+  const [tab, setTab] = useState<"developments" | "suggested" | "mine">("developments");
+  const [q, setQ] = useState("");
+  const [showOlder, setShowOlder] = useState(false);
+  const [recFilter, setRecFilter] = useState("");
   const [msg, setMsg] = useState("");
   const [inspect, setInspect] = useState<string | null>(null);
   const [rejectedLinks, setRejectedLinks] = useState<string[]>([]);
@@ -85,6 +110,8 @@ export default function EditionDesk() {
     return () => clearTimeout(t);
   }, [ids, structure]);
 
+  useEffect(() => { if (ev && !title.trim()) setTitle(ev.title); }, [ev, title]);
+
   const openSet = (s: { ids: string[]; title: string; angle?: string; structure?: string }, id: string | null = null) => {
     lastEv.current = null; setPrevScore(null);
     setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setAck(false); setNotes(""); setMsg("");
@@ -103,6 +130,8 @@ export default function EditionDesk() {
   const move = (i: number, d: number) => setIds((a) => { const b = [...a]; const j = i + d; if (j < 0 || j >= b.length) return a; [b[i], b[j]] = [b[j], b[i]]; return b; });
   const remove = (id: string) => setIds((a) => a.filter((x) => x !== id));
   const add = (id: string) => setIds((a) => (a.includes(id) || a.length >= 12 ? a : [...a, id]));
+  const toggle = (id: string) => setIds((a) => (a.includes(id) ? a.filter((x) => x !== id) : a.length >= 12 ? a : [...a, id]));
+  const clearSel = () => { setIds([]); setEditionId(null); setApproval(null); setRes(null); };
   const applySequence = () => ev && setIds(ev.sequence.map((s) => s.id));
 
   const save = async () => {
@@ -168,7 +197,7 @@ export default function EditionDesk() {
       {desk && !desk.saved.installed && <div className="panel"><p className="status bad">NOT INSTALLED: saving editions needs migration 004, which has not been run yet. You can still explore suggestions and check coherence.</p></div>}
 
       <div className="tabs">
-        {([["suggested", "Suggested editions"], ["developments", "Developments"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
+        {([["developments", "1. Select developments"], ["suggested", "Suggested editions (shortcut)"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!desk && !msg && <p className="meta">Loading…</p>}
 
@@ -182,39 +211,46 @@ export default function EditionDesk() {
         </>
       )}
 
-      {desk && tab === "developments" && (
-        <div className="panel">
-          <table>
-            <thead><tr><th>Development</th><th>Recommendation</th><th>Curiosity (hypothesis)</th><th>Evidence</th><th>Places</th><th></th></tr></thead>
-            <tbody>
-              {desk.developments.map((d) => (
-                <Fragment key={d.id}>
-                  <tr>
-                    <td>{d.headline}<div className="meta">{d.type} · {d.decision ?? "not yet reviewed"}</div></td>
-                    <td>{d.recommendation}</td><td>{d.curiosityScore}/100</td><td>{d.evidenceStrength.label}{d.corroborated ? "" : " · single outlet"}</td>
-                    <td>{d.locations.map((l) => l.country).join(", ") || "none established"}</td>
-                    <td><button onClick={() => setInspect(inspect === d.id ? null : d.id)}>{inspect === d.id ? "Hide" : "Inspect"}</button> <button onClick={() => add(d.id)} disabled={ids.includes(d.id)}>{ids.includes(d.id) ? "In workspace" : "Add"}</button></td>
-                  </tr>
-                  {inspect === d.id && (
-                    <tr><td colSpan={6}>
-                      <p className="why"><strong>What changed:</strong> {d.whatChanged}</p>
-                      <p className="why"><strong>Why it may be interesting:</strong> {d.whyInteresting.join("; ") || "nothing specific found"}</p>
-                      <p className="why"><strong>Audience question:</strong> {d.audienceQuestion}</p>
-                      {d.surprisingElement && <p className="why"><strong>Surprising element:</strong> {d.surprisingElement}</p>}
-                      {d.humanConsequences && <p className="why"><strong>Human consequences:</strong> {d.humanConsequences}</p>}
-                      {d.possibleImplications && <p className="why"><strong>Possible implications (not established):</strong> {d.possibleImplications}</p>}
-                      <p className="why"><strong>Recommendation:</strong> {d.recommendationWhy}</p>
-                      <p className="caution">Evidence: {d.evidenceStrength.why}. Missing: {d.missingEvidence.join(" | ")}</p>
-                      {d.sensationalismFlags.length > 0 && <p className="caution">Sensational wording: {d.sensationalismFlags.join(", ")}</p>}
-                      <p className="meta">{d.hypothesisNote}</p>
-                    </td></tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {desk && tab === "developments" && (() => {
+        const recs = [...new Set(desk.developments.map((d) => d.recommendation))];
+        const list = desk.developments.filter((d) => (showOlder || d.fresh || ids.includes(d.id)) && (!recFilter || d.recommendation === recFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
+        return (
+          <div className="panel">
+            <h2>Select the developments for your edition</h2>
+            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Up to 12.</p>
+            <div className="confirm" style={{ position: "sticky", top: 0, zIndex: 2 }}>
+              <strong>{ids.length} selected</strong>
+              <div className="actions">
+                <button className="primary" disabled={!ids.length} onClick={() => { setTab("developments"); setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 30); }}>Review selection ({ids.length}) ↓</button>
+                <button disabled={!ids.length} onClick={clearSel}>Clear selection</button>
+              </div>
+            </div>
+            <div className="row">
+              <label>Search<input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="words in the headline" /></label>
+              <label>Recommendation<select value={recFilter} onChange={(e) => setRecFilter(e.target.value)}><option value="">All</option>{recs.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+              <label className="inline"><input type="checkbox" checked={showOlder} onChange={(e) => setShowOlder(e.target.checked)} /> Also show older and rejected ({desk.developments.filter((d) => !d.fresh).length})</label>
+            </div>
+            {list.length === 0 && <p>No developments match. Run research from the Dashboard, or change the filters.</p>}
+            <table>
+              <thead><tr><th></th><th>Development</th><th>Recommendation</th><th>Curiosity (hypothesis)</th><th>Evidence</th><th>Places</th><th></th></tr></thead>
+              <tbody>
+                {list.map((d) => (
+                  <Fragment key={d.id}>
+                    <tr className={ids.includes(d.id) ? "picked" : ""}>
+                      <td><input type="checkbox" aria-label={`Select ${d.headline}`} checked={ids.includes(d.id)} disabled={d.decision === "rejected"} onChange={() => toggle(d.id)} /></td>
+                      <td>{d.headline}<div className="meta">{d.type} · {d.outlets} outlet{d.outlets === 1 ? "" : "s"} · {d.ageHours !== null ? `${d.ageHours}h old` : "age unknown"} · {d.decision === "rejected" ? "REJECTED (cannot be selected)" : d.decision ?? "not yet reviewed"}{!d.fresh && d.decision !== "rejected" ? ` · ${d.notFreshWhy}` : ""}</div></td>
+                      <td>{d.recommendation}</td><td>{d.curiosityScore}/100</td><td>{d.evidenceStrength.label}{d.corroborated ? "" : " · single outlet"}</td>
+                      <td>{d.locations.map((l) => l.country).join(", ") || "none established"}</td>
+                      <td><button onClick={() => setInspect(inspect === d.id ? null : d.id)}>{inspect === d.id ? "Hide" : "Evidence"}</button></td>
+                    </tr>
+                    {inspect === d.id && <tr><td colSpan={7}><DevDetail d={d} /></td></tr>}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {desk && tab === "mine" && (
         <div className="panel">
@@ -231,8 +267,8 @@ export default function EditionDesk() {
       )}
 
       <div id="workspace" className="panel">
-        <h2>Edition workspace</h2>
-        {ids.length === 0 ? <p className="meta">Open a suggested edition, or add developments from the Developments tab.</p> : (
+        <h2>2. Review, order and build your edition ({ids.length} selected)</h2>
+        {ids.length === 0 ? <p className="meta">Nothing selected yet. Tick developments in "1. Select developments", or open a suggested edition.</p> : (
           <>
             <div className="row">
               <label>Title<input type="text" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={300} /></label>
@@ -241,10 +277,11 @@ export default function EditionDesk() {
               </label>
             </div>
             <label>Editorial angle (optional)<input type="text" value={angle} onChange={(e) => setAngle(e.target.value)} maxLength={1000} /></label>
-            <h3>Developments, in order</h3>
-            <table><tbody>{ids.map((id, i) => (
-              <tr key={id}><td>{i + 1}</td><td>{devs.find((d) => d.id === id)?.headline ?? devById(id)?.headline ?? id}</td>
-                <td><button onClick={() => move(i, -1)} disabled={i === 0}>↑</button> <button onClick={() => move(i, 1)} disabled={i === ids.length - 1}>↓</button> <button onClick={() => remove(id)}>Remove</button></td></tr>))}</tbody></table>
+            <h3>Your developments, in the order they will appear</h3>
+            <table><tbody>{ids.map((id, i) => { const dv = devs.find((d) => d.id === id) ?? devById(id); return (
+              <Fragment key={id}><tr><td>{i + 1}</td><td>{dv?.headline ?? id}<div className="meta">{dv ? `${dv.recommendation} · evidence ${dv.evidenceStrength.label}${dv.corroborated ? "" : " · single outlet"} · ${dv.sources.length} source(s)` : ""}</div></td>
+                <td><button onClick={() => move(i, -1)} disabled={i === 0}>↑ Up</button> <button onClick={() => move(i, 1)} disabled={i === ids.length - 1}>↓ Down</button> <button onClick={() => remove(id)}>Remove</button> {dv && <button onClick={() => setInspect(inspect === "w" + id ? null : "w" + id)}>{inspect === "w" + id ? "Hide evidence" : "Evidence"}</button>}</td></tr>
+              {dv && inspect === "w" + id && <tr><td></td><td colSpan={2}><DevDetail d={dv} /></td></tr>}</Fragment>); })}</tbody></table>
             {desk && (
               <label>Add a development
                 <select value="" onChange={(e) => e.target.value && add(e.target.value)}><option value="">Choose…</option>{desk.developments.filter((d) => !ids.includes(d.id)).map((d) => <option key={d.id} value={d.id}>{d.headline.slice(0, 110)}</option>)}</select>
@@ -252,8 +289,9 @@ export default function EditionDesk() {
             )}
             {ev && (
               <>
-                <h3>Edition coherence check</h3>
-                <p><span className={`chip ${tone(ev.coherence.verdict)}`}>{ev.coherence.verdict}{ev.coherence.score !== null ? ` ${ev.coherence.score}/100` : ""}</span>
+                <h3>Edition check</h3>
+                {ev.roundup && <p className="why"><strong>Recommended structure: multi-topic news roundup.</strong> These stories share no genuine theme, so no connection will be claimed. They are presented as separate developments in one briefing.</p>}
+                <p><span className={`chip ${ev.roundup ? "" : tone(ev.coherence.verdict)}`}>{ev.roundup ? "ROUNDUP: no connection claimed" : ev.coherence.verdict}{ev.coherence.score !== null ? ` · theme score ${ev.coherence.score}/100` : ""}</span>
                   {prevScore && prevScore.score !== ev.coherence.score && <span className="meta"> {" "}change: {prevScore.score ?? "—"} → {ev.coherence.score ?? "—"} ({prevScore.verdict} → {ev.coherence.verdict})</span>}</p>
                 <p className="why"><strong>Do they belong together?</strong> {ev.check.belongTogether}</p>
                 <p className="why"><strong>Central argument:</strong> {ev.check.centralArgument}</p>
@@ -275,14 +313,14 @@ export default function EditionDesk() {
                 {ev.uncertainties.length > 0 && <p className="caution">Uncertainties: {ev.uncertainties.join(" ")}</p>}
               </>
             )}
-            <div className="actions"><button className="primary" onClick={() => void save()} disabled={busy || !title.trim() || !ids.length}>{editionId ? "Save changes" : "Save edition"}</button></div>
+            <div className="actions"><button className="primary" onClick={() => void save()} disabled={busy || !title.trim() || !ids.length}>{editionId ? "Save changes" : "Save edition (needed before approval)"}</button></div>
 
             {editionId && (
               <div className="confirm">
-                <h3>Your decision</h3>
+                <h3>3. Approve this edition</h3>
                 <p className="meta">{approval?.current ? "Approved for exactly these developments." : approval?.membersChangedSinceApproval ? "The developments changed after approval: approve again." : approval?.decision ? `Latest decision: ${approval.decision.replace(/_/g, " ")}.` : "Not decided yet."}</p>
                 <label className="inline"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> I reviewed the coherence check and the evidence for each development.</label>
-                <label>Notes{ev && ev.coherence.verdict !== "COHERENT" && ev.coherence.verdict !== "SINGLE DEVELOPMENT" ? " (required to approve a weak connection)" : " (optional)"}<input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></label>
+                <label>Notes{ev && !ev.roundup && ev.coherence.verdict !== "COHERENT" && ev.coherence.verdict !== "SINGLE DEVELOPMENT" ? " (required: you chose a thematic structure for a weak connection)" : " (optional)"}<input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></label>
                 <div className="actions">
                   <button className="primary" disabled={busy || !ack} onClick={() => void decide("approved")}>Approve edition</button>
                   <button disabled={busy} onClick={() => void decide("needs_changes")}>Needs changes</button>
@@ -291,7 +329,7 @@ export default function EditionDesk() {
               </div>
             )}
 
-            <h3>Build the Claude production prompt</h3>
+            <h3>4. Build ONE Claude production prompt for the whole edition</h3>
             {!canBuild && <p className="meta">Available once the saved edition has a current approval.</p>}
             {canBuild && (
               <>

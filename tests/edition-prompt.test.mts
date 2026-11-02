@@ -44,7 +44,7 @@ check("roles chosen for this edition, fact-checker last word", out.roles.length 
 check("roles are selected, not a fixed list (single country differs)", pickRoles(members().slice(0, 1), evaluateEdition([devs[0]], { now: NOW }), "script_storyboard").some((r) => /Senior news correspondent/.test(r.role)));
 check("sequence section lists every development once in engine order", ev.sequence.every((s, i) => p.includes(`${i + 1}. "${s.headline.slice(0, 40)}`)));
 check("map: grounded places with basis, approximate, no invented routes", /Mark only these places/.test(p) && /mentioned in the retrieved text/.test(p) && /NOT as the location of any specific event/.test(p) && /Do not add places, borders, routes/.test(p));
-check("timecodes cover the chosen duration", /Scene 1 - Hook \(0s to/.test(p) && /What remains uncertain/.test(p));
+check("timecodes cover the chosen duration", /Scene 1 - Hook and introduction \(0s to/.test(p) && /What remains uncertain/.test(p));
 check("word budget matches duration", /198 to 252 words/.test(p) && /90 seconds/.test(p));
 check("single-outlet framing instruction only if needed", !/Single-outlet developments/.test(p) || /not independently confirmed/.test(p));
 check("tools are chosen per deliverable and unverified", /NOT verified by WorldFiled Desk/.test(base({ deliverable: "narrated_video" }).prompt) && !/Do not install anything not listed/.test("") );
@@ -60,7 +60,26 @@ check("oversized prompt is refused, not shortened", (() => { try { buildEditionP
 const lone = two("rt", "Brasilia", "Central bank in Brazil raises interest rates as inflation climbs", "Business and economic developments", ["Brazil raises interest rates to fight inflation", "The central bank decision affects mortgages, prices and wages."], ["Brazilian central bank hikes rate", "Inflation and currency pressure drive the rate rise in Brazil."]);
 const weakEv = evaluateEdition([devs[0], lone.dev], { now: NOW });
 const weak = buildEditionPrompt({ title: "Mixed", members: [members()[0], { dev: lone.dev, pack: buildEvidencePack(lone.story, { refPrefix: "D2-" }) }], evaluation: weakEv, deliverable: "script_storyboard", durationSeconds: 60, approvedRules: [] });
-check("weak edition: prompt states the verdict and tells Claude not to force the connection", /WEAK|INCOHERENT/.test(weak.prompt) && /say so instead of forcing it/.test(weak.prompt));
+check("unrelated pair: treated as a multi-topic roundup, prompt forbids inventing a connection", weakEv.structure === "news_roundup" && /Multi-topic news roundup/.test(weak.prompt) && /Do NOT present the stories as connected/.test(weak.prompt) && /must NOT invent one/.test(weak.prompt) && !/say so instead of forcing it/.test(weak.prompt));
+// ---- user's example: five unrelated individual developments combined into ONE briefing ----
+const five = [
+  two("g1", "Ankara", "Turkey central bank holds rates after cabinet decision on budget", "Government and institutional decisions", ["Turkey government decision on budget and rates", "Cabinet approves new budget; central bank holds interest rates in Turkey."], ["Turkish cabinet approves budget", "Government says the decision affects prices in Turkey."], true),
+  two("f1", "Madrid", "Real Madrid beat Barcelona 3-1 in the league clash in Spain", "Sports", ["Real Madrid win the clasico 3-1 in Spain", "The match result moves the league race in Spain."], ["Spain football: Madrid beat Barcelona", "Fans in Spain react to the result."]),
+  two("c1", "Paris", "French minister faces criticism after incident at public event in France", "Politics", ["French minister under pressure after incident in France", "The controversy over the incident grows in France; opponents demand an explanation."], ["Minister in France apologises after incident", "Critics in France say the incident raised questions."]),
+  two("s1", "Canberra", "Researchers in Australia report a new battery material discovery", "Scientific discoveries", ["Australian researchers report battery material discovery", "A study in Australia describes a new material for batteries."], ["New battery material found in Australia", "Scientists say the discovery needs more testing in Australia."]),
+  two("u1", "Lima", "Unexpected volcanic ash cloud closes airports in Peru", "Environment and climate", ["Volcanic ash closes airports in Peru", "An unexpected eruption disrupts flights across Peru."], ["Peru airports shut by ash", "Authorities in Peru warn travellers."]),
+];
+const fiveEv = evaluateEdition(five.map((x) => x.dev), { now: NOW });
+const fiveMembers = five.map((x, i) => ({ dev: x.dev, pack: buildEvidencePack(x.story, { refPrefix: `D${i + 1}-` }) }));
+const orderedMembers = fiveEv.sequence.map((sq) => fiveMembers.find((m) => m.dev.id === sq.id)!);
+const fp = buildEditionPrompt({ title: "Five things that happened", members: orderedMembers, evaluation: fiveEv, deliverable: "script_storyboard", durationSeconds: 120, approvedRules: [] });
+check("five unrelated developments: recommended structure is a multi-topic news roundup (no invented theme)", fiveEv.structure === "news_roundup" && fiveEv.roundup);
+check("five developments: ONE prompt contains all five evidence blocks", [1, 2, 3, 4, 5].every((k) => fp.prompt.includes(`DEVELOPMENT D${k}:`)) && five.every((x) => fp.prompt.includes(x.dev.headline)) && (fp.prompt.match(/=== 1\. BRAND/g) ?? []).length === 1);
+check("five developments: required parts (hook, introduction, segments, transitions, conclusion, captions, key facts, map, storyboard)", /opening hook/.test(fp.prompt) && /short introduction/.test(fp.prompt) && /transition between every pair/.test(fp.prompt) && /strong conclusion/.test(fp.prompt) && /on-screen headline/.test(fp.prompt) && /key facts/.test(fp.prompt) && /STORYBOARD AND TIMECODES/.test(fp.prompt) && /Scene \d+ - Recap/.test(fp.prompt));
+check("five developments: transitions only mark a change of story, no invented links", /only marks the move to a new story/.test(fp.prompt) && /Do not state or imply a relationship/.test(fp.prompt));
+check("five developments: locator map has no routes or arrows", !/Camera: move from place to place/.test(fp.prompt) && (!fiveEv.check.mapUseful || /NO routes, lines or arrows/.test(fp.prompt)));
+check("five developments: scene count = hook + 5 + recap + uncertainty + conclusion", (fp.prompt.match(/^Scene \d+ /gm) ?? []).length === 9);
+check("five developments: evidence refs stay separate per development", fp.snapshot.developments.length === 5 && new Set(fp.snapshot.developments.map((d: any) => d.pack.sources[0].ref)).size === 5);
 check("no-map edition explains why and forbids decorative map", /map is NOT recommended|A map is NOT recommended/.test(buildEditionPrompt({ title: "x", members: [members()[0]], evaluation: evaluateEdition([devs[0]], { now: NOW }), deliverable: "script_storyboard", durationSeconds: 60, approvedRules: [] }).prompt));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

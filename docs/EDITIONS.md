@@ -5,7 +5,8 @@ Primary workflow: research → developments → curiosity assessment → suggest
 ## Rules (all fixed, visible, rule-based; no AI, no cost)
 - **Curiosity** is an editorial hypothesis, kept separate from evidence strength. Weakly evidenced dramatic stories never rank high. Six recommendations: HIGH-POTENTIAL STORY, STRONG EDITION CANDIDATE, INTERESTING BUT NEEDS MORE EVIDENCE, LOW EDITORIAL CURIOSITY, RELEVANT BUT NOT TIMELY, HOLD FOR FUTURE DEVELOPMENTS.
 - **Coherence** (0-100, 7 shown components): theme 25, shared catalyst 15, geography 15, chronology 10, complementary roles 10, contrast 10, narrative 15. Caps: no shared theme/catalyst ≤39; weak link coverage ≤55; duplicate reporting ≤45. Verdicts: COHERENT ≥60, WEAK 40-59, INCOHERENT <40. Keyword overlap alone is not a connection.
-- **Structures**: multi-country synthesis, single-country deep dive, event-driven roundup (needs a named event/catalyst). The editor can override; the override is recorded.
+- **Structures**: multi-country synthesis, single-country deep dive, event-driven roundup (needs a named event/catalyst), and **multi-topic news roundup** (used when the selected stories share no genuine theme: no connection is claimed, transitions only mark the change of story, any map is a locator with no routes). The editor can override; the override is recorded.
+- **Manual selection is the primary path**: tick any developments from the research results (including older ones, flagged), review their sources and reasoning, reorder, save, approve, build ONE prompt. Suggested editions are only a shortcut.
 - Nothing is silently removed from a selection; weak members are flagged and the editor removes them.
 - Places come from a built-in gazetteer of approximate country centres, labelled "mentioned in the retrieved text" or "publisher location only". Not event locations.
 

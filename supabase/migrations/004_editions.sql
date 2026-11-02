@@ -14,7 +14,7 @@ create table if not exists editions (
   id uuid primary key default gen_random_uuid(),
   title text not null check (char_length(title) between 1 and 300),
   theme text not null default '',
-  structure text not null check (structure in ('multi_country','single_country','event_roundup')),
+  structure text not null check (structure in ('multi_country','single_country','event_roundup','news_roundup')),
   narrative_angle text not null default '' check (char_length(narrative_angle) <= 1000),
   status text not null default 'draft' check (status in ('draft','archived')),
   coherence jsonb not null default '{}'::jsonb,
@@ -82,7 +82,7 @@ create table if not exists edition_prompts (
   members jsonb not null,           -- story ids in order
   members_hash text not null,
   evidence_hash text not null,
-  structure text not null check (structure in ('multi_country','single_country','event_roundup')),
+  structure text not null check (structure in ('multi_country','single_country','event_roundup','news_roundup')),
   title text not null,
   deliverable text not null,
   roles jsonb not null default '[]'::jsonb,

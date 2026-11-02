@@ -44,21 +44,24 @@ export async function loadStories(ids: string[], now = Date.now()): Promise<Map<
   return out;
 }
 
-/** Recent stories that are inside the pipeline's freshness window and not rejected by the editor. */
+/** Recent stories. `fresh` = inside the pipeline's freshness window and not rejected: only these feed the SUGGESTIONS.
+ *  Older and rejected stories are still returned (flagged) so the editor can browse and select by hand. */
 export async function loadPool(now = Date.now(), limit = 150) {
   const rows = await db<any[]>(`stories?select=${FIELDS}&order=created_at.desc&limit=${limit}`);
   const all = rows.map((r) => toLoaded(r, now)).filter(Boolean) as Loaded[];
   const decisions = await latestDecisions(all.map((l) => l.dev.id));
   const pool: Loaded[] = [];
   const skipped: { id: string; headline: string; reason: string }[] = [];
+  const flags = new Map<string, { fresh: boolean; why: string | null; ageHours: number | null }>();
   for (const l of all) {
     const ageH = l.dev.newest ? (now - l.dev.newest) / 3_600_000 : Infinity;
     const dec = decisions.get(l.dev.id)?.decision;
-    if (dec === "rejected") skipped.push({ id: l.dev.id, headline: l.dev.headline, reason: "Rejected by the editor" });
-    else if (!(ageH <= SCORE_WINDOW_HOURS || (l.hasPrimary && ageH <= OFFICIAL_SCORE_WINDOW_HOURS))) skipped.push({ id: l.dev.id, headline: l.dev.headline, reason: "Older than the freshness window (72 hours, or 14 days for official sources)" });
-    else pool.push(l);
+    const ageHours = Number.isFinite(ageH) ? Math.round(ageH) : null;
+    if (dec === "rejected") { skipped.push({ id: l.dev.id, headline: l.dev.headline, reason: "Rejected by the editor" }); flags.set(l.dev.id, { fresh: false, why: "Rejected by the editor", ageHours }); }
+    else if (!(ageH <= SCORE_WINDOW_HOURS || (l.hasPrimary && ageH <= OFFICIAL_SCORE_WINDOW_HOURS))) { skipped.push({ id: l.dev.id, headline: l.dev.headline, reason: "Older than the freshness window (72 hours, or 14 days for official sources)" }); flags.set(l.dev.id, { fresh: false, why: "Older than the freshness window", ageHours }); }
+    else { pool.push(l); flags.set(l.dev.id, { fresh: true, why: null, ageHours }); }
   }
-  return { pool, skipped, decisions };
+  return { pool, all, skipped, decisions, flags };
 }
 
 export async function latestDecisions(ids: string[]) {

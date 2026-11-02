@@ -299,3 +299,4 @@ textarea { width: 100%; font: inherit; padding: 10px; border: 1px solid var(--na
   text-decoration: underline;
 }
 label.pick { padding: 6px 0; }
+.picked { background: #fffaf0; }

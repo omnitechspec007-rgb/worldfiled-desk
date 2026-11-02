@@ -72,7 +72,7 @@ async function readiness(editionId: string) {
 async function preview(editionId: string) {
   const r = await readiness(editionId);
   if ("fail" in r) return r.fail;
-  const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now() });
+  const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now(), structure: r.ed.structure as Structure });
   const members = packsFor(r.ids, r.loaded);
   return json({
     editionId, title: r.ed.title, structure: r.ed.structure, structureLabel: STRUCTURE_LABEL[r.ed.structure as Structure],
@@ -95,9 +95,9 @@ async function generate(req: Request) {
   if ("fail" in r) return r.fail;
   const notes = Array.isArray(b.conflictNotes) ? b.conflictNotes.map((x: unknown) => (typeof x === "string" ? x : "")).slice(0, r.ids.length) : [];
   const members = packsFor(r.ids, r.loaded, notes);
-  const ev = evaluateEdition(members.map((m) => m.dev), { conflictNotes: notes.filter(Boolean), now: Date.now() });
   const structure = r.ed.structure as Structure;
-  const evaluation = structure === ev.structure ? ev : { ...ev, structure, structureLabel: STRUCTURE_LABEL[structure] };
+  const evaluation = evaluateEdition(members.map((m) => m.dev), { conflictNotes: notes.filter(Boolean), now: Date.now(), structure });
+  const ev = evaluation;
   const { rules, installed: rulesInstalled } = await approvedRules();
   const out = buildEditionPrompt({
     title: r.ed.title, members, evaluation, deliverable, durationSeconds: duration,

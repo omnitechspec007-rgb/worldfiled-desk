@@ -37,6 +37,7 @@ for (const t of ["editions","edition_developments","edition_decisions","edition_
   ok("anon/authenticated have no privileges on "+t,!g.a&&!g.b);
 }
 const e=(await c.query("insert into editions(title,theme,structure) values('How three places prepare','Preparing for disruption','multi_country') returning id")).rows[0].id;
+await c.query("insert into editions(title,structure) values('roundup','news_roundup')"); ok("news_roundup structure accepted",true);
 await fails("bad structure refused","insert into editions(title,structure) values('x','weird')",[],/check/);
 const addDev=(s,p)=>c.query("insert into edition_developments(edition_id,story_id,position) values($1,$2,$3)",[e,s,p]);
 await addDev(st1,1); await addDev(st2,2); await addDev(st3,3);

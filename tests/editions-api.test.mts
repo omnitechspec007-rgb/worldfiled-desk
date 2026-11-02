@@ -94,7 +94,9 @@ const prep = d.suggestions.find((s: any) => s.ids.includes(jp) && s.ids.includes
 assert(!prep.ids.includes(rt) && !prep.ids.includes(sp)); ok("unrelated stories are not forced into the edition");
 assert(d.ineligible.some((x: any) => x.id === old && /freshness window/.test(x.reason))); ok("stories outside the freshness window are listed as excluded with a reason");
 assert.equal(d.saved.installed, true); assert(/not verified/.test(d.note)); ok("desk states the connection is an inference, not verified");
-decide(rt, "rejected"); d = await (await get(edFn, "")).json(); assert(d.ineligible.some((x: any) => x.id === rt && /Rejected/.test(x.reason)) && !d.developments.some((x: any) => x.id === rt)); ok("a story the editor rejected leaves the pool, with the reason shown");
+decide(rt, "rejected"); d = await (await get(edFn, "")).json(); assert(d.ineligible.some((x: any) => x.id === rt && /Rejected/.test(x.reason)) && !d.suggestions.some((s: any) => s.ids.includes(rt))); const rtDev = d.developments.find((x: any) => x.id === rt); assert(rtDev && rtDev.decision === "rejected" && rtDev.fresh === false); ok("a story the editor rejected is excluded from suggestions, still listed (flagged) with the reason shown");
+const oldDev = d.developments.find((x: any) => x.id === old); assert(oldDev && oldDev.fresh === false && /freshness/.test(oldDev.notFreshWhy) && oldDev.sources.length === 1 && oldDev.sources[0].url.startsWith("https://") && oldDev.sources[0].publishedAt); ok("older stories are still browsable and selectable by hand, flagged, with source links and dates");
+assert(d.developments.every((x: any) => Array.isArray(x.sources) && x.sources.every((s: any) => s.url && s.outlet))); ok("every development carries its sources (outlet, link, date) for review");
 
 console.log("Coherence check and saving");
 const ids3 = [jp, fi, cl];
@@ -109,8 +111,8 @@ const det = await (await get(edFn, `id=${eid}`)).json(); assert.equal(det.ids.le
 
 console.log("Approval");
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "approved" })).status, 400); assert.equal(T("edition_decisions").length, 0); ok("approval without acknowledgement is refused");
-const weakSv = await (await call(edFn, { action: "save", title: "Mixed bag", ids: [jp, sp] })).json();
-assert.equal((await call(edFn, { action: "decide", id: weakSv.id, decision: "approved", acknowledged: true })).status, 400); ok("approving a WEAK/INCOHERENT edition requires a written reason");
+const weakSv = await (await call(edFn, { action: "save", title: "Mixed bag", ids: [jp, sp], structure: "multi_country" })).json();
+assert.equal((await call(edFn, { action: "decide", id: weakSv.id, decision: "approved", acknowledged: true })).status, 400); ok("claiming a thematic structure for an unconnected pair requires a written reason");
 assert.equal((await call(edFn, { action: "decide", id: weakSv.id, decision: "approved", acknowledged: true, notes: "Editor accepts the weak link deliberately." })).status, 200); ok("…and is allowed with a reason (the editor decides)");
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "publish", acknowledged: true })).status, 400); assert.equal((await call(edFn, { action: "decide", id: "bad", decision: "approved", acknowledged: true })).status, 400); ok("unknown decision and bad id rejected");
 console.log("Edition Prompt Architect");
@@ -151,6 +153,30 @@ o = await (await get(epFn, `id=${g4.id}`)).json(); assert.equal(o.prompt, null);
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "approved", acknowledged: true, notes: "Two stories remain" })).status, 200);
 const g5 = await (await call(epFn, { editionId: eid })).json(); assert(g5.saved && T("edition_prompts").at(-1).members.length === 2); ok("after fresh approval a new prompt is written for the new member list");
 await call(edFn, { action: "decide", id: eid, decision: "rejected", notes: "No" }); assert.equal((await call(epFn, { editionId: eid })).status, 409); assert.equal((await (await get(epFn, `id=${g5.id}`)).json()).prompt, null); ok("edition rejected: no new prompt, saved ones withheld");
+
+console.log("Manual multi-selection: build my own edition from individual developments");
+const fb = story("Real Madrid beat Barcelona 3-1 in the league clash in Spain", "Sports", [["Madrid Sport", "Real Madrid win the clasico 3-1 in Spain", "The match result moves the league race in Spain."], ["Madrid Daily", "Spain football: Madrid beat Barcelona", "Fans in Spain react to the result."]]);
+const ctr = story("French minister faces criticism after incident at public event in France", "Politics", [["Paris Gazette", "French minister under pressure after incident in France", "The controversy over the incident grows in France; opponents demand an explanation."], ["Paris Times", "Minister in France apologises after incident", "Critics in France say the incident raised questions."]]);
+const mine = [sp, fb, ctr, old];
+const mev = await (await get(edFn, `ids=${mine.join(",")}`)).json();
+assert.equal(mev.evaluation.structure, "news_roundup"); assert.equal(mev.evaluation.roundup, true); assert(/do not share a genuine theme/.test(mev.evaluation.check.belongTogether)); assert.equal(mev.evaluation.ids.length, 4); ok("four hand-picked unrelated developments (one older than the window) are accepted and recommended as a multi-topic news roundup, no theme invented");
+assert(mev.developments.every((x: any) => x.sources.length >= 1 && x.sources.every((y: any) => y.url && y.publishedAt)) && mev.developments.length === 4); ok("the workspace data carries each selected development's sources, links and dates");
+const own = await (await call(edFn, { action: "save", title: "My daily briefing", ids: mine })).json(); assert(own.saved); assert.equal(T("editions").find((e) => e.id === own.id).structure, "news_roundup"); ok("manual selection saved as an edition");
+assert.equal((await call(edFn, { action: "decide", id: own.id, decision: "approved", acknowledged: true })).status, 200); ok("a roundup can be approved without inventing a reason: it claims no connection");
+const myp = await (await call(epFn, { editionId: own.id, deliverable: "script_storyboard", durationSeconds: 120 })).json();
+assert(myp.saved && myp.structure.key === "news_roundup"); for (const id of mine) assert(myp.prompt.includes(T("stories").find((x) => x.id === id).headline)); assert((myp.prompt.match(/=== 1\. BRAND/g) ?? []).length === 1); ok("ONE integrated prompt covers all four selected developments");
+const pos = (h: string) => myp.prompt.indexOf(`DEVELOPMENT D`) >= 0 && myp.prompt.indexOf(h);
+assert(/Multi-topic news roundup/.test(myp.prompt) && /must NOT invent one/.test(myp.prompt) && /transition between every pair/.test(myp.prompt)); void pos; ok("the prompt frames it as a roundup with plain transitions and no invented link");
+const reordered = [...mine].reverse();
+const rsv = await (await call(edFn, { action: "save", id: own.id, title: "My daily briefing", ids: reordered })).json(); assert(rsv.saved);
+assert.deepEqual(T("edition_developments").filter((x) => x.edition_id === own.id).sort((a, b) => a.position - b.position).map((x) => x.story_id), reordered); ok("reordering is saved");
+assert.equal((await (await get(epFn, `id=${myp.id}`)).json()).prompt, null); assert.equal((await call(epFn, { editionId: own.id })).status, 409); ok("after reordering, the earlier prompt is withheld and approval must be given again");
+await call(edFn, { action: "decide", id: own.id, decision: "approved", acknowledged: true });
+const myp2 = await (await call(epFn, { editionId: own.id })).json(); const first = T("stories").find((x) => x.id === reordered[0]).headline;
+assert(myp2.saved && myp2.prompt.indexOf(first) < myp2.prompt.indexOf(T("stories").find((x) => x.id === reordered[3]).headline)); ok("a new prompt follows the new order");
+const rm = await (await call(edFn, { action: "save", id: own.id, title: "My daily briefing", ids: reordered.slice(0, 3) })).json(); assert(rm.saved); assert.equal(T("edition_developments").filter((x) => x.edition_id === own.id).length, 3); ok("removing a development works and is saved");
+const one1 = await (await call(edFn, { action: "save", title: "Solo", ids: [sp] })).json(); assert(one1.saved); ok("a single-development edition is still possible");
+const ovr2 = await (await get(edFn, `ids=${mine.join(",")}&structure=multi_country`)).json(); assert(ovr2.evaluation.structureOverride && ovr2.evaluation.suggestedStructure === "news_roundup" && ovr2.evaluation.roundup === false); ok("the editor can override the roundup recommendation; the suggestion stays visible");
 
 console.log("Failure honesty and NOT INSTALLED");
 await call(edFn, { action: "decide", id: eid, decision: "approved", acknowledged: true, notes: "Back" }); const cnt = T("edition_prompts").length;

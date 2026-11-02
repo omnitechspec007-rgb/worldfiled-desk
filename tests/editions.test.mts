@@ -66,9 +66,12 @@ const mixed = [rates, space, privacy, lab, bio];
 const none = suggestEditions(mixed, { now: NOW });
 check("unrelated stories: no edition is suggested", none.editions.length === 0);
 const forced = evaluateEdition(mixed, { now: NOW });
-check("unrelated stories: manual selection scores INCOHERENT and explains why", forced.coherence.verdict === "INCOHERENT" && forced.check.belongTogether.startsWith("No") && forced.check.recommendations.some((r) => /share no theme or event/.test(r)));
-check("unrelated stories: the user's selection is not silently changed", forced.ids.length === 5 && forced.check.weaklyConnected.length >= 1);
-check("unrelated stories: map judged misleading when places are not linked", !forced.check.mapUseful);
+check("unrelated stories: manual selection scores INCOHERENT (no invented theme) and is recommended as a multi-topic news roundup", forced.coherence.verdict === "INCOHERENT" && forced.structure === "news_roundup" && forced.roundup && /do not share a genuine theme/.test(forced.check.belongTogether) && forced.check.recommendations.some((r) => /multi-topic news roundup/.test(r)));
+check("unrelated stories: the user's selection is not silently changed, and no connection is claimed", forced.ids.length === 5 && forced.sequence.length === 5 && /No connection claimed|no link/i.test(forced.angle + forced.sequence.slice(1).map((x) => x.why).join(" ")) && /NO connection/.test(forced.uncertainties[0]));
+check("unrelated stories: map only as a locator with no routes (no connection implied)", !forced.check.mapUseful || /no routes, lines or arrows/.test(forced.check.mapWhy));
+if (process.env.SHOW) console.log(forced.sequence.map((x) => x.headline.slice(0,25)+" / "+mixed.find((m) => m.id === x.id)!.a.type));
+const tOf = (id: string) => mixed.find((m) => m.id === id)!.a.type;
+check("unrelated stories: sequence avoids two same-kind stories in a row when it can", forced.sequence.every((x, i, arr) => i === 0 || tOf(x.id) !== tOf(arr[i - 1].id) || mixed.filter((m) => m.a.type === tOf(x.id)).length > Math.ceil(mixed.length / 2)));
 
 // ---- F. duplicate reporting of one underlying event ----
 const dupA = two("da", "Alpha", "Parliament passes landmark data protection law after long debate", "Laws and regulations", ["Parliament passes landmark data protection law", "Privacy and personal data rules approved."], ["Data protection law passed by parliament", "Lawmakers approve the privacy bill."]);

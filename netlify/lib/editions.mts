@@ -10,8 +10,8 @@ import { CUES, hit, scoreStory, type Scored, type StoryInput } from "./scoring.m
 import type { EvSource } from "./evidence-pack.mts";
 import { jaccard, tokens } from "./cluster.mts";
 
-export type Structure = "multi_country" | "single_country" | "event_roundup";
-export const STRUCTURE_LABEL: Record<Structure, string> = { multi_country: "Multi-country synthesis", single_country: "Single-country deep dive", event_roundup: "Event-driven thematic roundup" };
+export type Structure = "multi_country" | "single_country" | "event_roundup" | "news_roundup";
+export const STRUCTURE_LABEL: Record<Structure, string> = { multi_country: "Multi-country synthesis", single_country: "Single-country deep dive", event_roundup: "Event-driven thematic roundup", news_roundup: "Multi-topic news roundup" };
 
 export type Dev = {
   id: string; headline: string; category: string | null;
@@ -76,7 +76,7 @@ export function pairConnection(a: Dev, b: Dev): Pair {
 // ---------------- edition evaluation ----------------
 export type Component = { name: string; points: number; max: number; why: string };
 export type Evaluation = {
-  ids: string[]; structure: Structure; structureLabel: string; theme: string; themeId: string | null; catalyst: string | null; title: string; angle: string;
+  ids: string[]; structure: Structure; structureLabel: string; roundup: boolean; suggestedStructure: Structure; theme: string; themeId: string | null; catalyst: string | null; title: string; angle: string;
   coherence: { score: number | null; verdict: "COHERENT" | "WEAK" | "INCOHERENT" | "SINGLE DEVELOPMENT"; components: Component[] };
   metrics: { curiosityPotential: number; evidenceStrength: { label: string; score: number; weakest: string }; timelinessHours: number | null; humanRelevance: number };
   locations: Location[];
@@ -93,7 +93,7 @@ export type Evaluation = {
 
 const hookScore = (d: Dev) => d.a.curiosityScore * (0.4 + 0.6 * (d.scored.get("evidence_quality") / 5)) + (d.a.corroborated ? 10 : 0);
 
-export function evaluateEdition(members: Dev[], opts: { conflictNotes?: string[]; now?: number } = {}): Evaluation {
+export function evaluateEdition(members: Dev[], opts: { conflictNotes?: string[]; now?: number; structure?: Structure } = {}): Evaluation {
   const n = members.length;
   const ids = members.map((m) => m.id);
   const pairs: Pair[] = [];
@@ -144,14 +144,19 @@ export function evaluateEdition(members: Dev[], opts: { conflictNotes?: string[]
 
   // structure
   const namedCatalyst = !!bestNoun && !bestNoun[0].startsWith("event:");
-  const structure: Structure = catalystCoverage >= 0.5 && n >= 2 && (namedCatalyst || (catalystCoverage > themeCoverage && countries.length >= 2)) ? "event_roundup" : countries.length >= 2 ? "multi_country" : "single_country";
+  const autoRoundup = n >= 2 && verdict !== "COHERENT"; // no genuine connection: honest multi-topic roundup instead of an invented theme
+  const roundup = opts.structure ? opts.structure === "news_roundup" && n >= 2 : autoRoundup; // the editor may override the suggestion
+  const autoStructure: Structure = autoRoundup ? "news_roundup" : catalystCoverage >= 0.5 && n >= 2 && (namedCatalyst || (catalystCoverage > themeCoverage && countries.length >= 2)) ? "event_roundup" : countries.length >= 2 ? "multi_country" : "single_country";
+  const structure: Structure = opts.structure ?? autoStructure;
   const themeLabel = bestTheme && themeCoverage ? bestTheme[1].label : n === 1 ? members[0].a.typeLabel : "No shared theme";
   const place = countries.length === 1 ? countries[0] : null;
-  const title = structure === "event_roundup" && catalyst ? `How are countries responding to ${catalyst}?`
+  const title = structure === "news_roundup" ? `Today's developments: ${(countries.slice(0, 4).join(", ") || `${n} stories`)}${countries.length > 4 ? " and more" : ""}`
+    : structure === "event_roundup" && catalyst ? `How are countries responding to ${catalyst}?`
     : structure === "multi_country" && bestTheme && themeCoverage ? bestTheme[1].q.replace(/\?$/, "?")
     : structure === "single_country" && place ? (bestTheme && themeCoverage ? `What is driving ${place}'s moves on ${themeLabel.toLowerCase()}?` : `What explains the latest developments in ${place}?`)
     : n === 1 ? members[0].headline : "Unthemed selection";
-  const angle = structure === "multi_country" ? `Compare how ${countries.slice(0, 4).join(", ")} are approaching "${themeLabel}", and show what the differences reveal about the wider trend.`
+  const angle = structure === "news_roundup" ? `A fast, clear briefing on ${n} separate developments. Each story gets its own short segment and a plain transition; no link between them is claimed. Order is chosen for pace and variety.`
+    : structure === "multi_country" ? `Compare how ${countries.slice(0, 4).join(", ")} are approaching "${themeLabel}", and show what the differences reveal about the wider trend.`
     : structure === "event_roundup" ? `Follow ${catalyst ?? "the shared event"} across ${countries.slice(0, 4).join(", ") || "the places involved"}, showing how each responded and what they share.`
     : `Explain ${place ?? "the development"} through its contributing factors and consequences, and connect it outward only where the evidence does.`;
 
@@ -161,6 +166,15 @@ export function evaluateEdition(members: Dev[], opts: { conflictNotes?: string[]
   const opening = rest.shift();
   const order: Dev[] = opening ? [opening] : [];
   const centroid = (d: Dev) => d.a.locations[0];
+  while (rest.length && roundup) {
+    const prev = order[order.length - 1];
+    const left = (t: string) => rest.filter((x) => x.a.type === t).length;
+    const cand = rest.filter((x) => x.a.type !== prev.a.type);
+    // alternate kinds of story for pace; take from the most common remaining kind first so two of a kind are not stranded at the end
+    const pick = cand.length ? cand.reduce((best, x) => (left(x.a.type) > left(best.a.type) ? x : best), cand[0]) : rest[0];
+    rest.splice(rest.indexOf(pick), 1);
+    order.push(pick);
+  }
   while (rest.length) {
     const last = centroid(order[order.length - 1]);
     rest.sort((a, b) => (last && centroid(a) && centroid(b) ? distanceKm(last, centroid(a)) - distanceKm(last, centroid(b)) : hookScore(b) - hookScore(a)));
@@ -168,8 +182,8 @@ export function evaluateEdition(members: Dev[], opts: { conflictNotes?: string[]
   }
   const sequence = order.map((m, i) => ({
     id: m.id, headline: m.headline,
-    role: i === 0 ? (n === 1 ? "Anchor" : "Opening: strongest evidence-backed hook") : i === n - 1 && n >= 3 ? "Closing: widest implication and what remains open" : "Comparison: what differs here",
-    why: i === 0 ? `Highest hook value (curiosity ${m.a.curiosityScore}, ${m.a.corroborated ? "corroborated" : "single outlet, so framed as unconfirmed"}).` : `Next nearest place or theme${centroid(m) ? ` (${centroid(m).country})` : ""}, keeping the map movement short.`,
+    role: i === 0 ? (n === 1 ? "Anchor" : "Opening: strongest evidence-backed hook") : roundup ? (i === n - 1 && n >= 3 ? "Closing segment: a separate development, then the recap" : `Segment ${i + 1}: a separate development (${m.a.typeLabel})`) : i === n - 1 && n >= 3 ? "Closing: widest implication and what remains open" : "Comparison: what differs here",
+    why: roundup && i > 0 ? `Placed for pace: a different kind of story from the one before${centroid(m) ? ` (${centroid(m).country})` : ""}. No connection claimed.` : i === 0 ? `Highest hook value (curiosity ${m.a.curiosityScore}, ${m.a.corroborated ? "corroborated" : "single outlet, so framed as unconfirmed"}).` : `Next nearest place or theme${centroid(m) ? ` (${centroid(m).country})` : ""}, keeping the map movement short.`,
   }));
 
   const contributions = members.map((m) => ({
@@ -181,9 +195,10 @@ export function evaluateEdition(members: Dev[], opts: { conflictNotes?: string[]
   const weakEv = members.filter((m) => !m.a.corroborated);
   const worst = members.reduce((w, m) => (m.scored.get("evidence_quality") < w.score ? { score: m.scored.get("evidence_quality"), id: m.id } : w), { score: 99, id: "" });
   const evScore = worst.score === 99 ? 0 : worst.score;
-  const mapUseful = locs.filter((l) => l.basis === "mentioned in the retrieved text").length >= 2 && hasLink && linkCov >= 0.6;
+  const textPlaces = locs.filter((l) => l.basis === "mentioned in the retrieved text").length;
+  const mapUseful = roundup ? textPlaces >= 2 : textPlaces >= 2 && hasLink && linkCov >= 0.6;
   const uncertain = [
-    "The connection is inferred from fixed rules (themes, shared events, places, timing). The editor must judge whether it is real.",
+    roundup ? "This is a multi-topic roundup: NO connection between the developments is claimed. They are grouped because the editor chose them." : "The connection is inferred from fixed rules (themes, shared events, places, timing). The editor must judge whether it is real.",
     ...(weakEv.length ? [`Single-outlet developments (unconfirmed): ${weakEv.map((m) => m.headline).join("; ")}.`] : []),
     ...members.flatMap((m) => m.a.missingEvidence.filter((x) => !/Full article text/.test(x)).slice(0, 2).map((x) => `${m.headline}: ${x}`)).slice(0, 6),
     "Full article text was not read for any development.",
@@ -191,35 +206,36 @@ export function evaluateEdition(members: Dev[], opts: { conflictNotes?: string[]
   ];
   const conflicts = (opts.conflictNotes ?? []).filter(Boolean);
   const recs: string[] = [];
-  if (n >= 2 && hasLink && linkCov < 0.6) recs.push(`Only ${Math.round(linkCov * n)} of ${n} developments share the connecting theme or event. The others are weakly connected; consider separate coverage for them.`);
-  if (n >= 2 && !hasLink) recs.push("These developments share no theme or event. Consider separate coverage or remove the weakly connected ones.");
-  for (const id of weakIds) recs.push(`Consider removing or replacing "${members.find((m) => m.id === id)!.headline}": average connection to the others is ${avgConn(id)}/100.`);
+  if (roundup) recs.push("No genuine shared theme was found, so this is treated as a multi-topic news roundup (no invented connection). To make a thematic edition instead, choose stories that share a real issue or event.");
+  if (n >= 2 && !roundup && hasLink && linkCov < 0.6) recs.push(`Only ${Math.round(linkCov * n)} of ${n} developments share the connecting theme or event. The others are weakly connected; consider separate coverage for them.`);
+  
+  for (const id of roundup ? [] : weakIds) recs.push(`Consider removing or replacing "${members.find((m) => m.id === id)!.headline}": average connection to the others is ${avgConn(id)}/100.`);
   for (const p of dupPairs) recs.push(`"${members.find((m) => m.id === p.a)!.headline}" and "${members.find((m) => m.id === p.b)!.headline}" look like one underlying event (${p.duplicateWhy}). Keep one.`);
   if (weakEv.length) recs.push("Frame single-outlet developments as 'reported by', or wait for confirmation.");
   if (n === 2 && verdict === "COHERENT") recs.push("A coherent two-development edition is fine; do not add unrelated stories to reach a target number.");
 
   const check: Evaluation["check"] = {
-    belongTogether: n < 2 ? "Only one development: this is a deep dive, not a synthesis." : verdict === "COHERENT" ? `Yes: they share ${[themeCoverage ? `the theme "${themeLabel}"` : "", catalyst ? `the catalyst "${catalyst}"` : ""].filter(Boolean).join(" and ")}.` : verdict === "WEAK" ? "Only partly: the connection is thin. Review the weakly connected developments below." : "No: the rules found no genuine connection. Do not force one.",
+    belongTogether: roundup ? "They do not share a genuine theme, and that is fine for a roundup: each is a separate development presented in turn, with no connection claimed." : n < 2 ? "Only one development: this is a deep dive, not a synthesis." : verdict === "COHERENT" ? `Yes: they share ${[themeCoverage ? `the theme "${themeLabel}"` : "", catalyst ? `the catalyst "${catalyst}"` : ""].filter(Boolean).join(" and ")}.` : verdict === "WEAK" ? "Only partly: the connection is thin. Review the weakly connected developments below." : "No: the rules found no genuine connection. Do not force one.",
     centralArgument: angle,
     strongestOpening: order[0] ? `"${order[0].headline}" (${sequence[0].why})` : "none",
     logicalSequence: sequence.map((s, i) => `${i + 1}. ${s.headline}`).join("  ->  "),
     repetition: dupPairs.map((p) => `${p.duplicateWhy}: ${members.find((m) => m.id === p.a)!.headline} / ${members.find((m) => m.id === p.b)!.headline}`),
     geographicDimension: countries.length >= 2 ? `${countries.length} places: ${countries.join(", ")}.` : countries.length === 1 ? `One place: ${countries[0]}.` : "No place could be established.",
     mapUseful,
-    mapWhy: mapUseful ? "A map shows where each development sits and how the places compare, which a list cannot." : countries.length < 2 ? "Fewer than two named places, so a map would be decorative. Prefer a timeline or comparison." : hasLink ? "Places are mostly publisher locations, not confirmed event locations, so a map could mislead." : "The places are not linked by a theme or event, so a map would imply a connection the evidence does not show.",
-    valueVersusSeparate: n < 2 ? "Not applicable to a single development." : verdict === "COHERENT" ? "Together they show a pattern and a comparison that no single story shows." : "Not clearly better than separate coverage.",
-    weaklyConnected: weakIds.map((id) => ({ id, headline: members.find((m) => m.id === id)!.headline, why: `average connection ${avgConn(id)}/100` })),
+    mapWhy: roundup && mapUseful ? "A locator map can show where each separate story happened. Markers only: no routes, lines or arrows between places, because no connection is claimed." : mapUseful ? "A map shows where each development sits and how the places compare, which a list cannot." : countries.length < 2 ? "Fewer than two named places, so a map would be decorative. Prefer a timeline or comparison." : hasLink ? "Places are mostly publisher locations, not confirmed event locations, so a map could mislead." : "The places are not linked by a theme or event, so a map would imply a connection the evidence does not show.",
+    valueVersusSeparate: roundup ? "One briefing instead of separate videos: pace and convenience for the audience. It adds no analytical synthesis, and does not claim any." : n < 2 ? "Not applicable to a single development." : verdict === "COHERENT" ? "Together they show a pattern and a comparison that no single story shows." : "Not clearly better than separate coverage.",
+    weaklyConnected: (roundup ? [] : weakIds).map((id) => ({ id, headline: members.find((m) => m.id === id)!.headline, why: `average connection ${avgConn(id)}/100` })),
     conflicts, recommendations: recs,
   };
 
   const hrs = times.length ? Math.round((((opts.now ?? Date.now()) - Math.max(...times)) / 3_600_000) * 10) / 10 : null;
   const cur = members.length ? Math.round((members.reduce((x, m) => x + m.a.curiosityScore, 0) / n + (verdict === "COHERENT" ? 8 : 0)) * 10) / 10 : 0;
   return {
-    ids, structure, structureLabel: STRUCTURE_LABEL[structure], theme: themeLabel, themeId: bestTheme && themeCoverage ? bestTheme[0] : null, catalyst, title, angle,
+    ids, structure, structureLabel: STRUCTURE_LABEL[structure], roundup, suggestedStructure: autoStructure, theme: themeLabel, themeId: bestTheme && themeCoverage ? bestTheme[0] : null, catalyst, title, angle,
     coherence: { score: n < 2 ? null : score, verdict, components: comps },
     metrics: { curiosityPotential: cur, evidenceStrength: { label: evScore >= 2 ? "MODERATE" : evScore >= 1 ? "LIMITED" : "WEAK", score: evScore, weakest: worst.id ? members.find((m) => m.id === worst.id)!.headline : "" }, timelinessHours: hrs, humanRelevance: Math.round((members.reduce((x, m) => x + m.scored.get("human_relevance"), 0) / Math.max(n, 1)) * 10) / 10 },
     locations: locs, sequence, contributions,
-    whyItMatters: n < 2 ? "A single development explained in depth." : verdict === "COHERENT" ? `Seen together, ${members.length} developments reveal a pattern ("${themeLabel}") that no single report shows${countries.length >= 2 ? `, and the comparison between ${countries.slice(0, 3).join(", ")} shows how responses differ` : ""}.` : "The combination adds little over separate coverage.",
+    whyItMatters: n < 2 ? "A single development explained in depth." : roundup ? `A quick, accurate briefing on ${n} separate developments the editor judged important today. Each is explained on its own evidence.` : verdict === "COHERENT" ? `Seen together, ${members.length} developments reveal a pattern ("${themeLabel}") that no single report shows${countries.length >= 2 ? `, and the comparison between ${countries.slice(0, 3).join(", ")} shows how responses differ` : ""}.` : "The combination adds little over separate coverage.",
     uncertainties: uncertain, check, pairs,
   };
 }

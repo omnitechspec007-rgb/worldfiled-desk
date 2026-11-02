@@ -34,7 +34,8 @@ export function pickRoles(members: EditionMember[], ev: Evaluation, deliverable:
   const has = (t: string) => members.filter((m) => m.dev.a.type === t).map((m) => q(m.dev.headline));
   const roles: Role[] = [];
   const add = (role: string, why: string) => { if (!roles.some((r) => r.role === role)) roles.push({ role, why }); };
-  if (ev.structure !== "single_country") add("Senior international news correspondent", `frames developments across ${ev.locations.map((l) => l.country).slice(0, 4).join(", ") || "several places"} as one story without flattening their differences`);
+  if (ev.structure === "news_roundup") add("News editor and presenter", "runs a fast, clear briefing of separate stories with plain transitions, without inventing links between them");
+  else if (ev.structure !== "single_country") add("Senior international news correspondent", `frames developments across ${ev.locations.map((l) => l.country).slice(0, 4).join(", ") || "several places"} as one story without flattening their differences`);
   else add("Senior news correspondent", `explains the developments in ${ev.locations[0]?.country ?? "the country"} with context and restraint`);
   add("Documentary director", "builds one continuous narrative arc from the opening hook to the closing implication, not a list of items");
   if (ev.check.mapUseful) add("GIS and cartography specialist", "turns the verified places into a map sequence that shows the relationship between developments");
@@ -60,6 +61,7 @@ export function evidenceHash(members: EditionMember[]): string {
 export function buildEditionPrompt(input: EditionPromptInput) {
   const { members, evaluation: ev } = input;
   const n = members.length;
+  const roundup = ev.structure === "news_roundup";
   const secs = input.durationSeconds;
   const d = DELIVERABLES.find((x) => x.key === input.deliverable) ?? DELIVERABLES[0];
   const tools: ToolPlan = selectTools(d.key, ev.check.mapUseful);
@@ -94,15 +96,15 @@ export function buildEditionPrompt(input: EditionPromptInput) {
     return `Scene ${label} (${from}s to ${t}s): ${body}`;
   };
   const scenes: string[] = [];
-  scenes.push(seg("1 - Hook", hookPct, `Open with the strongest evidence-backed hook (see section 9).`));
+  scenes.push(seg("1 - Hook and introduction", hookPct, `Open with the strongest evidence-backed hook (see section 9), then one short line telling the audience what this edition covers (${n} development${n === 1 ? "" : "s"}).`));
   ev.sequence.forEach((s, i) => {
     const m = members.find((x) => x.dev.id === s.id)!;
     const where = m.dev.a.locations[0] ? `${m.dev.a.locations[0].country} (${m.dev.a.locations[0].basis})` : "place not established";
     scenes.push(seg(`${i + 2} - D${members.indexOf(m) + 1}`, devPct, `${s.role}. Development: ${q(m.dev.headline)}. Place: ${where}. Attribute every fact to its source ref (D${members.indexOf(m) + 1}-S#). Say what happened and what is different about this one.`));
   });
-  scenes.push(seg(`${n + 2} - What connects them`, connectPct, `State the connection (section 4) and why the combination explains more than the separate stories.`));
+  scenes.push(seg(`${n + 2} - ${roundup ? "Recap" : "What connects them"}`, connectPct, roundup ? `Briefly recap the stories covered. Do not add a unifying claim.` : `State the connection (section 4) and why the combination explains more than the separate stories.`));
   scenes.push(seg(`${n + 3} - What remains uncertain`, uncertainPct, `Say plainly what is single-source, conflicting or unknown (section 6).`));
-  scenes.push(seg(`${n + 4} - What matters`, matterPct, `Close on what matters, only as far as the evidence supports. Do not predict.`));
+  scenes.push(seg(`${n + 4} - What matters`, matterPct, `Strong conclusion: close on what matters, only as far as the evidence supports. Do not predict.`));
 
   // ---- map instructions grounded in the gazetteer
   const placed = ev.sequence.map((s, i) => ({ s, l: members.find((m) => m.dev.id === s.id)!.dev.a.locations[0], i }));
@@ -111,7 +113,7 @@ export function buildEditionPrompt(input: EditionPromptInput) {
         `A map IS useful here: ${ev.check.mapWhy}`,
         "Mark only these places, in this order (approximate country centroids, rounded; use them to place a marker, NOT as the location of any specific event; take exact geometry from a reliable free map dataset and say which you used):",
         ...placed.filter((p) => p.l).map((p, k) => `  ${k + 1}. ${p.l!.country} [${p.l!.region}] about ${p.l!.lat}, ${p.l!.lon} | basis: ${p.l!.basis}${k > 0 && placed[k - 1].l ? ` | about ${distanceKm(placed[k - 1].l!, p.l!)} km from the previous place` : ""}`),
-        "Camera: move from place to place in the sequence above, keeping each move short and readable. Highlight the active country in Archival Gold; keep other places subdued.",
+        roundup ? "Use a LOCATOR map: show a marker for each story's place as that story begins. Draw NO routes, lines or arrows between places, because no connection is claimed. Highlight the active country in Archival Gold; keep other places subdued." : "Camera: move from place to place in the sequence above, keeping each move short and readable. Highlight the active country in Archival Gold; keep other places subdued.",
         "Where basis is 'publisher location only', do NOT present the place as where the event happened unless you can verify it from the evidence; label it or leave it off the map.",
         "Show disputed borders neutrally. Do not add places, borders, routes, distances or arrows that this list or the evidence does not support.",
       ].join("\n")
@@ -126,7 +128,8 @@ export function buildEditionPrompt(input: EditionPromptInput) {
   const flagged = members.filter((m) => !m.dev.a.corroborated).map((m, i) => `D${members.indexOf(m) + 1}`);
   const numericAnchors = members.flatMap((m, i) => m.pack.sources.flatMap((s) => (`${s.title} ${s.snippet}`.match(/\b\d[\d,.]*\s?(%|percent|million|billion|km|days?|years?|points?)?/gi) ?? []).slice(0, 2).map((x) => `${x.trim()} (D${i + 1}, ${s.ref}, ${s.outlet})`))).slice(0, 12);
   const structureBrief =
-    ev.structure === "multi_country" ? "Multi-country synthesis: separate developments in different countries, connected by a shared theme. Do not claim the governments coordinated unless the evidence says so."
+    roundup ? "Multi-topic news roundup: several SEPARATE developments (possibly different countries, people and subjects) presented in one fast, professionally paced briefing. They do NOT share a theme and you must NOT invent one. Keep one overall edition feel through the opening, the pacing, the visual system and the closing, not through a made-up link."
+    : ev.structure === "multi_country" ? "Multi-country synthesis: separate developments in different countries, connected by a shared theme. Do not claim the governments coordinated unless the evidence says so."
     : ev.structure === "event_roundup" ? `Event-driven thematic roundup: separate developments connected by one event or catalyst${ev.catalyst ? ` ("${ev.catalyst}")` : ""}. Do not claim causation beyond what each source states.`
     : "Single-country deep dive: one place explained through its related developments. Historical or background context is NOT in the evidence: you may add widely documented background only if you label it BACKGROUND (NOT FROM THE EVIDENCE PACK, EDITOR TO VERIFY) and never add numbers, dates or quotes from memory.";
 
@@ -149,13 +152,13 @@ ${angle ? `Editor's chosen angle: "${angle}" (follow it only where the evidence 
 ${ev.structureLabel}. ${structureBrief}
 
 === 4. WHY THESE DEVELOPMENTS BELONG TOGETHER ===
-Coherence check by fixed rules: ${ev.coherence.verdict}${ev.coherence.score !== null ? ` (${ev.coherence.score}/100)` : ""}.
+${roundup ? "Grouping: chosen by the editor as a multi-topic roundup. The fixed-rule check found no shared theme (" + ev.coherence.verdict + (ev.coherence.score !== null ? ` ${ev.coherence.score}/100` : "") + "), which is acceptable for this structure. Do NOT present the stories as connected, as a pattern or as a trend." : "Coherence check by fixed rules: " + ev.coherence.verdict + (ev.coherence.score !== null ? ` (${ev.coherence.score}/100)` : "") + "."}
 ${ev.check.belongTogether}
 ${ev.coherence.components.map((c) => `- ${c.name}: ${c.points}/${c.max} (${c.why})`).join("\n")}
 What each development adds:
 ${ev.contributions.map((c) => `- ${q(c.headline)}: ${c.adds}`).join("\n")}
 Why the combination is more informative than separate stories: ${ev.check.valueVersusSeparate}
-${ev.check.repetition.length ? `Possible repetition to avoid: ${ev.check.repetition.join("; ")}.\n` : ""}${ev.check.weaklyConnected.length ? `Weakly connected (the editor chose to keep them; give them a clear role or keep them short): ${ev.check.weaklyConnected.map((w) => `${q(w.headline)} (${w.why})`).join("; ")}.\n` : ""}This connection was inferred by fixed rules, not verified. If, while writing, you find the connection is not supported by section 6, say so instead of forcing it.
+${ev.check.repetition.length ? `Possible repetition to avoid: ${ev.check.repetition.join("; ")}.\n` : ""}${ev.check.weaklyConnected.length ? `Weakly connected (the editor chose to keep them; give them a clear role or keep them short): ${ev.check.weaklyConnected.map((w) => `${q(w.headline)} (${w.why})`).join("; ")}.\n` : ""}${roundup ? "Transitions between stories must only mark the change of subject (for example a plain 'Next:' or 'Meanwhile, in <place>:'). They must not suggest cause, similarity or coordination." : "This connection was inferred by fixed rules, not verified. If, while writing, you find the connection is not supported by section 6, say so instead of forcing it."}
 
 === 5. PROFESSIONAL ROLE ASSIGNMENT ===
 Act as this team, chosen for this edition (not every role is needed for every project):
@@ -176,19 +179,19 @@ What the audience should understand by the end: what happened in each place, how
 === 8. AUDIENCE CURIOSITY MECHANISM ===
 EDITORIAL HYPOTHESIS, not measured audience behaviour, and it never overrides the evidence:
 ${curiosityLines}
-Edition-level: the comparison between ${ev.locations.map((l) => l.country).slice(0, 4).join(", ") || "the developments"} is the curiosity engine. Aim for understanding, not outrage or alarm. No clickbait: the hook must be answered inside the piece.
+${roundup ? "Edition-level: variety and pace are the engine. Give every story its own short, honest hook line and a different visual feel so the briefing keeps moving; do not promise a payoff that links the stories." : `Edition-level: the comparison between ${ev.locations.map((l) => l.country).slice(0, 4).join(", ") || "the developments"} is the curiosity engine.`} Aim for understanding, not outrage or alarm. No clickbait: the hook must be answered inside the piece.
 
 === 9. STRONGEST EVIDENCE-BACKED OPENING HOOK ===
 Lead with: ${ev.check.strongestOpening}
 The hook must be a verified fact or an honest question the evidence raises. It must not exaggerate or tease with withheld facts.
 
 === 10. INTEGRATED NARRATION SCRIPT ===
-Write ONE continuous script for ${secs} seconds: ${budget.min} to ${budget.max} words in total (aim for about ${budget.target}), at roughly ${WPS[0]} to ${WPS[1]} words per second. It must read as one argument with transitions, not ${n} summaries joined together. Short, declarative, calm sentences; attribute each factual statement ("according to ...", "reported by ...").
+Write ONE continuous script for ${secs} seconds: ${budget.min} to ${budget.max} words in total (aim for about ${budget.target}), at roughly ${WPS[0]} to ${WPS[1]} words per second. It must read as ONE professionally edited briefing, not ${n} separate scripts joined together. Required parts, in order: (a) one compelling opening hook; (b) a short introduction that tells the audience what this edition covers; (c) one segment per development in the order of section 11; (d) a transition between every pair of segments; (e) a strong conclusion${roundup ? " (a brief recap of what was covered and why each item matters on its own terms; no invented unifying lesson)" : " that returns to the central angle"}. Short, declarative, calm sentences; attribute each factual statement ("according to ...", "reported by ...").
 
 === 11. STORY SEQUENCE AND TRANSITIONS ===
 Recommended order (chosen for hook strength and short geographic moves):
 ${ev.sequence.map((s, i) => `${i + 1}. ${q(s.headline)} - ${s.role}. ${s.why}`).join("\n")}
-Write a transition between each pair that states the relationship (what is similar, what differs) without claiming more than section 4 supports. Do not repeat information the audience already has.
+${roundup ? "Write a short transition between each pair that only marks the move to a new story (and, if useful, the new place). Do not state or imply a relationship." : "Write a transition between each pair that states the relationship (what is similar, what differs) without claiming more than section 4 supports."} Do not repeat information the audience already has.
 
 === 12. GEOGRAPHIC SYNTHESIS AND MAP SEQUENCE ===
 ${ev.check.geographicDimension}
@@ -199,7 +202,7 @@ ${scenes.join("\n")}
 For every scene give: narration, on-screen text, visual cue, motion, transition and the source refs used.
 
 === 14. ON-SCREEN TEXT AND NUMERICAL ANCHORS ===
-Large, minimal, one idea per scene. Use a number only if it appears in section 6 with its unit and source.
+Large, minimal, one idea per scene. For every development give: an on-screen headline (short, factual), a caption, and 2 to 3 key facts, each with its source ref. Use a number only if it appears in section 6 with its unit and source.
 Numbers found in the retrieved headlines and snippets (verify each against its source before use):
 ${numericAnchors.length ? bullets(numericAnchors) : "- none found; do not invent numerical anchors"}
 
