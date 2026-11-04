@@ -12,10 +12,26 @@ import { DELIVERABLES, type Deliverable } from "../lib/production-tools.mts";
 import { PackTooLarge, classCounts } from "../lib/evidence-pack.mts";
 import { BRAND_VERSION, brandChecklist } from "../lib/brand.mts";
 import type { StyleRuleIn } from "../lib/prompt-architect.mts";
+import { loadCreative } from "../lib/creative-data.mts";
+import { FORMATS, configHash, approvalState, selectFormat, type SoundOpt } from "../lib/presenter.mts";
+import { buildBlueprint } from "../lib/blueprint.mts";
 import { UUID, loadStories, memberIds, latestEditionDecision, latestDecisions, packsFor, promptValidity } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+
+const FORMAT_KEYS = Object.keys(FORMATS);
+const opts = (src: { format?: unknown; sound?: unknown; visual?: unknown; durationSeconds?: unknown }) => ({
+  format: typeof src.format === "string" && FORMAT_KEYS.includes(src.format) ? src.format : null,
+  sound: (src.sound === "minimal" ? "minimal" : "subtle") as SoundOpt,
+  visual: (src.visual === "typographic" ? "typographic" : "adaptive") as "adaptive" | "typographic",
+});
+/** A saved prompt is stale if the voice setup, tool confirmations or the pronunciation entries for ITS names changed after it was written. Prompts saved before this feature carry no hash and are left as they were. */
+async function creativeStale(r: any): Promise<string | null> {
+  const h = r.rationale?.creative?.config_hash; if (!h) return null;
+  const { settings, lex } = await loadCreative();
+  return configHash(settings, r.rationale.creative.names ?? [], lex) === h ? null : "The presenter or voice setup, the tool confirmations or a pronunciation entry used by this prompt changed after it was written.";
+}
 
 async function approvedRules(): Promise<{ rules: StyleRuleIn[]; installed: boolean }> {
   try {
@@ -39,7 +55,7 @@ export default async (req: Request) => {
       if (id) return await one(id);
       const eid = u.searchParams.get("editionId");
       if (!eid || !UUID.test(eid)) return json({ error: "bad_request" }, 400);
-      return await preview(eid);
+      return await preview(eid, req);
     }
     if (req.method === "POST") return await generate(req);
     return json({ error: "method_not_allowed" }, 405);
@@ -69,12 +85,23 @@ async function readiness(editionId: string) {
   return { ed, ids, dec, loaded };
 }
 
-async function preview(editionId: string) {
+async function preview(editionId: string, req: Request) {
   const r = await readiness(editionId);
   if ("fail" in r) return r.fail;
   const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now(), structure: r.ed.structure as Structure });
   const members = packsFor(r.ids, r.loaded);
+  const u = new URL(req.url); const secs = ([60, 90, 120] as const).includes(Number(u.searchParams.get("durationSeconds")) as any) ? (Number(u.searchParams.get("durationSeconds")) as 60 | 90 | 120) : 90;
+  const o = opts({ format: u.searchParams.get("format"), sound: u.searchParams.get("sound"), visual: u.searchParams.get("visual") });
+  const cr = await loadCreative(); const format = selectFormat(ev, members, o.format);
+  const bp = buildBlueprint({ members, ev, secs, format, voice: cr.settings.voice, lex: cr.lex, toolsConfirmed: cr.settings.toolsConfirmed, sound: o.sound, visualMode: o.visual, deliverable: "script_storyboard", now: Date.now() });
   return json({
+    creative: {
+      format: { key: format.key, label: format.label, why: format.why, overridden: format.overridden }, formats: Object.entries(FORMATS).map(([k, v]) => ({ key: k, label: v.label, description: v.description })),
+      voice: { engine: cr.settings.voice.engine, voice: cr.settings.voice.voiceName, status: cr.settings.voice.status, approval: approvalState(cr.settings.voice), licence: cr.settings.voice.licence.status, configured: cr.configured },
+      runtime: { total: bp.allocation.total, ceiling: secs, shorter: bp.allocation.shorterThanCeiling, warnings: bp.allocation.warnings, words: bp.totalWords },
+      scenes: bp.scenes.map((x) => ({ n: x.n, kind: x.kind, ref: x.devRef, title: x.title, seconds: x.seconds, delivery: x.delivery.label, pace: `${x.delivery.paceLo} to ${x.delivery.paceHi}`, composition: x.visual.compositionId, treatment: x.visual.treatment, intensity: x.intensity, tier: x.tier })),
+      pronunciationCheckRequired: bp.pronunciation.filter((p) => p.state === "CHECK_REQUIRED").map((p) => ({ name: p.name, note: p.note })),
+    },
     editionId, title: r.ed.title, structure: r.ed.structure, structureLabel: STRUCTURE_LABEL[r.ed.structure as Structure],
     verdict: ev.coherence.verdict, score: ev.coherence.score, mapUseful: ev.check.mapUseful, mapWhy: ev.check.mapWhy,
     developments: members.map((m, i) => ({ ref: `D${i + 1}`, headline: m.dev.headline, sources: m.pack.sources.length, omitted: m.pack.omitted_sources.count, classes: classCounts(m.pack) })),
@@ -99,10 +126,12 @@ async function generate(req: Request) {
   const evaluation = evaluateEdition(members.map((m) => m.dev), { conflictNotes: notes.filter(Boolean), now: Date.now(), structure });
   const ev = evaluation;
   const { rules, installed: rulesInstalled } = await approvedRules();
+  const cr = await loadCreative(); const o = opts(b);
   const out = buildEditionPrompt({
     title: r.ed.title, members, evaluation, deliverable, durationSeconds: duration,
     angle: typeof b.angle === "string" && b.angle.trim() ? b.angle : r.ed.narrative_angle ?? "",
     conflictNotes: notes.filter(Boolean), approvedRules: rules,
+    creative: { voice: cr.settings.voice, toolsConfirmed: cr.settings.toolsConfirmed, lex: cr.lex, format: o.format, sound: o.sound, visual: o.visual },
   });
   const reply = {
     structure: { key: structure, label: STRUCTURE_LABEL[structure] },
@@ -110,6 +139,7 @@ async function generate(req: Request) {
     roles: out.roles, rationale: out.rationale, tools: out.tools,
     evidenceClasses: members.map((m, i) => ({ ref: `D${i + 1}`, ...classCounts(m.pack) })),
     brandChecklist: brandChecklist(), brandVersion: BRAND_VERSION, prompt: out.prompt,
+    creative: { format: out.format, runtime: (out.rationale as any).creative.runtime, voiceApproval: approvalState(cr.settings.voice), pronunciationCheckRequired: (out.rationale as any).creative.pronunciation_check_required, voiceConfigured: cr.configured },
   };
   let version = 1;
   try {
@@ -142,7 +172,7 @@ async function generate(req: Request) {
 async function history() {
   let rows: any[];
   try {
-    rows = await db<any[]>("edition_prompts?select=id,edition_id,version,structure,title,deliverable,members,members_hash,approval_decision_id,created_at&order=created_at.desc&limit=40");
+    rows = await db<any[]>("edition_prompts?select=id,edition_id,version,structure,title,deliverable,members,members_hash,approval_decision_id,rationale,created_at&order=created_at.desc&limit=40");
   } catch (e) {
     if (e instanceof DbError && e.upstream === 404) return json({ notInstalled: true, prompts: [] });
     throw e;
@@ -151,7 +181,8 @@ async function history() {
   for (const r of rows) {
     const v = await promptValidity(r, Date.now(), false);
     // history list checks approval, members and member decisions only (cheap); the full evidence check runs when a prompt is opened
-    out.push({ id: r.id, editionId: r.edition_id, title: r.title, version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.approvalCurrent && v.membersCurrent && v.storiesOk, reasons: v.reasons });
+    const stale = await creativeStale(r);
+    out.push({ id: r.id, editionId: r.edition_id, title: r.title, version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.approvalCurrent && v.membersCurrent && v.storiesOk && !stale, reasons: stale ? [...v.reasons, stale] : v.reasons });
   }
   return json({ prompts: out });
 }
@@ -161,7 +192,9 @@ async function one(id: string) {
   const rows = await db<any[]>(`edition_prompts?id=eq.${id}&select=*`);
   const r = rows[0];
   if (!r) return json({ error: "not_found" }, 404);
-  const v = await promptValidity(r, Date.now());
+  const v0 = await promptValidity(r, Date.now());
+  const stale = await creativeStale(r);
+  const v = stale ? { ...v0, current: false, reasons: [...v0.reasons, stale] } : v0;
   return json({
     id: r.id, editionId: r.edition_id, title: r.title, version: r.version, structure: r.structure, deliverable: r.deliverable, createdAt: r.created_at, brandVersion: r.brand_spec_version,
     developments: (r.members ?? []).length, coherence: r.coherence, roles: r.roles, rationale: r.rationale, tools: r.tools,

@@ -34,3 +34,7 @@ See `docs/EDITIONS.md`. Needs migration `004_editions.sql` (not run). Without it
 
 ## Planner (news cycle and publishing schedule)
 See `docs/PLANNER.md`. Page: Planner. Needs migration 005 to save plans; until then it shows NOT INSTALLED and still previews windows.
+
+
+## Creative Desk upgrade
+See [docs/CREATIVE_DESK.md](docs/CREATIVE_DESK.md): presenter/voice setup at `/creative`, programme formats, scene blueprint, pronunciation lexicon. No migration needed.

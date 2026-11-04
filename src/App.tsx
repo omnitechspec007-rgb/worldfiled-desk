@@ -9,6 +9,7 @@ import ReferenceLibrary from "./ReferenceLibrary";
 import PromptHistory from "./PromptHistory";
 import EditionDesk from "./EditionDesk";
 import Planner from "./Planner";
+import CreativeSetup from "./CreativeSetup";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
@@ -17,6 +18,7 @@ const NAV = [
   { to: "/review", label: "Editorial Review" },
   { to: "/planner", label: "Planner" },
   { to: "/editions", label: "Edition Desk" },
+  { to: "/creative", label: "Presenter and Voice" },
   { to: "/architect", label: "Prompt Architect" },
   { to: "/reference", label: "Reference Library" },
   { to: "/history", label: "Prompt History" },
@@ -228,6 +230,7 @@ function Desk({ onLogout }: { onLogout: () => void }) {
           <Route path="/review" element={<EditorialReview />} />
           <Route path="/planner" element={<Planner />} />
           <Route path="/editions" element={<EditionDesk />} />
+          <Route path="/creative" element={<CreativeSetup />} />
           <Route path="/architect" element={<Architect />} />
           <Route path="/reference" element={<ReferenceLibrary />} />
           <Route path="/history" element={<PromptHistory />} />

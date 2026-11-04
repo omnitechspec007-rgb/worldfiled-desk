@@ -27,7 +27,14 @@ type Desk = {
   saved: { installed: boolean; editions: { id: string; title: string; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
 };
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
-type PromptResult = { saved: boolean; notInstalled?: boolean; note?: string; id?: string; version?: number; prompt: string; roles: { role: string; why: string }[]; tools: { needed: { name: string }[]; note: string }; brandChecklist: string[] };
+type CreativePreview = {
+  format: { key: string; label: string; why: string; overridden: boolean }; formats: { key: string; label: string; description: string }[];
+  voice: { engine: string; voice: string; status: string; approval: string; licence: string; configured: boolean };
+  runtime: { total: number; ceiling: number; shorter: boolean; warnings: string[]; words: number };
+  scenes: { n: number; kind: string; ref: string | null; title: string; seconds: number; delivery: string; pace: string; composition: string; treatment: string; intensity: string; tier: string }[];
+  pronunciationCheckRequired: { name: string; note: string }[];
+};
+type PromptResult = { creative?: { pronunciationCheckRequired: string[]; runtime: { warnings: string[] }; voiceApproval: string }; saved: boolean; notInstalled?: boolean; note?: string; id?: string; version?: number; prompt: string; roles: { role: string; why: string }[]; tools: { needed: { name: string }[]; note: string }; brandChecklist: string[] };
 
 const STRUCTS = [["multi_country", "Multi-country synthesis"], ["single_country", "Single-country deep dive"], ["event_roundup", "Event-driven thematic roundup"], ["news_roundup", "Multi-topic news roundup (no shared theme)"]];
 const api = "/.netlify/functions/";
@@ -83,6 +90,10 @@ export default function EditionDesk() {
   const [deliverable, setDeliverable] = useState("script_storyboard");
   const [duration, setDuration] = useState(90);
   const [pAngle, setPAngle] = useState("");
+  const [fmt, setFmt] = useState("");
+  const [sound, setSound] = useState("subtle");
+  const [visual, setVisual] = useState("adaptive");
+  const [cpv, setCpv] = useState<CreativePreview | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [res, setRes] = useState<PromptResult | null>(null);
   const [copied, setCopied] = useState(false);
@@ -167,11 +178,16 @@ export default function EditionDesk() {
     } catch { setMsg("That decision was not saved."); }
     setBusy(false);
   };
+  useEffect(() => {
+    if (!editionId) { setCpv(null); return; }
+    const q = `editionId=${editionId}&durationSeconds=${duration}&format=${fmt}&sound=${sound}&visual=${visual}`;
+    fetch(`${api}edition-prompt?${q}`).then(async (r) => { if (r.ok) setCpv((await r.json()).creative ?? null); else setCpv(null); }).catch(() => setCpv(null));
+  }, [editionId, duration, fmt, sound, visual, approval?.current]);
   const build = async () => {
     if (!editionId) return;
     setBusy(true); setMsg(""); setCopied(false); setRes(null);
     try {
-      const r = await post("edition-prompt", { editionId, deliverable, durationSeconds: duration, angle: pAngle, conflictNotes: conflicts, parentId: res?.id });
+      const r = await post("edition-prompt", { editionId, deliverable, durationSeconds: duration, format: fmt, sound, visual, angle: pAngle, conflictNotes: conflicts, parentId: res?.id });
       const d = await r.json();
       if (!r.ok) setMsg(d.detail ?? "Could not create the prompt.");
       else setRes(d);
@@ -354,6 +370,25 @@ export default function EditionDesk() {
                   <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="script_storyboard">Script and storyboard</option><option value="animated_html">Animated HTML</option><option value="narrated_video">Narrated video</option></select></label>
                   <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={60}>60 seconds</option><option value={90}>90 seconds</option><option value={120}>120 seconds</option></select></label>
                 </div>
+                {cpv && (
+                  <div className="panel">
+                    <label>Programme format<select value={fmt} onChange={(e) => setFmt(e.target.value)}><option value="">Automatic: {cpv.format.label}</option>{cpv.formats.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select></label>
+                    <p className="meta">{cpv.format.label}{cpv.format.overridden ? " (your choice)" : ""}: {cpv.format.why}.</p>
+                    <p className="meta">Presenter voice: {cpv.voice.voice} ({cpv.voice.engine}) · {cpv.voice.status.replace(/_/g, " ")} · {cpv.voice.approval === "APPROVED" ? "listening approved" : cpv.voice.approval === "VOID_VOICE_CHANGED" ? "approval void: the voice changed" : "not approved by listening"} · licence {cpv.voice.licence.replace(/_/g, " ").toLowerCase()}. <a href="/creative">Presenter and voice setup</a></p>
+                    <p className="meta">Runtime: about {cpv.runtime.total} seconds of {cpv.runtime.ceiling}, about {cpv.runtime.words} spoken words.{cpv.runtime.shorter ? " Shorter on purpose: the sourced material supports no more." : ""}</p>
+                    {cpv.runtime.warnings.map((w, i) => <p key={i} className="caution">{w}</p>)}
+                    {cpv.pronunciationCheckRequired.length > 0 && <p className="caution">PRONUNCIATION CHECK REQUIRED before recording: {cpv.pronunciationCheckRequired.map((x) => x.name).join(", ")}. <a href="/creative">Confirm names</a></p>}
+                    <details><summary>Scene plan ({cpv.scenes.length} scenes)</summary>
+                      <table><thead><tr><th>#</th><th>Scene</th><th>s</th><th>Delivery</th><th>Visual</th><th>Evidence</th></tr></thead><tbody>{cpv.scenes.map((x) => <tr key={x.n}><td>{x.n}</td><td>{x.ref ? `${x.ref} ` : ""}{x.title}</td><td>{x.seconds}</td><td>{x.delivery} ({x.pace} w/s)</td><td>{x.composition}</td><td>{x.tier.replace("_", " ")} · {x.intensity}</td></tr>)}</tbody></table>
+                    </details>
+                    <details><summary>Advanced: sound and visual direction</summary>
+                      <div className="row">
+                        <label>Sound<select value={sound} onChange={(e) => setSound(e.target.value)}><option value="subtle">Subtle: one music bed and restrained cues</option><option value="minimal">Minimal: motifs and silence only</option></select></label>
+                        <label>Visual treatment<select value={visual} onChange={(e) => setVisual(e.target.value)}><option value="adaptive">Adaptive to each story and its evidence</option><option value="typographic">Typographic plates only</option></select></label>
+                      </div>
+                    </details>
+                  </div>
+                )}
                 <label>Prompt angle override (optional)<input type="text" value={pAngle} onChange={(e) => setPAngle(e.target.value)} maxLength={200} /></label>
                 {ids.map((id, i) => <label key={id}>Conflict note for D{i + 1} (only if you found accounts that disagree)<input type="text" value={conflicts[i] ?? ""} maxLength={600} onChange={(e) => setConflicts((c) => c.map((x, j) => (j === i ? e.target.value : x)))} /></label>)}
                 <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy}>Create integrated prompt</button></div>
@@ -362,6 +397,7 @@ export default function EditionDesk() {
             {res && (
               <div>
                 {res.saved ? <p className="status good">Saved to Edition Prompt History as version {res.version}.</p> : <p className="status bad">{res.note ?? "This prompt was NOT saved."}</p>}
+                {res.creative && res.creative.pronunciationCheckRequired.length > 0 && <p className="caution">PRONUNCIATION CHECK REQUIRED: {res.creative.pronunciationCheckRequired.join(", ")}. This list is also inside the prompt.</p>}
                 <h3>Team chosen for this edition</h3>
                 <ul className="comps">{res.roles.map((r) => <li key={r.role}><strong>{r.role}</strong>: {r.why}</li>)}</ul>
                 <p className="meta">{res.tools.note}</p>

@@ -8,6 +8,11 @@ import { DELIVERABLES, selectTools, type Deliverable, type ToolPlan } from "./pr
 import { distanceKm } from "./geo.mts";
 import type { Dev, Evaluation } from "./editions.mts";
 import type { StyleRuleIn } from "./prompt-architect.mts";
+import { buildBlueprint, renderScene } from "./blueprint.mts";
+import {
+  CAPABILITIES, DEFAULT_SETTINGS, FORMATS, LAOMEDEIA_REFERENCE, PRESENTER, PRESENTER_VERSION, PROFILES, TREATMENT_SET, allowedControls, approvalState, configHash, selectFormat, soundPlan, voiceKey,
+  type LexEntry, type SoundOpt, type VoiceConfig,
+} from "./presenter.mts";
 
 export const MAX_EDITION_PROMPT_CHARS = 200_000;
 export const MAX_EDITION_SNAPSHOT_BYTES = 600_000;
@@ -23,10 +28,11 @@ export type EditionPromptInput = {
   angle?: string;
   conflictNotes?: string[];
   approvedRules: StyleRuleIn[];
+  /** Saved Creative Desk setup (voice, tool availability, pronunciation lexicon) and this run's options. Defaults keep older callers working. */
+  creative?: { voice?: VoiceConfig; toolsConfirmed?: string[]; lex?: LexEntry[]; format?: string | null; sound?: SoundOpt; visual?: "adaptive" | "typographic"; assets?: Record<string, string[]>; now?: number };
 };
 type Role = { role: string; why: string };
 
-const WPS: [number, number] = [2.2, 2.8];
 const bullets = (a: string[]) => a.map((x) => `- ${x}`).join("\n");
 const q = (s: string) => `"${cleanField(s, 160)}"`;
 
@@ -66,7 +72,15 @@ export function buildEditionPrompt(input: EditionPromptInput) {
   const d = DELIVERABLES.find((x) => x.key === input.deliverable) ?? DELIVERABLES[0];
   const tools: ToolPlan = selectTools(d.key, ev.check.mapUseful);
   const roles = pickRoles(members, ev, d.key);
-  const budget = { min: Math.round(secs * WPS[0]), max: Math.round(secs * WPS[1]), target: Math.round(secs * 2.5) };
+  const cz = input.creative ?? {};
+  const voice = cz.voice ?? DEFAULT_SETTINGS.voice, toolsConfirmed = cz.toolsConfirmed ?? [], lex = cz.lex ?? [];
+  const format = selectFormat(ev, members, cz.format);
+  const sound: SoundOpt = cz.sound ?? "subtle";
+  const bp = buildBlueprint({ members, ev, secs, format, voice, lex, toolsConfirmed, sound, visualMode: cz.visual ?? "adaptive", deliverable: d.key, now: cz.now ?? Date.now(), assets: cz.assets });
+  const sp = soundPlan(format.key, sound);
+  const appr = approvalState(voice);
+  const apprText = appr === "APPROVED" ? `APPROVED by the editor after listening (${voice.approval.approvedAt})` : appr === "VOID_VOICE_CHANGED" ? "NOT APPROVED: the engine, voice or model changed since the last listening approval, so the approval no longer applies" : "NOT APPROVED: no listening approval has been recorded for this voice";
+  const controls = allowedControls(voice);
   const angle = cleanField(input.angle, 200);
   const title = cleanField(input.title, 200);
 
@@ -84,27 +98,6 @@ export function buildEditionPrompt(input: EditionPromptInput) {
     .join("\n\n");
 
   const classLegend = (Object.keys(CLASS_MEANING) as (keyof typeof CLASS_MEANING)[]).map((k) => `- ${k}: ${CLASS_MEANING[k]}`).join("\n");
-
-  // ---- sequence, scenes and timecodes
-  const hookPct = 0.1, connectPct = 0.12, uncertainPct = 0.08, matterPct = 0.1;
-  const devPct = (1 - hookPct - connectPct - uncertainPct - matterPct) / Math.max(n, 1);
-  let t = 0;
-  const seg = (label: string, pct: number, body: string) => {
-    const len = Math.max(3, Math.round(pct * secs));
-    const from = t;
-    t = Math.min(secs, t + len);
-    return `Scene ${label} (${from}s to ${t}s): ${body}`;
-  };
-  const scenes: string[] = [];
-  scenes.push(seg("1 - Hook and introduction", hookPct, `Open with the strongest evidence-backed hook (see section 9), then one short line telling the audience what this edition covers (${n} development${n === 1 ? "" : "s"}).`));
-  ev.sequence.forEach((s, i) => {
-    const m = members.find((x) => x.dev.id === s.id)!;
-    const where = m.dev.a.locations[0] ? `${m.dev.a.locations[0].country} (${m.dev.a.locations[0].basis})` : "place not established";
-    scenes.push(seg(`${i + 2} - D${members.indexOf(m) + 1}`, devPct, `${s.role}. Development: ${q(m.dev.headline)}. Place: ${where}. Attribute every fact to its source ref (D${members.indexOf(m) + 1}-S#). Say what happened and what is different about this one.`));
-  });
-  scenes.push(seg(`${n + 2} - ${roundup ? "Recap" : "What connects them"}`, connectPct, roundup ? `Briefly recap the stories covered. Do not add a unifying claim.` : `State the connection (section 4) and why the combination explains more than the separate stories.`));
-  scenes.push(seg(`${n + 3} - What remains uncertain`, uncertainPct, `Say plainly what is single-source, conflicting or unknown (section 6).`));
-  scenes.push(seg(`${n + 4} - What matters`, matterPct, `Strong conclusion: close on what matters, only as far as the evidence supports. Do not predict.`));
 
   // ---- map instructions grounded in the gazetteer
   const placed = ev.sequence.map((s, i) => ({ s, l: members.find((m) => m.dev.id === s.id)!.dev.a.locations[0], i }));
@@ -140,6 +133,7 @@ export function buildEditionPrompt(input: EditionPromptInput) {
 - Every claim has an evidence class. You may not state a claim more strongly than its class allows. Separate, always labelled: EDITORIAL INTERPRETATION (our reading of the connection) and FUTURE POSSIBILITY (anything that "could" or "may" happen, only if a source says it). Creative treatment may never turn a SINGLE_SOURCE, CONFLICTING or UNKNOWN item into an asserted fact.
 - Several outlets repeating one announcement or one wire report are NOT independent confirmation. Do not write "confirmed by multiple sources" unless section 6 shows separate original sources.
 - The connection between the developments is the editorial thesis. Present it as our interpretation. Do not imply the places coordinated, caused each other, or share a cause unless a source states that.
+- Evidence strength constrains creative treatment. A single-source or weak item never receives a style that implies certainty or corroboration (no "BREAKING" or "CONFIRMED" labels, no impact sounds, no dramatic reveal). Unsupported claims are left out, not made dramatic through hedging.
 - Anything illustrative must be visibly or verbally framed as illustrative, never as real footage or evidence.
 - Everything must be free to produce: no paid services, trials, subscriptions or API keys. If something cannot be done free, say so.
 ${flagged.length ? `- Single-outlet developments (${flagged.join(", ")}) must be framed on screen and in narration as "reported by <outlet>, not independently confirmed".\n` : ""}- Report honestly what you could not verify or complete.
@@ -150,6 +144,7 @@ Central theme: ${cleanField(ev.theme, 120)}${ev.catalyst ? ` | shared catalyst: 
 ${angle ? `Editor's chosen angle: "${angle}" (follow it only where the evidence supports it).\n` : ""}
 === 3. EDITORIAL STRUCTURE ===
 ${ev.structureLabel}. ${structureBrief}
+PROGRAMME FORMAT: ${format.label}${format.overridden ? " (chosen by the editor)" : ""}. ${FORMATS[format.key].description} Selected because ${format.why}.${format.connectionLabel ? ` Connection label: ${format.connectionLabel}.` : ""}
 
 === 4. WHY THESE DEVELOPMENTS BELONG TOGETHER ===
 ${roundup ? "Grouping: chosen by the editor as a multi-topic roundup. The fixed-rule check found no shared theme (" + ev.coherence.verdict + (ev.coherence.score !== null ? ` ${ev.coherence.score}/100` : "") + "), which is acceptable for this structure. Do NOT present the stories as connected, as a pattern or as a trend." : "Coherence check by fixed rules: " + ev.coherence.verdict + (ev.coherence.score !== null ? ` (${ev.coherence.score}/100)` : "") + "."}
@@ -185,8 +180,29 @@ ${roundup ? "Edition-level: variety and pace are the engine. Give every story it
 Lead with: ${ev.check.strongestOpening}
 The hook must be a verified fact or an honest question the evidence raises. It must not exaggerate or tease with withheld facts.
 
-=== 10. INTEGRATED NARRATION SCRIPT ===
-Write ONE continuous script for ${secs} seconds: ${budget.min} to ${budget.max} words in total (aim for about ${budget.target}), at roughly ${WPS[0]} to ${WPS[1]} words per second. It must read as ONE professionally edited briefing, not ${n} separate scripts joined together. Required parts, in order: (a) one compelling opening hook; (b) a short introduction that tells the audience what this edition covers; (c) one segment per development in the order of section 11; (d) a transition between every pair of segments; (e) a strong conclusion${roundup ? " (a brief recap of what was covered and why each item matters on its own terms; no invented unifying lesson)" : " that returns to the central angle"}. Short, declarative, calm sentences; attribute each factual statement ("according to ...", "reported by ...").
+=== 10. INTEGRATED NARRATION SCRIPT AND PRESENTER DIRECTION ===
+PRESENTER (a recurring identity, independent of any voice engine): ${PRESENTER.identity}
+Energy: ${PRESENTER.energy.join(" ")}
+Never imitate: ${PRESENTER.never.join(", ")}.
+VOICE CONFIGURATION USED FOR THIS PROMPT (the editor's saved setup; changing the engine never changes the presenter identity):
+- Engine: ${voice.engine}. Voice: ${voice.voiceName}.${voice.model ? ` Model: ${voice.model}.` : " Model: not recorded."}
+- Voice status: ${voice.status.replace(/_/g, " ")}. Listening approval: ${apprText}. Last tested: ${voice.lastTested ?? "never"}.
+- Licence and commercial use: ${voice.licence.status.replace(/_/g, " ")}${voice.licence.checkedAt ? ` (checked ${voice.licence.checkedAt})` : ""}. ${voice.licence.note}
+- Style notes: ${(voice.styleInstructions || "none recorded").replace(/\.+$/, "")}. Pace notes: ${(voice.paceInstructions || "none recorded").replace(/\.+$/, "")}.
+- Pronunciation handling: ${voice.pronunciationHandling.replace(/_/g, " ").toLowerCase()}.
+- Controls verified for this engine by the editor: ${controls.length ? controls.join(", ") : "none"}. Request nothing else: do NOT put SSML, per-word emphasis markers, phonetic markup or numeric speed settings in anything the engine reads, and do NOT claim the engine supports them.
+${/laomedeia/i.test(voice.voiceName) ? `Reference sample for the target feel (measured on ONE supplied sample, not a universal rule; the editor's ears outrank the numbers): ${LAOMEDEIA_REFERENCE.format}; about ${LAOMEDEIA_REFERENCE.durationSeconds} s; about ${LAOMEDEIA_REFERENCE.integratedLufs} LUFS; true peak about ${LAOMEDEIA_REFERENCE.truePeakDbfs} dBFS; median pitch about ${LAOMEDEIA_REFERENCE.medianPitchHz} Hz; pitch variation about ${LAOMEDEIA_REFERENCE.pitchVariationSemitones} semitones; about ${LAOMEDEIA_REFERENCE.wordsPerSecond} words per second (${LAOMEDEIA_REFERENCE.paceNote}); ${LAOMEDEIA_REFERENCE.pauses}\n` : ""}Voice and licence status above is the editor's record. Nothing here claims the voice has been tested, approved or cleared for commercial use unless it says so.
+
+Script length: about ${bp.totalWords} spoken words across about ${bp.allocation.total} seconds (the edition ceiling is ${secs} seconds; ${bp.allocation.shorterThanCeiling ? "it is shorter on purpose because the sourced material supports no more, so do NOT pad it" : "pace targets are in each scene"}). Per-scene word budgets are in section 13. The news occupies the programme: the opening, recap and closing together are a small share of it.${bp.allocation.warnings.length ? "\nRuntime warnings: " + bp.allocation.warnings.join(" ") : ""}
+Narration rules:
+- Put the news in the first clause. Write for the ear, not for an article. Vary sentence length and openings.
+- Aim for at most 18 words per sentence, with exceptions only where clarity requires them.
+- One natural attribution per story, not on every sentence. State allegations as allegations. Separate claims from established facts. Say plainly whether something is a plan, proposal or target, or is already done.
+- No unnecessary disclaimers. No forced rhetorical questions and no manufactured curiosity: at most ONE rhetorical question in the whole edition. Do not invent or strengthen facts for effect.
+- Spell numbers, units, symbols and abbreviations as they are spoken.
+- Per story: the on-screen chip carries the evidence level. Speak a qualification only where the audience needs it (allegations, contested claims, plans, material uncertainty). Never repeat a phrase like "not independently confirmed" through the programme, and never drop a material qualification just to save time.
+Read this as ONE professionally edited briefing, not separate scripts joined together. Required parts, in order: (a) one opening hook; (b) a short introduction; (c) one segment per development in the order of section 11; (d) a transition between every pair of segments; (e) a conclusion${roundup ? " (no invented unifying lesson)" : " that returns to the central angle"}.
+OUTPUT THE NARRATION IN TWO SEPARATE BLOCKS: (1) CLEAN TRANSCRIPT: only the words to be spoken, scene by scene, with no brackets, stage directions, pronunciation marks or sound cues inside it (they could be read aloud); (2) DELIVERY SHEET: per scene, the delivery profile, pace target, pauses, emphasis, pronunciation notes and the sound cue, written as guidance for the editor.
 
 === 11. STORY SEQUENCE AND TRANSITIONS ===
 Recommended order (chosen for hook strength and short geographic moves):
@@ -197,26 +213,48 @@ ${roundup ? "Write a short transition between each pair that only marks the move
 ${ev.check.geographicDimension}
 ${mapBlock}
 
-=== 13. STORYBOARD AND TIMECODES (${secs} seconds; skip or shorten any scene the evidence cannot support) ===
-${scenes.join("\n")}
-For every scene give: narration, on-screen text, visual cue, motion, transition and the source refs used.
+=== 13. PRODUCTION BLUEPRINT (${bp.scenes.length} scenes, about ${bp.allocation.total} seconds; skip or shorten any scene the evidence cannot support) ===
+Runtime was allocated by editorial significance, evidence and how much sourced material exists. Do not add scenes, stories or filler to reach a length. Every scene below has 18 fields; follow them. Delivery directions here are guidance for the voice, never text to be spoken.
+${bp.scenes.map(renderScene).join("\n\n")}
 
 === 14. ON-SCREEN TEXT AND NUMERICAL ANCHORS ===
 Large, minimal, one idea per scene. For every development give: an on-screen headline (short, factual), a caption, and 2 to 3 key facts, each with its source ref. Use a number only if it appears in section 6 with its unit and source.
 Numbers found in the retrieved headlines and snippets (verify each against its source before use):
 ${numericAnchors.length ? bullets(numericAnchors) : "- none found; do not invent numerical anchors"}
 
-=== 15 and 16. VISUAL ASSETS, MAPS, DATA AND GEOGRAPHIC VISUALISATION ===
-${members.map((m, i) => `D${i + 1} (${m.dev.a.typeLabel}): ${m.dev.a.type === "law_regulation" || m.dev.a.type === "government_decision" || m.dev.a.type === "institutional_decision" ? "document-style panel with only wording that appears in the evidence" : m.dev.a.type === "scientific_discovery" ? "clean labelled diagram of the finding; no fake lab footage" : m.dev.a.type === "economic_change" ? "one clearly labelled figure with unit and period; zero-based axes" : "restrained editorial graphic"}.`).join("\n")}
+=== 15 and 16. VISUAL SYSTEM, ASSETS, MAPS AND DATA ===
+Each development gets a treatment chosen from its category and its evidence level (the per-scene fields in section 13 give the exact composition):
+${members.map((m, i) => { const x = bp.perDev[m.dev.id]; const tr = TREATMENT_SET[x.visualKey as keyof typeof TREATMENT_SET]; return `D${i + 1} (${tr.label}: ${tr.devices}). Evidence: ${x.et.tier.replace("_", " ")}, creative intensity ${x.et.intensity}. ${x.et.allowed}${x.et.forbidden.length ? ` Do NOT use: ${x.et.forbidden.join("; ")}.` : ""}`; }).join("\n")}
+Visual rules:
+- Do not give every story the same composition and do not repeat a layout in consecutive scenes without an editorial reason you state.
+- Every animation, camera move, parallax layer, callout and transition must have a stated editorial purpose. Use movement to guide reading, not to decorate.
+- A match cut may connect SHAPES for rhythm. It must never imply that unrelated developments are causally connected, and the labels must not change to suggest it.
+- Maps use verified geographic information only. Never invent routes, borders, locations, infrastructure or exact event positions. Illustrative diagrams and reconstructions are labelled ILLUSTRATIVE.
+- Do not invent photographs, footage, crowds, buildings, visual evidence or likenesses of named people. If usable imagery is not supplied and verified, use a typographic, map-based or schematic treatment, never misleading stock footage.
+- Use the brand palette; do not use all four colours at equal intensity.
 ${rules}
-Do not use photographs of real people or logos unless the editor supplies them. Use the brand palette; do not use all four colours at equal intensity.
+Geographic map notes are in section 12.
 
 === 17. NARRATION AND PRONUNCIATION ===
-Voice: informed, calm, precise; steady pace, a short pause before each key fact, one emphasised word per sentence; never shout or dramatise.
-Pronunciation: list every person, place and organisation name in the script with a plain-text phonetic guide, and mark any you are unsure of.
+Delivery follows the profile named in each scene (pace targets are initial, editable and must be checked against the actual engine output).
+Delivery profiles available: ${Object.values(PROFILES).map((p) => `${p.label} ${p.paceLo} to ${p.paceHi} words per second`).join("; ")}.
+PRONUNCIATION LEXICON (never invent a phonetic transcription; use only what is listed):
+${bp.pronunciation.filter((x) => x.state !== "CHECK_REQUIRED").map((x) => `- ${x.name}: say "${x.entry!.pronunciation}" (${x.entry!.status}; ${x.entry!.source}${x.entry!.engineNotes[voice.engine] ? `; for ${voice.engine}: ${x.entry!.engineNotes[voice.engine]}` : ""})`).join("\n") || "- no confirmed or sourced entries apply to this edition"}
+${bp.pronunciation.some((x) => x.state === "CHECK_REQUIRED") ? `PRONUNCIATION CHECK REQUIRED (the editor must confirm these before the voice-over is recorded; do not guess, and do not hide this list):\n${bp.pronunciation.filter((x) => x.state === "CHECK_REQUIRED").map((x) => `- ${x.name}: ${x.note}`).join("\n")}` : "PRONUNCIATION CHECK: every name found in the evidence has a confirmed or sourced entry."}
+List every person, place, organisation and acronym that is spoken, with the pronunciation status above, in the delivery sheet.
 
-=== 18. SOUND AND MUSIC ===
-Restrained and supportive. No music that competes with the narration; no sound effects that imply events the evidence does not state. Use only royalty-free sound you can verify is free to use, and say what you used.
+=== 18. SOUND AND MUSIC PLAN ===
+Opening sonic identity: ${sp.opening}
+Music: ${sp.bed}
+Story transitions: ${sp.transitions}
+Map and data cues: ${sp.mapData}
+Strategic silence: ${sp.silence}
+Serious stories: ${sp.serious}
+Closing: ${sp.closing}
+Format note: ${sp.formatNote}
+Avoid: ${sp.avoid}
+Sound sources and licences: ${sp.licence}
+WorldFiled Desk does not generate or render audio.
 
 === 19. SUBTITLES AND TYPOGRAPHY ===
 Provide subtitles as short caption groups with start times. Strong editorial headlines, legible sans-serif supporting text, large high-contrast text for a 9:16 phone screen, restrained uppercase labels, no long all-caps paragraphs. See the brand specification below.
@@ -227,25 +265,30 @@ ${tools.needed.length ? "Tools genuinely needed for this deliverable (candidates
 ${tools.optional.length ? "Optional only if you have a specific reason:\n" + tools.optional.map((x) => `- ${x.name} (${x.repo}): ${x.why}.`).join("\n") : ""}
 Not needed: ${tools.notNeeded.map((x) => `${x.name} (${x.reason})`).join("; ")}.
 ${tools.note}
+PRODUCTION CAPABILITY REGISTRY (nothing below is marked tested; being listed is not testing):
+${CAPABILITIES.map((c) => `- ${c.label}: ${c.cls}${toolsConfirmed.includes(c.key) ? " (you confirmed this is available)" : ""}. ${c.note}`).join("\n")}
+Use NATIVE and FREE TOOL items only after verifying them; ask the editor for MANUAL items; do not rely on UNVERIFIED items; never use PAID items. Kokoro or any alternative voice is NOT the default presenter without the editor's listening approval and licence review.
 Report actual availability, cost, licence and compatibility of anything you use. Do not install anything not listed as needed. If a tool fails verification, say so and propose a free alternative or reduce the deliverable. Never substitute a paid service.
 
 === 22. DELIVERABLES ===
 Produce: ${d.text}
 Also always provide, in this order:
-1. The integrated script with caption groups and start times, and total word count.
-2. The storyboard with timecodes.
+1. The CLEAN TRANSCRIPT (spoken words only, no directions inside it), with caption groups and start times and the total word count, and SEPARATELY the DELIVERY SHEET.
+2. The blueprint scene by scene with timecodes, all 18 fields.
 3. The deliverable files described above, if any.
 4. A claim-to-source table: every number, date, name, place and quote on screen or in the script, with its source ref (D#-S#) and evidence class, and whether it is a fact, EDITORIAL INTERPRETATION or FUTURE POSSIBILITY. Anything unsourced: mark UNSOURCED and remove it.
 5. A list of scenes you skipped or softened, and any development whose connection to the others you could not support.
 6. A tools note: what you used and how you verified it.
-7. Two separate checklists, answered honestly: FACT CHECK and BRAND COMPLIANCE (section 23).
+7. A PRONUNCIATION CHECK list (every uncertain name) and a SOUND LICENCE table (asset, source, licence, link, date checked).
+8. Two separate checklists, answered honestly: FACT CHECK and BRAND COMPLIANCE (section 23).
 
 === 23. QUALITY CONTROL ===
 Fact check (separate from brand):
 - Every claim traces to a source ref and does not exceed its class; interpretation and future possibility are labelled.
 - No invented detail; no corroboration beyond the evidence; illustrative elements are labelled.
 - The connection is presented as interpretation and the edition reads as one coherent argument.
-- Visual clarity and mobile readability; voiceover quality; pronunciation list complete; timing matches the word budget.
+- Visual clarity and mobile readability; voiceover quality; pronunciation list complete; timing matches the per-scene word budgets.
+- Narration checks: sentences mostly at most 18 words; at most one rhetorical question; no repeated sentence openings; the qualification phrase not repeated; numbers spelled out; no directions inside the transcript; no claim stronger than its evidence level.
 - Technical correctness: files open and play as described; report what you tested.
 Brand compliance (checked separately from facts):
 ${bullets(brandChecklist())}
@@ -264,7 +307,8 @@ Do not copy any other news brand's name, wording, visual identity or presentatio
   };
   if (Buffer.byteLength(JSON.stringify(snapshot)) > MAX_EDITION_SNAPSHOT_BYTES) throw new EditionPromptTooLarge("The evidence for this edition exceeds the storage limit. Nothing was shortened; remove a development.");
   return {
-    prompt, roles, tools, snapshot, evidenceHash: evidenceHash(members), brandVersion: BRAND_VERSION,
-    rationale: { structure: ev.structure, theme: ev.theme, catalyst: ev.catalyst, coherence: { score: ev.coherence.score, verdict: ev.coherence.verdict, components: ev.coherence.components }, sequence: ev.sequence, roles, deliverable: d.key, duration_seconds: secs, map_useful: ev.check.mapUseful, recommendations: ev.check.recommendations, approved_style_rules: input.approvedRules.map((r) => `${r.rule_key}@v${r.version}`) },
+    blueprint: bp, format, prompt, roles, tools, snapshot, evidenceHash: evidenceHash(members), brandVersion: BRAND_VERSION,
+    rationale: { structure: ev.structure, theme: ev.theme, catalyst: ev.catalyst, coherence: { score: ev.coherence.score, verdict: ev.coherence.verdict, components: ev.coherence.components }, sequence: ev.sequence, roles, deliverable: d.key, duration_seconds: secs, map_useful: ev.check.mapUseful, recommendations: ev.check.recommendations, approved_style_rules: input.approvedRules.map((r) => `${r.rule_key}@v${r.version}`),
+      creative: { presenter_version: PRESENTER_VERSION, config_hash: configHash({ voice, toolsConfirmed }, bp.names, lex), names: bp.names, voice: { key: voiceKey(voice), engine: voice.engine, voice: voice.voiceName, status: voice.status, approval: appr, licence: voice.licence.status }, format: { key: format.key, why: format.why, overridden: format.overridden }, sound, visual: cz.visual ?? "adaptive", runtime: { total: bp.allocation.total, ceiling: secs, warnings: bp.allocation.warnings }, pronunciation_check_required: bp.pronunciation.filter((x) => x.state === "CHECK_REQUIRED").map((x) => x.name), scenes: bp.scenes.map((x) => ({ n: x.n, kind: x.kind, ref: x.devRef, from: x.timecode.from, to: x.timecode.to, delivery: x.delivery.key, composition: x.visual.compositionId, intensity: x.intensity, tier: x.tier })) } },
   };
 }

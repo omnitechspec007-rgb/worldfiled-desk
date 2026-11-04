@@ -1,0 +1,186 @@
+// Creative Desk rules: presenter, voice, delivery, evidence-limited intensity, formats, treatments, sound, capabilities,
+// pronunciation, narration checks, runtime and blueprint. These test the RULES' behaviour, not just that headings exist.
+import { buildDev, evaluateEdition, type Dev } from "../netlify/lib/editions.mts";
+import { buildEditionPrompt } from "../netlify/lib/edition-prompt.mts";
+import { buildBlueprint, renderScene } from "../netlify/lib/blueprint.mts";
+import { buildEvidencePack, type EvSource } from "../netlify/lib/evidence-pack.mts";
+import type { StoryInput } from "../netlify/lib/scoring.mts";
+import * as P from "../netlify/lib/presenter.mts";
+
+let pass = 0, fail = 0;
+const check = (n: string, v: boolean) => { console.log((v ? "PASS " : "FAIL ") + n); v ? pass++ : fail++; };
+const NOW = Date.parse("2026-10-31T12:00:00Z");
+const ago = (h: number) => new Date(NOW - h * 3600_000).toISOString();
+type S = { outlet: string; tier?: "primary" | "reporting"; title: string; summary: string };
+function mk(id: string, headline: string, category: string, sources: S[], ageH = 5) {
+  const input: StoryInput = { id, headline, category, createdAt: ago(3), sources: sources.map((s) => ({ outlet: s.outlet, region: "Europe", tier: s.tier ?? "reporting", publishedAt: ago(ageH), retrievedAt: ago(1), title: s.title, summary: s.summary })) };
+  const ev: EvSource[] = sources.map((s) => ({ outlet: s.outlet, region: "Europe", tier: s.tier ?? "reporting", url: `https://${s.outlet.toLowerCase().replace(/\W/g, "")}.example/${id}`, title: s.title, summary: s.summary, publishedAt: ago(ageH), retrievedAt: ago(1) }));
+  return { dev: buildDev(input, ev, NOW), story: { headline, category, sources: ev } };
+}
+const two = (id: string, p: string, h: string, c: string, a: [string, string], b: [string, string], official = false, ageH = 5) =>
+  mk(id, h, c, [{ outlet: `${p} Gazette`, tier: official ? "primary" : "reporting", title: a[0], summary: a[1] }, { outlet: `${p} Times`, title: b[0], summary: b[1] }], ageH);
+const one = (id: string, p: string, h: string, c: string, a: [string, string], ageH = 5) => mk(id, h, c, [{ outlet: `${p} Gazette`, title: a[0], summary: a[1] }], ageH);
+
+const jp = two("jp", "Tokyo", "Japan orders new emergency preparedness plan with stockpiles for families", "Government and institutional decisions", ["Japan updates national preparedness and stockpile directive", "Government ministry orders households and local councils to stockpile water and food for disasters."], ["Tokyo tightens emergency readiness rules", "Families must keep supplies; shelters and early warning expanded in Japan."], true);
+const fi = two("fi", "Helsinki", "Finland publishes civil defence guide on household resilience and shelters", "Public policy", ["Finland issues civil defence guidance for every household", "Agency tells citizens to prepare emergency supplies; shelters and resilience plan updated."], ["Finnish residents get preparedness booklet", "Authorities say crisis plan and readiness for disruption has been rewritten in Finland."], true);
+const cl = two("cl", "Santiago", "Chile launches earthquake early warning and evacuation programme", "Public policy", ["Chile expands early warning and evacuation drills nationwide", "The government programme improves disaster readiness and shelters in Chile."], ["Chile rolls out emergency alert system", "Authorities in Chile say preparedness for earthquakes and tsunami evacuation will be tested."]);
+const sci = two("sp", "Canberra", "Telescope finds exoplanet atmosphere with water signal, researchers say", "Scientific discoveries", ["Telescope detects water in exoplanet atmosphere", "Astronomers report a new finding from the space telescope in Australia."], ["Astronomers find water vapour on distant planet", "Researchers say the telescope study is a breakthrough."]);
+const eco = two("rt", "Brasilia", "Central bank in Brazil raises interest rates as inflation climbs", "Business and economic developments", ["Brazil raises interest rates to fight inflation", "The central bank decision affects mortgages, prices and wages."], ["Brazilian central bank hikes rate", "Inflation and currency pressure drive the rate rise in Brazil."]);
+const alleg = one("al", "Lagos", "Prosecutors accuse Nigeria minister Adewale Ogunlesi of procurement fraud", "Public policy", ["Prosecutors accuse Nigeria minister Adewale Ogunlesi of procurement fraud", "The minister denied the allegations, officials in Nigeria said."]);
+const sport = one("sw", "Madrid", "Spain athletes race at world fitness championship", "Sport", ["Athletes race at world fitness championship in Spain", "The championship race drew entrants from many countries."]);
+const human = one("hu", "Manila", "Floods leave thousands of families homeless in the Philippines", "Environment", ["Floods leave thousands of families homeless in the Philippines", "Residents were evacuated from their homes after heavy rain in the Philippines."], 2);
+const all = { jp, fi, cl, sci, eco, alleg, sport, human };
+const mem = (fx: (typeof jp)[], conflict: Record<number, string> = {}) => fx.map((m, i) => ({ dev: m.dev, pack: buildEvidencePack(m.story, { refPrefix: `D${i + 1}-`, conflictNote: conflict[i] ?? null }) }));
+const evOf = (fx: (typeof jp)[], structure?: any) => evaluateEdition(fx.map((m) => m.dev), { now: NOW, structure });
+const build = (fx: (typeof jp)[], over: any = {}, structure?: any) => buildEditionPrompt({ title: "Edition", members: mem(fx), evaluation: evOf(fx, structure), deliverable: "script_storyboard", durationSeconds: 90, approvedRules: [], creative: { now: NOW, ...(over.creative ?? {}) }, ...over });
+const five = [jp, sci, eco, alleg, sport];
+
+console.log("Presenter and voice");
+const out5 = build(five); const p5 = out5.prompt;
+check("presenter identity, energy rules and 'never imitate' are in the prompt", /recurring WorldFiled desk presenter/.test(p5) && /Momentum without rushing/.test(p5) && /Never imitate: a generic deep male newsreader/.test(p5));
+check("Laomedeia is a REFERENCE profile: status, unverified licence, no approval, never tested", /Voice: Laomedeia/.test(p5) && /Voice status: REFERENCE ONLY/.test(p5) && /Licence and commercial use: UNVERIFIED/.test(p5) && /NOT APPROVED: no listening approval/.test(p5) && /Last tested: never/.test(p5));
+check("reference measurements carried as one-sample facts, not rules", /187 Hz/.test(p5) && /ONE supplied sample, not a universal rule/.test(p5) && /editor's ears outrank the numbers/.test(p5));
+check("prompt never claims the voice is tested, approved or commercially cleared by default", !/APPROVED by the editor/.test(p5) && !/VERIFIED_COMMERCIAL/.test(p5));
+const v0 = P.DEFAULT_VOICE;
+check("voice configuration validates; engine, voice, model, licence and test date are stored separately from the presenter identity", P.validateVoice(v0).ok && !JSON.stringify(P.PRESENTER).includes(v0.voiceName));
+const tested = { ...v0, status: "TESTED_BY_EDITOR", lastTested: "2026-10-30", approval: { approved: true, approvedAt: null, approvedVoiceKey: null, note: "" } };
+const vt = P.validateVoice(tested); check("a tested voice can be approved; approval is bound to engine + voice + model", vt.ok && vt.voice.approval.approvedVoiceKey === P.voiceKey(v0) && P.approvalState(vt.voice) === "APPROVED");
+check("approval refused for a voice that was not marked tested", !P.validateVoice({ ...v0, approval: { approved: true } }).ok);
+const changed = vt.ok ? { ...vt.voice, engine: "Another engine" } : v0;
+check("changing the engine VOIDS the listening approval (identity unchanged)", P.approvalState(changed) === "VOID_VOICE_CHANGED" && P.PRESENTER.identity.length > 0);
+const reval = P.validateVoice({ ...changed, status: "NOT_YET_TESTED", approval: vt.ok ? vt.voice.approval : v0.approval });
+check("a voice change can be saved without silently carrying the approval to the new voice", reval.ok && P.approvalState(reval.voice) === "VOID_VOICE_CHANGED");
+check("a verified licence needs a date and a note; future dates refused", !P.validateVoice({ ...v0, licence: { status: "VERIFIED_COMMERCIAL_OK", note: "", checkedAt: null } }).ok && !P.validateVoice({ ...v0, lastTested: "2999-01-01" }).ok);
+check("unknown status or control refused", !P.validateVoice({ ...v0, status: "GREAT" }).ok && !P.validateVoice({ ...v0, verifiedControls: ["magic"] }).ok);
+const out5b = build(five, { creative: { voice: vt.ok ? vt.voice : v0 } });
+check("voice configuration snapshot is stored with the prompt (key, status, approval, licence) and a config hash", out5.rationale.creative.voice.engine === v0.engine && out5.rationale.creative.voice.approval === "NOT_APPROVED" && out5b.rationale.creative.voice.approval === "APPROVED" && /^[0-9a-f]{64}$/.test(out5.rationale.creative.config_hash));
+const h = (voice: any, tools: string[] = [], lex: any[] = []) => P.configHash({ voice, toolsConfirmed: tools }, ["Lagos"], lex);
+check("config hash changes with the voice, the tool confirmations and relevant pronunciation entries, and is stable otherwise", h(v0) === h(v0) && h(v0) !== h({ ...v0, voiceName: "Other" }) && h(v0) !== h(v0, ["piper"]) && h(v0) !== h(v0, [], [{ name: "Lagos", type: "place", language: "", pronunciation: "LAY-gos", status: "CONFIRMED_HUMAN", source: "me", engineNotes: {}, lastTested: null }]) && h(v0, ["piper", "ffmpeg"]) === h(v0, ["ffmpeg", "piper"]));
+
+console.log("Engine capability restrictions and the production registry");
+check("no engine control is requested by default: SSML, per-word emphasis, custom pronunciation, numeric pace are not assumed", /Controls verified for this engine by the editor: none\. Request nothing else/.test(p5) && /do NOT put SSML/.test(p5));
+check("a control appears only when the editor verified it for the engine", /verified for this engine by the editor: ssml/.test(build(five, { creative: { voice: { ...v0, verifiedControls: ["ssml"] } } }).prompt));
+check("every scene lists engine controls as UNVERIFIED unless verified", out5.blueprint.scenes.every((s) => s.capabilities.some((c) => c.key === "engine_controls" && c.cls === "UNVERIFIED")) && build(five, { creative: { voice: { ...v0, verifiedControls: ["ssml"] } } }).blueprint.scenes.every((s) => s.capabilities.some((c) => c.key === "engine_controls" && c.cls === "MANUAL")));
+check("registry uses the five classes and marks NOTHING as tested", ["NATIVE", "FREE TOOL", "MANUAL", "UNVERIFIED", "PAID"].every((c) => P.CAPABILITIES.some((x) => x.cls === c)) && P.CAPABILITIES.every((c) => c.tested === false));
+check("registry starts with the known workflow: Piper, Kokoro, Natural Earth, Python/PIL, FFmpeg, manual review, external media", ["piper", "kokoro", "natural_earth", "python_pil", "ffmpeg", "pronunciation_review", "external_media"].every((k) => P.CAPABILITIES.some((c) => c.key === k)));
+check("paid services are PAID and never appear in any scene", P.CAPABILITIES.filter((c) => c.cls === "PAID").length >= 2 && out5.blueprint.scenes.every((s) => s.capabilities.every((c) => c.cls !== "PAID")) && /PAID items/.test(p5));
+check("Kokoro is not the default presenter without listening approval and licence review", /Kokoro or any alternative voice is NOT the default presenter/.test(p5));
+check("capability confirmation by the editor is shown; unconfirmed free tools say so", /you confirmed this is available/.test(build(five, { creative: { toolsConfirmed: ["natural_earth", "ffmpeg"] } }).prompt) && /availability not confirmed by you/.test(p5));
+
+console.log("Delivery profiles and evidence-limited intensity");
+const dm = (m: typeof jp, c: Record<number, string> = {}) => { const [x] = mem([m], c); const et = P.evidenceTreatment(x.dev, x.pack); return { et, d: P.selectDelivery(x.dev, et, NOW) }; };
+check("pace targets match the supplied table", P.PROFILES.major_international.paceLo === 2.6 && P.PROFILES.major_international.paceHi === 2.8 && P.PROFILES.breaking.paceHi === 3.0 && P.PROFILES.human_impact.paceLo === 2.2 && P.PROFILES.accountability.paceHi === 2.6 && P.PROFILES.science_tech.paceHi === 2.9 && P.PROFILES.roundup_transition.paceLo === 2.7);
+check("pace values not in the supplied table are labelled initial/editable", P.PROFILES.closing.paceSource === "initial" && P.PROFILES.economy_infrastructure.paceSource === "initial" && P.PROFILES.science_tech.paceSource === "supplied");
+check("an allegation gets the Accountability profile", dm(alleg).d.profile.key === "accountability");
+check("science gets the Science and Technology profile", dm(sci).d.profile.key === "science_tech");
+check("an economic story gets the Economy and Infrastructure profile", dm(eco).d.profile.key === "economy_infrastructure");
+check("effects on people get the Human Impact profile (slower pace)", dm(human).d.profile.key === "human_impact" && dm(human).d.profile.paceHi <= 2.5);
+check("Breaking is used ONLY when corroborated or official, completed and recent", dm(jp).d.profile.key === "breaking" && dm(jp).et.tier === "OFFICIAL");
+const oldOfficial = two("jpo", "Tokyo", "Japan orders new emergency preparedness plan with stockpiles for families", "Government and institutional decisions", ["Japan updates national preparedness and stockpile directive", "Government ministry orders households and local councils to stockpile water and food for disasters."], ["Tokyo tightens emergency readiness rules", "Families must keep supplies in Japan."], true, 30);
+check("an old story is never Breaking", dm(oldOfficial).d.profile.key !== "breaking");
+const fresh1 = one("f1", "Oslo", "Norway signs new border agreement announced today", "Public policy", ["Norway signs new border agreement", "The government announced the signed agreement."], 1);
+check("a single-source item can never be Breaking and its pace is capped at 2.6", dm(fresh1).d.profile.key !== "breaking" && dm(fresh1).d.profile.paceHi <= 2.6);
+check("evidence tiers: official, single source, conflicting, weak map to intensities", dm(jp).et.tier === "OFFICIAL" && dm(jp).et.intensity === "STANDARD" && dm(alleg).et.tier === "WEAK" && dm(alleg).et.intensity === "MINIMAL" && dm(fresh1).et.intensity !== "STANDARD" && dm(sport, { 0: "Accounts differ on the result." }).et.tier === "CONFLICTING" && dm(sport, { 0: "x" }).et.intensity === "MINIMAL");
+check("shared wording across outlets counts as ONE source (the stricter pack rule, not the outlet count)", (() => { const m = two("sw2", "Rome", "Italy bans single use plastic bags nationwide", "Public policy", ["Italy bans single use plastic bags nationwide", "The government banned single use plastic bags nationwide in Italy."], ["Italy bans single use plastic bags nationwide", "The government banned single use plastic bags nationwide in Italy."]); return dm(m).et.tier !== "CORROBORATED"; })());
+const weakFx = [jp, sport]; const weakOut = build(weakFx);
+const sceneOf = (o: typeof out5, ref: string) => o.blueprint.scenes.find((s) => s.devRef === ref && s.kind === "story")!;
+const sp5 = sceneOf(out5, "D5"), jp1 = sceneOf(out5, "D1");
+check("evidence strength limits creative treatment: a weak single-source story gets a static plate, no camera move, no motion", sp5.intensity !== "STANDARD" && /plate_/.test(sp5.visual.compositionId) === (sp5.intensity === "MINIMAL") && (sp5.intensity === "MINIMAL" ? /No camera movement/.test(sp5.camera) : /two percent/.test(sp5.camera)));
+check("a restrained or minimal scene forbids BREAKING labels, impact sounds and dramatic zoom in the prompt", /Do NOT use: a "BREAKING" or "CONFIRMED" label; impact sounds or a music swell on the claim; dramatic zoom or countdown devices/.test(p5));
+check("a well-evidenced official story keeps full treatment", jp1.intensity === "STANDARD" && jp1.tier === "OFFICIAL" && !/No camera movement/.test(jp1.camera));
+check("persistent on-screen evidence chip carries the evidence level", /OFFICIAL SOURCE/.test(renderScene(jp1)) && /WEAK EVIDENCE/.test(p5));
+check("a weak item carries advice to leave it out or keep it short, not to hedge it dramatically", /Consider leaving this item out/.test(dm(sport, { 0: "x" }).et.allowed));
+
+console.log("Attribution, qualification and narration checks");
+check("allegation: stated as an allegation, attributed once, not as established fact", /allegation or claim, attributed to who made it, once/.test(dm(alleg).et.spoken.rule) && dm(alleg).et.spoken.material);
+check("conflicting accounts: both accounts, attributed, no choosing", dm(sport, { 0: "Accounts differ." }).et.spoken.qualification === "both_accounts");
+check("single source: named once in the first clause; chip carries the rest (no repeated 'not independently confirmed')", /Attribute once, naming the outlet/.test(dm(fresh1).et.spoken.rule) && /do not repeat "not independently confirmed"/.test(dm(fresh1).et.spoken.rule));
+check("a plan or target must not be spoken as completed", P.claimKind(one("pl", "Oslo", "Government plans to build new rail link by 2030", "Public policy", ["Government plans new rail link", "The plan aims to connect two cities and could cost more."]).dev) === "PLAN_OR_TARGET");
+check("narration: sentences over 18 words flagged, short ones pass", P.checkNarration("The government of the country announced on Monday that it would completely rewrite every single national rule about how households must prepare supplies.").some((i) => i.rule === "sentence_length") && P.checkNarration("Japan ordered new stockpiles. Families must keep water.").length === 0);
+check("narration: more than one rhetorical question is flagged, one is allowed", P.checkNarration("Why now? Who decides? Nobody knows.").some((i) => i.rule === "rhetorical_questions") && !P.checkNarration("Why now? Japan has ordered new stockpiles.").some((i) => i.rule === "rhetorical_questions"));
+check("narration: repeated sentence openings flagged", P.checkNarration("Japan ordered stockpiles. Japan expanded shelters. Japan updated warnings.").some((i) => i.rule === "repeated_openings"));
+check("narration: stage directions inside the transcript are flagged (could be read aloud)", P.checkNarration("Japan ordered stockpiles. [pause] Families must keep water.").some((i) => i.rule === "stage_directions") && P.checkNarration("Japan ordered stockpiles (slow, smile). Next.").some((i) => i.rule === "stage_directions"));
+check("narration: numerals and abbreviations not spelled for speech are flagged", P.checkNarration("Prices rose 5% in 2026.").some((i) => i.rule === "numbers_not_spelled") && P.checkNarration("Prices rose five percent in twenty twenty six.").length === 0);
+check("narration: repeated 'not independently confirmed' flagged", P.checkNarration("This is not independently confirmed. Later, it is also not independently confirmed.").some((i) => i.rule === "repeated_qualification"));
+check("the prompt states these narration rules and asks for a clean transcript separate from the delivery sheet", /at most ONE rhetorical question/.test(p5) && /CLEAN TRANSCRIPT/.test(p5) && /DELIVERY SHEET/.test(p5) && /no brackets, stage directions/.test(p5) && /At most 18 words per sentence/.test(p5));
+
+console.log("Pronunciation");
+const names = P.namesIn(mem(five)); const chk = P.pronunciationCheck(names, []);
+check("names found in the evidence are flagged CHECK REQUIRED when not in the lexicon", names.length > 0 && chk.every((c) => c.state === "CHECK_REQUIRED") && /PRONUNCIATION CHECK REQUIRED/.test(p5));
+const target = names[0];
+const lexOk = (status: any, pron = "TOH-kee-oh", src = "heard on a broadcast I checked") => P.validateLexEntry({ name: target, type: "place", pronunciation: pron, status, source: src });
+check("a CONFIRMED_HUMAN entry removes the flag; a PROPOSED one does not", (() => { const c = lexOk("CONFIRMED_HUMAN"); const q = lexOk("PROPOSED"); return c.ok && q.ok && P.pronunciationCheck([target], [c.entry])[0].state === "CONFIRMED" && P.pronunciationCheck([target], [q.entry])[0].state === "CHECK_REQUIRED"; })());
+check("a SOURCED entry is shown with its source and is not flagged", (() => { const e = lexOk("SOURCED", "x", "official broadcaster pronunciation guide"); return e.ok && P.pronunciationCheck([target], [e.entry])[0].state === "SOURCED"; })());
+check("confirmed pronunciation requires a respelling and a confirmation source (nothing silently invented)", !P.validateLexEntry({ name: "X", status: "CONFIRMED_HUMAN", pronunciation: "", source: "" }).ok && !P.validateLexEntry({ name: "X", status: "SOURCED", pronunciation: "ex", source: "" }).ok && P.validateLexEntry({ name: "X", status: "UNCONFIRMED" }).ok);
+const lexEntry = (lexOk("CONFIRMED_HUMAN") as any).entry; lexEntry.engineNotes = { [v0.engine]: "stress the first syllable", "Other engine": "SECRET-OTHER" };
+const pl = build(five, { creative: { lex: [lexEntry] } }).prompt;
+check("the lexicon respelling and the CURRENT engine's note appear; another engine's note does not; the flagged list shrinks", pl.includes(`say "TOH-kee-oh"`) && /stress the first syllable/.test(pl) && !/SECRET-OTHER/.test(pl) && !new RegExp(`- ${target}: unconfirmed`).test(pl));
+check("the uncertain-name list cannot disappear: it is in the prompt, in the scene fields and in the human-review field", out5.blueprint.scenes.some((s) => s.humanReview.some((r) => /PRONUNCIATION CHECK REQUIRED/.test(r))) && /do not guess/.test(p5));
+check("no IPA is invented", !/\/[a-zɪʊəæɑɔʃʒθðŋ]{3,}\//.test(p5));
+
+console.log("Programme format");
+const sel = (fx: any[], structure?: any, override?: string) => P.selectFormat(evOf(fx, structure), mem(fx), override);
+check("one development gives a Focused Briefing", sel([jp]).key === "focused_briefing" && sel([jp]).leadId === "jp");
+check("unrelated stories give a Global Roundup (no theme invented)", sel(five, "news_roundup").key === "global_roundup" && sel([sci, eco]).key === "global_roundup");
+check("a coherent multi-country edition gives a Connected Edition, labelled as an editorial inference", (() => { const f = sel([jp, fi, cl]); return f.key === "connected_edition" && /EDITORIAL INFERENCE/.test(f.connectionLabel ?? ""); })());
+check("a single-country deep dive gives a Focused Briefing led by the strongest development", (() => { const f = sel([jp, sci], "single_country"); return f.key === "focused_briefing" && f.leadId === "jp"; })());
+check("the editor can override the format and the override is recorded", (() => { const f = sel([jp, fi, cl], undefined, "global_roundup"); return f.key === "global_roundup" && f.overridden; })());
+const conn = build([jp, fi, cl]), roundupOut = build(five, {}, "news_roundup");
+check("connected edition has a 'what connects them' scene; roundup does not and states no link is claimed", conn.blueprint.scenes.some((s) => s.kind === "connection") && !roundupOut.blueprint.scenes.some((s) => s.kind === "connection") && /no link to the other stories is claimed/.test(roundupOut.prompt));
+check("roundup transitions never state or imply a relationship; no theme label in them", roundupOut.blueprint.scenes.every((s) => !/theme label|EDITORIAL INFERENCE/.test(s.transition)) && /only marks the move to a new story/.test(roundupOut.prompt));
+check("connected edition transitions label the link as EDITORIAL INFERENCE and forbid implying cause", conn.blueprint.scenes.filter((s) => s.kind !== "closing").every((s) => /EDITORIAL INFERENCE/.test(s.transition) && /Never imply a causal link/.test(s.transition)));
+check("a match cut is only ever described as shape-only rhythm with no implied link", roundupOut.blueprint.scenes.filter((s) => /match cut/i.test(s.transition)).every((s) => /SHAPE/.test(s.transition) && /no link between the stories is implied/.test(s.transition)));
+const foc = build([jp], {}, undefined);
+check("focused briefing: what happened, context (BACKGROUND labelled), consequences and unknowns", foc.blueprint.scenes.map((s) => s.kind).join() === "hook,story,context,consequence,closing" && /BACKGROUND \(NOT FROM THE EVIDENCE PACK, EDITOR TO VERIFY\)/.test(foc.prompt));
+check("the connection is never forced: an incoherent pair gets the roundup format even if the editor saved a themed structure", sel([sci, eco], "multi_country").key === "global_roundup");
+
+console.log("Adaptive visual treatment, maps and imagery");
+check("categories choose their own treatment", [[sport, "sport"], [alleg, "political_legal"], [sci, "science_tech"], [eco, "economic"], [human, "environment"], [jp, "political_legal"]].every(([m, k]: any) => P.visualKey(m.dev) === k));
+check("conflict and energy stories route to their treatments", P.visualKey(one("c1", "Kyiv", "Ceasefire talks resume as troops pull back", "World", ["Ceasefire talks resume", "Troops pulled back from the line."]).dev) === "conflict" && P.visualKey(one("e1", "Oslo", "Norway opens new power grid link and pipeline", "Business", ["New power grid link opens", "The pipeline and grid link will carry electricity."]).dev) === "energy_infra");
+const allScenes = [out5, conn, roundupOut, foc].flatMap((o) => o.blueprint.scenes);
+check("no composition repeats in consecutive scenes in any edition", [out5, conn, roundupOut, foc].every((o) => o.blueprint.scenes.every((s, i, a) => i === 0 || s.visual.compositionId !== a[i - 1].visual.compositionId)));
+check("five different stories do not all share one composition", new Set(out5.blueprint.scenes.map((s) => s.visual.compositionId)).size >= 3);
+check("every treatment has at least two compositions so alternation is always possible", Object.values(P.TREATMENT_SET).every((t) => t.compositions.length >= 2));
+check("illustrative schematics are labelled ILLUSTRATIVE", out5.blueprint.scenes.filter((s) => s.visual.compositionId.startsWith("st_")).every((s) => /ILLUSTRATIVE/.test(s.visual.composition)));
+check("no scene requests photographs, footage, crowds or likenesses; typographic, map or schematic only", allScenes.every((s) => /^No photographs, footage, crowds, buildings or likenesses of named people\./.test(s.imagery) && /typography, map or schematic/.test(s.imagery)));
+check("a satellite-imagery composition is only offered when the editor supplied an asset", !allScenes.some((s) => s.visual.compositionId === "en_imagery") && P.pickCompositions([{ kind: "environment", intensity: "STANDARD" }], [false])[0].id !== "en_imagery");
+const withMap = out5.blueprint.scenes.filter((s) => /^Locator map/.test(s.mapData));
+check("a map is only specified where the place was named in the retrieved text", withMap.length >= 1 && withMap.every((s) => /named in the retrieved text/.test(s.mapData)));
+check("publisher-location-only places get NO map and say why", (() => { const m = one("pm", "Accra", "New fund approved for rural clinics", "Public policy", ["New fund approved for rural clinics", "Officials said the fund would pay for equipment."]); const x = P.mapSpec(m.dev, "STANDARD", "global_roundup"); return !x.use && /publisher's location|no place/i.test(x.text); })());
+check("maps never draw routes, lines or arrows between places; borders and positions are never invented", withMap.every((s) => /no lines, routes or arrows|Locator only: no lines, routes or arrows/.test(s.mapData) && /Do not invent borders, routes, infrastructure/.test(s.mapData)));
+check("a minimal-evidence map is a static marker only", /static marker only/.test(P.mapSpec(sport.dev, "MINIMAL", "global_roundup").text) || !P.mapSpec(sport.dev, "MINIMAL", "global_roundup").use);
+check("typographic-only mode uses static plates for every story", build(five, { creative: { visual: "typographic" } }).blueprint.scenes.filter((s) => s.devRef && s.kind === "story").every((s) => s.intensity === "MINIMAL" && /plate_/.test(s.visual.compositionId)));
+
+console.log("Sound and audio");
+const sp = P.soundPlan("global_roundup", "subtle");
+check("sound plan covers opening identity, bed, ducking, transitions, map cues, silence, serious stories, closing", [sp.opening, sp.bed, sp.transitions, sp.mapData, sp.silence, sp.serious, sp.closing].every((x) => x.length > 20) && /duck/i.test(sp.bed));
+check("generic stings, whooshes, booms and notification sounds are excluded", /stings/.test(sp.avoid) && /whooshes/.test(sp.avoid) && /booms/.test(sp.avoid) && /notification/.test(sp.avoid));
+check("sound licence rule: generated, public domain, CC0 or licensed; free download is not proof of commercial use; licence evidence recorded", /GENERATED/.test(sp.licence) && /PUBLIC DOMAIN/.test(sp.licence) && /CC0/.test(sp.licence) && /Free to download is NOT proof of commercial use/.test(sp.licence) && /link to the licence terms/.test(sp.licence));
+check("the app states it does not generate audio, and the deliverables require a sound licence table", /does not generate or render audio/.test(p5) && /SOUND LICENCE table/.test(p5));
+check("minimal sound option removes the music bed", /No music bed/.test(P.soundPlan("global_roundup", "minimal").bed) && build(five, { creative: { sound: "minimal" } }).blueprint.scenes.filter((s) => s.kind === "story").every((s) => /No music/.test(s.music)));
+check("serious stories (accountability) get near-silent music and no strong cues", out5.blueprint.scenes.filter((s) => s.delivery.key === "accountability").every((s) => /near silence/.test(s.music) && /soft tick|silence/.test(s.sfx) && !/impact/i.test(s.sfx.replace(/No impacts/, ""))));
+check("one transition cue family; the last scene has none", /one sound family/.test(sp.transitions) && out5.blueprint.scenes.at(-1)!.sfx === "None.");
+
+console.log("Runtime allocation");
+const ri = (m: typeof jp, secs = 90) => { const [x] = mem([m]); return P.runtimeItem(x.dev, P.evidenceTreatment(x.dev, x.pack), x.pack, secs); };
+const al = out5.blueprint.allocation;
+check("allocation never exceeds the ceiling and equals the scene timecode total", al.total <= 90 + 1 && out5.blueprint.scenes.at(-1)!.timecode.to === al.total);
+check("opening, recap and closing together stay a small share (at most 20 percent)", (al.hook + al.closing + al.recap) / 90 <= 0.2);
+check("significance and material shape the runtime: a two-source official story gets more time than a thin single-source one", ri(jp).weight > ri(sport).weight && ri(jp).cap > ri(sport).cap && al.items.jp > al.items.sw);
+check("a thin edition is shorter, not padded", (() => { const f = [sport]; const a = P.allocateRuntime([ri(sport)], 120, "focused_briefing"); return a.total < 120 && a.shorterThanCeiling && a.warnings.some((w) => /not padded/.test(w)); })());
+check("too many developments for the length is warned, not silently crushed", (() => { const a = P.allocateRuntime([jp, sci, eco, alleg, sport, human, fi, cl].map((m) => ri(m, 60)), 60, "global_roundup"); return a.warnings.some((w) => /need at least/.test(w)) && Object.values(a.items).every((v) => v >= 7); })());
+check("the recap appears only for a roundup of three or more at 90 seconds or longer", P.allocateRuntime([ri(jp), ri(sci), ri(eco)], 90, "global_roundup").recap > 0 && P.allocateRuntime([ri(jp), ri(sci), ri(eco)], 60, "global_roundup").recap === 0 && P.allocateRuntime([ri(jp), ri(sci)], 90, "global_roundup").recap === 0);
+check("word budgets equal seconds times the profile's pace range", out5.blueprint.scenes.every((s) => s.narration.words.min === Math.round(s.seconds * s.delivery.paceLo) && s.narration.words.max === Math.round(s.seconds * s.delivery.paceHi)));
+check("a story with nothing sourced says to leave it out rather than invent", /no sourced fact available: leave this item out|Use ONLY these facts/.test(p5));
+
+console.log("Blueprint completeness");
+const REQ = [" 1. Timecode", " 2. Editorial purpose", " 3. Story reference", " 4. Exact narration", " 5. Presenter delivery profile", " 6. Pronunciation", " 7. Visual composition", " 8. Imagery and rights", " 9. Camera movement", "10. Motion graphics", "11. On-screen text", "12. Map or data specification", "13. Sound effects", "14. Music direction", "15. Transition", "16. Evidence references", "17. Production capability classification", "18. Human review required"];
+check("every scene in every fixture edition carries all 18 fields", [out5, conn, roundupOut, foc].every((o) => o.blueprint.scenes.every((s) => REQ.every((r) => renderScene(s).includes(r)))));
+check("every structured field is non-empty", allScenes.every((s) => [s.purpose, s.storyRef, s.narration.instruction, s.delivery.label, s.visual.composition, s.imagery, s.camera, s.motion, s.onScreen.headline, s.onScreen.chip, s.mapData, s.sfx, s.music, s.transition].every((x) => x.length > 3) && s.capabilities.length >= 3 && s.humanReview.length >= 2));
+check("every story scene cites its own evidence refs (D#-S#)", out5.blueprint.scenes.filter((s) => s.kind === "story").every((s) => s.evidenceRefs.length > 0 && s.evidenceRefs.every((r) => r.startsWith(s.devRef + "-"))));
+check("the blueprint is in the prompt, with the configuration actually used (not placeholders)", /PRODUCTION BLUEPRINT/.test(p5) && /Engine: Google AI Studio \(manual generation\)\. Voice: Laomedeia/.test(p5) && /words per second/.test(p5));
+check("a regression fixture with the five-development edition still carries every evidence rule", /NOT independent confirmation/.test(p5) && /EDITORIAL INTERPRETATION/.test(p5) && /FUTURE POSSIBILITY/.test(p5) && five.every((m) => p5.includes(m.dev.headline)));
+check("rationale records per-scene delivery, composition, intensity and tier (for history)", out5.rationale.creative.scenes.length === out5.blueprint.scenes.length && out5.rationale.creative.scenes.every((s: any) => s.delivery && s.composition && s.intensity && s.tier));
+check("rationale stays within the database's size limit", Buffer.byteLength(JSON.stringify(out5.rationale)) < 60000);
+console.log(`\n${pass} passed, ${fail} failed`);
+if (fail) process.exit(1);

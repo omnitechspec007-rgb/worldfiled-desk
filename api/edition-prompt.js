@@ -73,7 +73,7 @@ async function db(path, init = {}) {
 }
 
 // netlify/lib/edition-prompt.mts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 
 // netlify/lib/brand.mts
 var BRAND_VERSION = "brand-1";
@@ -206,8 +206,8 @@ var jac = (a, b) => {
   for (const x of a) if (b.has(x)) i++;
   return a.size + b.size - i === 0 ? 0 : i / (a.size + b.size - i);
 };
-function buildEvidencePack(story, opts = {}) {
-  const px = opts.refPrefix ?? "";
+function buildEvidencePack(story, opts2 = {}) {
+  const px = opts2.refPrefix ?? "";
   const all = story.sources;
   const usable = [];
   const omitted = [];
@@ -275,7 +275,7 @@ function buildEvidencePack(story, opts = {}) {
   for (const r of reporting) {
     add(`${r.outlet} states: "${r.title}"`, "SINGLE_SOURCE", "Details in this headline and snippet are attributed to this outlet alone unless another source below states the same.", [r.ref]);
   }
-  const conflict = cleanField(opts.conflictNote, 600) || null;
+  const conflict = cleanField(opts2.conflictNote, 600) || null;
   if (conflict) add(conflict, "CONFLICTING", "Entered by the editor. The app does not detect conflicts automatically.", []);
   add(
     "Anything not stated in the headlines and snippets above: causes, motives, numbers, outcomes, quotes, identities.",
@@ -293,7 +293,7 @@ function buildEvidencePack(story, opts = {}) {
     omitted_sources: { count: omitted.length, items: omitted },
     evidence_limits: EVIDENCE_LIMITS,
     claim_classes: claims,
-    editor_notes: { conflict, decision: cleanField(opts.decisionNote, 400) || null }
+    editor_notes: { conflict, decision: cleanField(opts2.decisionNote, 400) || null }
   };
   if (Buffer.byteLength(JSON.stringify(pack)) > MAX_PACK_BYTES) {
     throw new PackTooLarge("The evidence for this story is larger than the storage limit. Nothing was shortened; reduce the number of sources for this story.");
@@ -419,14 +419,14 @@ var ALIASES = {
 };
 var NAMES = [...PLACES.map((p) => [p.name, p.name]), ...Object.entries(ALIASES)].sort((a, b) => b[0].length - a[0].length);
 var esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var RES = NAMES.map(([n, canon]) => ({ re: new RegExp(`(?<![A-Za-z])${esc(n)}(?![A-Za-z])`, "g"), canon }));
+var RES = NAMES.map(([n, canon2]) => ({ re: new RegExp(`(?<![A-Za-z])${esc(n)}(?![A-Za-z])`, "g"), canon: canon2 }));
 var placeByName = (n) => PLACES.find((p) => p.name === n);
 function mentionedCountries(text2) {
   let t = text2;
   const found = [];
-  for (const { re, canon } of RES) {
+  for (const { re, canon: canon2 } of RES) {
     if (re.test(t)) {
-      if (!found.includes(canon)) found.push(canon);
+      if (!found.includes(canon2)) found.push(canon2);
       t = t.replace(re, " ");
     }
     re.lastIndex = 0;
@@ -458,12 +458,577 @@ var distanceKm = (a, b) => {
   return Math.round(2 * R * Math.asin(Math.sqrt(h)));
 };
 
+// netlify/lib/presenter.mts
+import { createHash as createHash2 } from "node:crypto";
+var PRESENTER_VERSION = "presenter-1";
+var PRESENTER = {
+  identity: "A recurring WorldFiled desk presenter. Upbeat, higher-pitched, clear, naturally expressive and conversational. Confident and informed, with a sense of momentum. The presenter sounds interested in the news and understands its significance. The delivery is professional and credible, not theatrical.",
+  energy: [
+    "Momentum without rushing.",
+    "Emphasis without shouting.",
+    "Curiosity without manufactured mystery.",
+    "Authority without an artificially deep voice.",
+    "Expressiveness without exaggerated excitement.",
+    "Seriousness when the subject requires it."
+  ],
+  never: ["a generic deep male newsreader", "a trailer announcer", "a sports commentator", "a robotic assistant", "an influencer"]
+};
+var LAOMEDEIA_REFERENCE = {
+  format: "WAV, PCM 16-bit, mono, 24 kHz",
+  durationSeconds: 17.88,
+  integratedLufs: -15.4,
+  truePeakDbfs: -0.6,
+  medianPitchHz: 187,
+  pitchVariationSemitones: 4.5,
+  wordsPerSecond: 2.7,
+  paceNote: "Pace is based on an unreliable machine transcript.",
+  pauses: "Several natural pauses between phrase groups.",
+  caution: "Measured on one supplied sample. Not a universal quality target. Listening judgement takes precedence over numerical similarity."
+};
+var VOICE_STATUSES = ["REFERENCE_ONLY", "NOT_YET_TESTED", "TESTED_BY_EDITOR", "BLOCKED"];
+var LICENCE_STATUSES = ["UNVERIFIED", "VERIFIED_FREE_NONCOMMERCIAL", "VERIFIED_COMMERCIAL_OK", "RESTRICTED"];
+var PRONUNCIATION_HANDLING = ["NOTES_ONLY", "RESPELLING_IN_TRANSCRIPT", "ENGINE_CONTROLS"];
+var CONTROLS = ["style_prompt", "ssml", "per_word_emphasis", "custom_pronunciation", "numeric_pace"];
+var DEFAULT_VOICE = {
+  engine: "Google AI Studio (manual generation)",
+  voiceName: "Laomedeia",
+  model: "",
+  styleInstructions: "Upbeat, higher pitch, clear, naturally expressive and conversational. Confident and informed, with momentum.",
+  paceInstructions: "Reference sample about 2.7 words per second (one sample, unreliable transcript). Treat pace as a target to check by ear.",
+  pronunciationHandling: "NOTES_ONLY",
+  status: "REFERENCE_ONLY",
+  licence: { status: "UNVERIFIED", note: "Engine terms, model availability, regional availability and commercial use have not been checked.", checkedAt: null },
+  lastTested: null,
+  verifiedControls: [],
+  approval: { approved: false, approvedAt: null, approvedVoiceKey: null, note: "" }
+};
+var voiceKey = (v) => [v.engine, v.voiceName, v.model].map((x) => x.trim().toLowerCase()).join("|");
+function approvalState(v) {
+  if (!v.approval.approved) return "NOT_APPROVED";
+  return v.approval.approvedVoiceKey === voiceKey(v) ? "APPROVED" : "VOID_VOICE_CHANGED";
+}
+var isDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
+var str = (v, max) => typeof v === "string" ? v.trim().slice(0, max) : "";
+function validateVoice(raw, today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)) {
+  const errors = [];
+  const r = raw && typeof raw === "object" ? raw : {};
+  const engine = str(r.engine, 120), voiceName = str(r.voiceName, 80), model = str(r.model, 80);
+  if (!engine) errors.push("Voice engine is required.");
+  if (!voiceName) errors.push("Voice name is required.");
+  const status = VOICE_STATUSES.includes(r.status) ? r.status : null;
+  if (!status) errors.push("Status must be one of " + VOICE_STATUSES.join(", ") + ".");
+  const lic = r.licence ?? {};
+  const ls = LICENCE_STATUSES.includes(lic.status) ? lic.status : null;
+  if (!ls) errors.push("Licence status must be one of " + LICENCE_STATUSES.join(", ") + ".");
+  const ph = PRONUNCIATION_HANDLING.includes(r.pronunciationHandling) ? r.pronunciationHandling : null;
+  if (!ph) errors.push("Pronunciation handling must be one of " + PRONUNCIATION_HANDLING.join(", ") + ".");
+  const lastTested = r.lastTested === null || r.lastTested === "" || r.lastTested === void 0 ? null : r.lastTested;
+  if (lastTested !== null && (!isDate(lastTested) || lastTested > today)) errors.push("Last tested must be a past date (YYYY-MM-DD).");
+  const checkedAt = lic.checkedAt === null || lic.checkedAt === "" || lic.checkedAt === void 0 ? null : lic.checkedAt;
+  if (checkedAt !== null && (!isDate(checkedAt) || checkedAt > today)) errors.push("Licence checked date must be a past date (YYYY-MM-DD).");
+  if ((ls === "VERIFIED_FREE_NONCOMMERCIAL" || ls === "VERIFIED_COMMERCIAL_OK") && (checkedAt === null || str(lic.note, 600).length < 10)) errors.push("A verified licence needs the date you checked it and a note saying where (at least 10 characters).");
+  if (status === "TESTED_BY_EDITOR" && lastTested === null) errors.push("Status TESTED_BY_EDITOR needs a last-tested date.");
+  const vc = Array.isArray(r.verifiedControls) ? r.verifiedControls : [];
+  if (vc.some((c) => !CONTROLS.includes(c))) errors.push("Unknown control in the verified-controls list.");
+  const ap = r.approval ?? {};
+  const approved = ap.approved === true;
+  const carried = approved && typeof ap.approvedVoiceKey === "string" && ap.approvedVoiceKey.length > 0;
+  if (approved && !carried && status !== "TESTED_BY_EDITOR") errors.push("A voice can only be approved after it is marked TESTED_BY_EDITOR (you listened to it).");
+  if (errors.length) return { ok: false, errors };
+  const voice = {
+    engine,
+    voiceName,
+    model,
+    styleInstructions: str(r.styleInstructions, 600),
+    paceInstructions: str(r.paceInstructions, 400),
+    pronunciationHandling: ph,
+    status,
+    licence: { status: ls, note: str(lic.note, 600), checkedAt },
+    lastTested,
+    verifiedControls: [...new Set(vc)],
+    approval: { approved, approvedAt: approved ? isDate(ap.approvedAt) ? ap.approvedAt : today : null, approvedVoiceKey: approved ? carried ? ap.approvedVoiceKey : voiceKey({ engine, voiceName, model }) : null, note: str(ap.note, 400) }
+  };
+  return { ok: true, voice };
+}
+var allowedControls = (v) => v.verifiedControls;
+var cap = (key, label, cls, note) => ({ key, label, cls, note, tested: false });
+var CAPABILITIES = [
+  cap("written_deliverables", "Written script, storyboard and specification", "NATIVE", "Claude writes text deliverables in the current workflow."),
+  cap("html_animation", "One self-contained HTML animation (screen-recordable)", "NATIVE", "A single HTML file with a master clock; no extra tool."),
+  cap("piper", "Piper (local narration experiments)", "FREE TOOL", "Voice-model licence and installation on your machine are not verified."),
+  cap("kokoro", "Kokoro (local narration experiments)", "FREE TOOL", "Not the default presenter. Needs your listening approval and licence review first."),
+  cap("natural_earth", "Natural Earth (geographic data)", "FREE TOOL", "Natural Earth describes its data as public domain; confirm its current terms before relying on that."),
+  cap("python_pil", "Python with PIL (procedural visual plates and motion)", "FREE TOOL", "Needs Python and PIL available where Claude runs."),
+  cap("ffmpeg", "FFmpeg (audio and video assembly)", "FREE TOOL", "Licence terms depend on the build; confirm for your use."),
+  cap("ai_studio_manual", "Manual voice generation in Google AI Studio (Laomedeia)", "MANUAL", "You generate and listen yourself. Engine terms, regional availability and commercial use are unverified."),
+  cap("pronunciation_review", "Pronunciation and listening review", "MANUAL", "You listen and approve names and delivery."),
+  cap("external_media", "External licensed or CC0 media", "MANUAL", "Only where you verify the rights and record the licence evidence."),
+  cap("engine_controls", "Per-word emphasis, SSML, custom pronunciation, numeric pace controls", "UNVERIFIED", "Not requested from any engine unless you record the control as verified for that engine."),
+  cap("paid_tts", "Paid text-to-speech (cloud TTS or API services)", "PAID", "Never assumed and never used automatically."),
+  cap("paid_media", "Paid stock footage, music or sound libraries", "PAID", "Never assumed and never used automatically.")
+];
+var capByKey = (k) => CAPABILITIES.find((c) => c.key === k);
+var PROFILES = {
+  major_international: { key: "major_international", label: "Major International Development", paceLo: 2.6, paceHi: 2.8, paceSource: "supplied", direction: "Clear and confident, news in the first clause, steady momentum, one lifted emphasis on the key fact, a brief pause before the consequence." },
+  breaking: { key: "breaking", label: "Breaking Development", paceLo: 2.8, paceHi: 3, paceSource: "supplied", direction: "Slightly quicker and more urgent but controlled; state only what the sources confirm; no alarm in the voice." },
+  human_impact: { key: "human_impact", label: "Human Impact", paceLo: 2.2, paceHi: 2.5, paceSource: "supplied", direction: "Slower, warmer, lower energy; give the human detail room; no dramatic emphasis; pause after the central fact." },
+  accountability: { key: "accountability", label: "Accountability / Allegation", paceLo: 2.3, paceHi: 2.6, paceSource: "supplied", direction: "Measured and even; attribute the claim clearly the first time; no emphasis that treats the claim as proven." },
+  science_tech: { key: "science_tech", label: "Science and Technology", paceLo: 2.7, paceHi: 2.9, paceSource: "supplied", direction: "Bright and curious but precise; slow slightly on any technical term or figure; let the mechanism be clear." },
+  economy_infrastructure: { key: "economy_infrastructure", label: "Economy and Infrastructure", paceLo: 2.5, paceHi: 2.7, paceSource: "initial", direction: "Steady and exact; slow slightly on numbers, units and periods; avoid hype words." },
+  roundup_transition: { key: "roundup_transition", label: "Global Roundup Transition", paceLo: 2.7, paceHi: 2.9, paceSource: "supplied", direction: "Light, quick marker of the change of story; no suggestion of a link between the stories." },
+  closing: { key: "closing", label: "Closing", paceLo: 2.4, paceHi: 2.6, paceSource: "initial", direction: "Settle the energy; one clear closing line; no new facts; no prediction." }
+};
+var paceMid = (p) => (p.paceLo + p.paceHi) / 2;
+var textOf = (d) => [d.headline, ...d.sources.map((s) => s.title), ...d.sources.map((s) => s.summary ?? "")].join(" . ");
+var ALLEGATION = /\b(alleg\w+|accus\w+|suspect\w*|charged|denied|denies|claims?|claimed|blamed|sued|lawsuit|probe|investigat\w+|fraud|corruption|misconduct)\b/i;
+var PLAN = /\b(plans? to|planned|propos\w+|aims? to|target\w*|will|would|expected|could|may|draft|intends? to|pledges?|promises?|bids? to)\b/i;
+var DONE = /\b(approv|sign|pass|announc|open|launch|order|issu|publish|ban|rais|cut|won|found|detect|releas|complet|expand|updat|tighten|rewrit|hik)\w*/i;
+function claimKind(d) {
+  const t = textOf(d);
+  if (d.a.accountability.length || ALLEGATION.test(t)) return "ALLEGATION";
+  const plan = PLAN.test(t), done = DONE.test(t);
+  if (plan && !done) return "PLAN_OR_TARGET";
+  if (done) return "COMPLETED";
+  return plan ? "PLAN_OR_TARGET" : "UNCLEAR";
+}
+function evidenceTreatment(d, pack) {
+  const conflicting = pack.claim_classes.some((c) => c.class === "CONFLICTING") || !!pack.editor_notes.conflict;
+  const official = pack.claim_classes.some((c) => c.class === "OFFICIALLY_DOCUMENTED");
+  const corroborated = pack.claim_classes.some((c) => c.class === "INDEPENDENTLY_CORROBORATED");
+  const outlets = new Set(pack.sources.map((s) => s.outlet)).size;
+  const tier = conflicting ? "CONFLICTING" : official ? "OFFICIAL" : corroborated ? "CORROBORATED" : d.a.evidenceStrength.label === "WEAK" ? "WEAK" : "SINGLE_SOURCE";
+  const kind = claimKind(d);
+  const intensity = tier === "OFFICIAL" || tier === "CORROBORATED" ? "STANDARD" : tier === "SINGLE_SOURCE" ? "RESTRAINED" : "MINIMAL";
+  const first = pack.sources[0]?.outlet ?? "the source";
+  const chip = tier === "OFFICIAL" ? "OFFICIAL SOURCE" : tier === "CORROBORATED" ? `REPORTED BY ${outlets} OUTLETS` : tier === "SINGLE_SOURCE" ? `SINGLE SOURCE: ${first.toUpperCase()}` : tier === "WEAK" ? "WEAK EVIDENCE" : "ACCOUNTS DIFFER";
+  const material = tier === "WEAK" || tier === "CONFLICTING" || kind === "ALLEGATION";
+  let qualification = "none";
+  let rule = "One natural attribution in the first sentence of the item; no repeated qualifiers.";
+  if (tier === "CONFLICTING") {
+    qualification = "both_accounts";
+    rule = "Say that accounts differ and give each account, attributed. Do not choose between them.";
+  } else if (kind === "ALLEGATION") {
+    qualification = "once";
+    rule = "State it as an allegation or claim, attributed to who made it, once, at the first claim. Do not repeat the qualification in every sentence, and do not present it as established fact.";
+  } else if (tier === "WEAK" || tier === "SINGLE_SOURCE") {
+    qualification = "once";
+    rule = `Attribute once, naming the outlet in the first clause ("${first} reports..."). The on-screen chip carries the evidence level, so do not repeat "not independently confirmed" in the voice-over.`;
+  } else if (kind === "PLAN_OR_TARGET") {
+    qualification = "once";
+    rule = "Say plainly that it is a plan, proposal or target, and use 'plans to' or 'aims to', never the past tense of completion.";
+  }
+  const forbidden = [];
+  if (intensity !== "STANDARD") forbidden.push('a "BREAKING" or "CONFIRMED" label', "impact sounds or a music swell on the claim", "dramatic zoom or countdown devices");
+  if (intensity === "MINIMAL") forbidden.push("any animation that implies certainty (animated highlights, build-ups, reveal effects)", "a map marker animation (a static marker only, or no map)");
+  if (kind === "ALLEGATION") forbidden.push("any visual that shows the allegation as proven (guilt colours, stamps, verdict-style graphics)");
+  const allowed = intensity === "STANDARD" ? "Full adaptive treatment within the editorial purpose." : intensity === "RESTRAINED" ? "Calm treatment: static or slow, attributed, with a persistent source chip." : "Static typographic plate with a persistent source chip. Consider leaving this item out; include it only with the sourced facts, kept short.";
+  return { tier, intensity, chip, claimKind: kind, spoken: { qualification, rule, material }, forbidden, allowed };
+}
+function selectDelivery(d, et, now = Date.now()) {
+  const t = textOf(d);
+  const ageH = d.newest ? (now - d.newest) / 36e5 : Infinity;
+  const breakingOk = et.intensity === "STANDARD" && et.claimKind === "COMPLETED" && ageH <= 6 && ["international_development", "government_decision", "law_regulation", "unusual_event", "environmental_event"].includes(d.a.type);
+  const human = /\b(victims|survivors|patients|migrants|refugees|displaced|homeless|killed|died|dead|injured|evacuat\w+|casualties)\b/i.test(t) && !!d.a.humanConsequences;
+  let key;
+  let reason;
+  if (et.claimKind === "ALLEGATION") {
+    key = "accountability";
+    reason = "the item rests on an allegation or claim";
+  } else if (breakingOk) {
+    key = "breaking";
+    reason = `corroborated or official, completed, reported within ${Math.max(1, Math.round(ageH))} hours`;
+  } else if (human) {
+    key = "human_impact";
+    reason = "the evidence describes effects on people";
+  } else if (d.a.type === "scientific_discovery" || d.a.type === "technology") {
+    key = "science_tech";
+    reason = "a science or technology development";
+  } else if (d.a.type === "economic_change" || /\b(energy|pipeline|grid|infrastructure|railway|port|airport|electricity)\b/i.test(t)) {
+    key = "economy_infrastructure";
+    reason = "an economic or infrastructure development";
+  } else {
+    key = "major_international";
+    reason = "a significant development without a more specific delivery need";
+  }
+  const base = PROFILES[key];
+  const capped = et.intensity !== "STANDARD" && base.paceHi > 2.6;
+  const profile = capped ? { ...base, paceHi: Math.max(base.paceLo, 2.6), paceLo: Math.min(base.paceLo, 2.6) } : base;
+  return { profile, reason: reason + (capped ? `; pace capped at 2.6 words per second because the evidence is ${et.tier.replace("_", " ").toLowerCase()}` : ""), capped };
+}
+var FORMATS = {
+  global_roundup: { label: "Global Roundup", description: "Several independently important developments with no verified shared connection. Organised by significance, geography, contrast or audience relevance. No common theme is invented." },
+  connected_edition: { label: "Connected Edition", description: "Several developments that share a theme, cause, event or policy direction. The link is shown as an editorial inference unless the sources state it." },
+  focused_briefing: { label: "Focused Briefing", description: "One major development with relevant context, background, consequences and related verified developments." }
+};
+function selectFormat(ev, members, override) {
+  const n = members.length;
+  const lead = [...members].sort((a, b) => Number(b.dev.a.corroborated) - Number(a.dev.a.corroborated) || b.dev.a.curiosityScore - a.dev.a.curiosityScore)[0]?.dev.id ?? null;
+  let key;
+  let why;
+  if (n === 1) {
+    key = "focused_briefing";
+    why = "one development was selected";
+  } else if (ev.structure === "single_country") {
+    key = "focused_briefing";
+    why = "the edition is a deep dive on one place: its strongest development leads and the others are related context";
+  } else if (ev.structure === "news_roundup" || ev.coherence.verdict !== "COHERENT") {
+    key = "global_roundup";
+    why = ev.structure === "news_roundup" ? "the developments were chosen as a multi-topic roundup and no shared theme is claimed" : `the coherence check is ${ev.coherence.verdict}, so no connection is claimed`;
+  } else {
+    key = "connected_edition";
+    why = `the coherence check found a shared theme ("${ev.theme}")`;
+  }
+  const overridden = !!override && override in FORMATS && override !== key;
+  if (overridden) {
+    key = override;
+    why = "chosen by the editor (the rules suggested a different format)";
+  }
+  return { key, label: FORMATS[key].label, why, connectionLabel: key === "connected_edition" ? "EDITORIAL INFERENCE: the connection comes from fixed-rule matching on headlines and snippets, not from verified reporting" : null, leadId: key === "focused_briefing" ? lead : null, overridden };
+}
+var TREATMENT_SET = {
+  political_legal: { label: "Political / legal", devices: "document plates, institutional maps, timelines, attributed claims", illustrative: false, compositions: [
+    { id: "pl_document", text: "Document plate: a plain panel quoting only wording that appears in the evidence, with the issuing body named in a source line; key date in Archival Gold." },
+    { id: "pl_timeline", text: "Dated timeline: three or four verified dates as a horizontal rail, the current step highlighted; nothing implied between steps." },
+    { id: "pl_attributed", text: "Attributed-claim card: the claim in large type, who said it beneath, the evidence chip fixed in the corner." }
+  ] },
+  science_tech: { label: "Science / technology", devices: "explanatory diagrams, product mechanisms, labelled schematics", illustrative: true, compositions: [
+    { id: "st_schematic", text: "Labelled schematic of the mechanism, built from shapes, step by step, marked ILLUSTRATIVE." },
+    { id: "st_compare", text: "Before and after comparison panel showing only what the source states changed." },
+    { id: "st_callout", text: "Large term and plain-language definition with one callout line to the key figure." }
+  ] },
+  energy_infra: { label: "Energy / infrastructure", devices: "geographic maps, network schematics, data comparisons", illustrative: false, compositions: [
+    { id: "ei_map", text: "Geographic map locating the named place, with a label; no invented routes, lines or assets." },
+    { id: "ei_network", text: "Simple network schematic of the named components only, marked ILLUSTRATIVE." },
+    { id: "ei_data", text: "Zero-based bar comparison of the sourced figures with units and period." }
+  ] },
+  economic: { label: "Economic", devices: "zero-based charts, comparisons, numerical callouts", illustrative: false, compositions: [
+    { id: "ec_chart", text: "Zero-based chart of the sourced figure, axis labelled with unit and period, source line beneath." },
+    { id: "ec_callout", text: "One large number as a callout with its unit, period and a one-line meaning." },
+    { id: "ec_compare", text: "Two-value comparison panel (this period against the stated earlier one), no extrapolation." }
+  ] },
+  sport: { label: "Sport", devices: "event typography, lane or score graphics, verified statistics", illustrative: false, compositions: [
+    { id: "sp_type", text: "Event typography: name, place and date large, in Midnight Navy and Archival Gold." },
+    { id: "sp_score", text: "Result or lane graphic built only from the verified result, no invented splits or positions." },
+    { id: "sp_stat", text: "One verified statistic as a callout with its source." }
+  ] },
+  human_interest: { label: "Human interest", devices: "restrained typography, thoughtful pacing, minimal effects", illustrative: false, compositions: [
+    { id: "hi_quiet", text: "Quiet typographic plate: one sentence of the verified fact, generous space, a slow fade." },
+    { id: "hi_place", text: "Small place locator with the place name; nothing else moves." },
+    { id: "hi_quote", text: "A short attributed quotation, only if a source gives it verbatim, in plain type." }
+  ] },
+  environment: { label: "Environment", devices: "geographic maps, verified satellite imagery, data visualisation", illustrative: false, compositions: [
+    { id: "en_map", text: "Geographic map of the affected area from verified geometry, labelled." },
+    { id: "en_data", text: "Data visualisation of the sourced measurement with unit and period." },
+    { id: "en_imagery", text: "Verified satellite imagery ONLY if the editor supplies it with its rights; otherwise use the map or the data panel." }
+  ] },
+  conflict: { label: "International conflict", devices: "carefully sourced maps, timelines, verified documentation", illustrative: false, compositions: [
+    { id: "ic_map", text: "Sourced locator map, neutral border treatment, no front lines, arrows or troop symbols unless the source supplies them." },
+    { id: "ic_timeline", text: "Dated timeline of sourced events, attributed to who reports each." },
+    { id: "ic_doc", text: "Document or statement plate quoting only the sourced wording, with the issuing party named." }
+  ] }
+};
+var RX = {
+  sport: /\b(match|championship|tournament|league|medal|olympic\w*|marathon|hyrox|race|cup|athletes?|football|cricket|tennis|rugby|basketball|goal|fixtures?|world record)\b/i,
+  conflict: /\b(war|ceasefire|missiles?|troops|military|invasion|airstrikes?|hostages?|shelling|armed|frontline|offensive|truce)\b/i,
+  energy: /\b(energy|pipeline|power (plant|station|grid)|grid|nuclear|oil|gas|solar|wind farm|electricity|railway|rail|port|bridge|airport|dam|infrastructure|broadband|undersea cable|refinery)\b/i,
+  environment: /\b(climate|wildfires?|floods?|drought|earthquake|storm|cyclone|hurricane|typhoon|emissions?|biodiversity|glacier|ocean|forests?|pollution|species|heatwave)\b/i
+};
+function visualKey(d) {
+  const t = textOf(d);
+  if (RX.sport.test(t)) return "sport";
+  if (RX.conflict.test(t)) return "conflict";
+  if (RX.energy.test(t)) return "energy_infra";
+  if (d.a.type === "environmental_event" || RX.environment.test(t)) return "environment";
+  if (d.a.type === "scientific_discovery" || d.a.type === "technology") return "science_tech";
+  if (d.a.type === "economic_change") return "economic";
+  if (["law_regulation", "government_decision", "institutional_decision", "international_development"].includes(d.a.type)) return "political_legal";
+  return "human_interest";
+}
+var PLATES = [
+  { id: "plate_a", text: "Static typographic plate: the headline in large type, the source chip fixed beneath it, nothing animated." },
+  { id: "plate_b", text: "Static typographic plate, alternate layout: the key fact in large type on the left, the source and date on the right, nothing animated." }
+];
+function pickCompositions(items, supplied = []) {
+  const used = /* @__PURE__ */ new Map();
+  const out = [];
+  let prev = "";
+  items.forEach((it, i) => {
+    let pool = it.intensity === "MINIMAL" ? PLATES : TREATMENT_SET[it.kind].compositions;
+    if (it.intensity !== "MINIMAL") pool = pool.filter((c) => c.id === "en_imagery" ? !!supplied[i] : true);
+    const pick = [...pool].filter((c) => c.id !== prev).sort((a, b) => (used.get(a.id) ?? 0) - (used.get(b.id) ?? 0))[0] ?? pool[0];
+    used.set(pick.id, (used.get(pick.id) ?? 0) + 1);
+    prev = pick.id;
+    out.push(pick);
+  });
+  return out;
+}
+function mapSpec(d, intensity, format) {
+  const loc = d.a.locations[0];
+  if (!loc) return { use: false, text: "No map: no place could be established from the evidence." };
+  if (loc.basis !== "mentioned in the retrieved text") return { use: false, text: `No map: ${loc.country} is only the publisher's location, not an established event location.` };
+  const anim = intensity === "MINIMAL" ? "static marker only" : "marker lands with a short, calm camera move";
+  return { use: true, text: `Locator map of ${loc.country} (named in the retrieved text), ${anim}. Country geometry from a verified free dataset (Natural Earth is the usual candidate; confirm the terms). ${format === "connected_edition" ? "Show each place in turn; draw no lines, routes or arrows between places." : "Locator only: no lines, routes or arrows."} Do not invent borders, routes, infrastructure or exact event positions; the position is an approximate country marker.` };
+}
+function soundPlan(format, opt) {
+  const bed = opt === "minimal" ? "No music bed. Use a single short opening motif, a single closing motif and silence between." : "ONE low-intensity music bed for the whole programme, sparse and tonal, without a drum pulse or a build-up. Start with the bed roughly 18 to 24 dB below the narration and adjust by ear. Duck a further 3 to 6 dB under any spoken line that carries a number, a name or an allegation.";
+  return {
+    opening: "A subtle recurring sonic identity: one short tonal motif of about two seconds, original or CC0, played under the brand plate. Not a news sting, riser or boom.",
+    bed,
+    transitions: "Restrained transition cues of about a third of a second, all from one sound family (for example a soft tonal tick). One cue per story change, none within a story. No random whooshes.",
+    mapData: "A very quiet marker tick only when a map marker lands or a figure appears, and only in scenes marked STANDARD intensity. None in RESTRAINED or MINIMAL scenes.",
+    silence: "Use strategic silence: drop the bed for one beat before the first fact of a serious story and after a key figure. Leave a short silence before the closing line.",
+    serious: "For human-impact, allegation and conflict items: bed ducked to near silence, no transition cue stronger than a soft tick, no swells, no impacts.",
+    closing: "Resolve the opening motif once, quietly. No stinger.",
+    avoid: "Generic news stings, random whooshes, excessive impacts, notification sounds, cinematic booms.",
+    licence: "Every sound or music asset must be identified as GENERATED (say with what), PUBLIC DOMAIN, CC0 or LICENSED. For each asset record: its name, where it came from, its licence, a link to the licence terms, and the date checked. Free to download is NOT proof of commercial use. If the licence cannot be shown, do not use the asset. WorldFiled Desk does not generate or render audio.",
+    formatNote: format === "focused_briefing" ? "Single-subject briefing: keep the bed even and use silence to let the central fact land." : format === "connected_edition" ? "Use the same transition cue for every story change so the edition feels continuous, without implying a causal link." : "Use the same transition cue for every story change; it marks only a change of story."
+  };
+}
+var LEX_STATUSES = ["CONFIRMED_HUMAN", "SOURCED", "PROPOSED", "UNCONFIRMED"];
+function validateLexEntry(raw, today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)) {
+  const errors = [];
+  const r = raw && typeof raw === "object" ? raw : {};
+  const name = str(r.name, 120);
+  if (!name) errors.push("A written name is required.");
+  const status = LEX_STATUSES.includes(r.status) ? r.status : null;
+  if (!status) errors.push("Status must be one of " + LEX_STATUSES.join(", ") + ".");
+  const pronunciation = str(r.pronunciation, 200), source = str(r.source, 300);
+  if (status === "CONFIRMED_HUMAN" && (!pronunciation || source.length < 3)) errors.push("A confirmed pronunciation needs the respelling and where or how you confirmed it.");
+  if (status === "SOURCED" && (!pronunciation || source.length < 3)) errors.push("A sourced pronunciation needs the respelling and the source.");
+  if (status === "PROPOSED" && !pronunciation) errors.push("A proposed pronunciation needs a respelling.");
+  const lastTested = r.lastTested === null || r.lastTested === "" || r.lastTested === void 0 ? null : r.lastTested;
+  if (lastTested !== null && (!isDate(lastTested) || lastTested > today)) errors.push("Last tested must be a past date (YYYY-MM-DD).");
+  const en = {};
+  if (r.engineNotes && typeof r.engineNotes === "object") {
+    for (const [k, v] of Object.entries(r.engineNotes).slice(0, 8)) if (typeof v === "string") en[str(k, 80)] = str(v, 300);
+  }
+  if (errors.length) return { ok: false, errors };
+  return { ok: true, entry: { name, type: str(r.type, 40) || "name", language: str(r.language, 60), pronunciation, status, source, engineNotes: en, lastTested } };
+}
+var lexKey = (n) => n.trim().toLowerCase();
+function namesIn(members) {
+  const out = /* @__PURE__ */ new Set();
+  for (const m of members) {
+    for (const p of m.dev.proper) out.add(p);
+    for (const w of textOf(m.dev).match(/\b[A-Z]{2,6}\b/g) ?? []) if (!/^(UK|US|UN|EU|AI|TV|ID|OK)$/.test(w)) out.add(w);
+  }
+  return [...out].slice(0, 40);
+}
+function pronunciationCheck(names, lex) {
+  const map = new Map(lex.map((e) => [lexKey(e.name), e]));
+  return names.map((name) => {
+    const e = map.get(lexKey(name)) ?? null;
+    if (e && e.status === "CONFIRMED_HUMAN") return { name, entry: e, state: "CONFIRMED", note: "confirmed by the editor" };
+    if (e && e.status === "SOURCED") return { name, entry: e, state: "SOURCED", note: `sourced: ${e.source}` };
+    return { name, entry: e, state: "CHECK_REQUIRED", note: e ? `${e.status.toLowerCase()}${e.pronunciation ? ` (${e.pronunciation})` : ""}: not confirmed` : "unconfirmed: not in the lexicon" };
+  });
+}
+var namesInDev = (d, names) => names.filter((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(textOf(d)));
+var clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+var TIER_W = { OFFICIAL: 1, CORROBORATED: 0.8, SINGLE_SOURCE: 0.5, CONFLICTING: 0.5, WEAK: 0.3 };
+function runtimeItem(d, et, pack, secs) {
+  const material = Math.min(pack.sources.length, 4);
+  const weight = 0.2 + 0.4 * (d.a.curiosityScore / 100) + 0.25 * TIER_W[et.tier] + 0.15 * (material / 4);
+  return { id: d.id, weight, min: 7, cap: Math.min(secs, 12 + 9 * material) };
+}
+function allocateRuntime(items, secs, format, opts2 = {}) {
+  const warnings = [];
+  const hook = clamp(Math.round(secs * 0.06), 3, 6), closing = clamp(Math.round(secs * 0.06), 3, 6);
+  const recap = format === "global_roundup" && items.length >= 3 && secs >= 90 && opts2.roundupRecap !== false ? 4 : 0;
+  const connection = format === "connected_edition" ? clamp(Math.round(secs * 0.08), 4, 8) : 0;
+  const content = secs - hook - closing - recap - connection;
+  const sumMin = items.reduce((a, i) => a + i.min, 0);
+  const alloc = {};
+  let free = items.slice();
+  let pool = content;
+  const fixed = /* @__PURE__ */ new Set();
+  if (sumMin > content) {
+    warnings.push(`${items.length} developments need at least ${sumMin + secs - content} seconds at the minimum of ${items[0]?.min ?? 7} seconds each; this edition is set to ${secs}. Remove a development or choose a longer length. Each item below is given its minimum and the total runs over.`);
+    for (const i of items) alloc[i.id] = i.min;
+  } else {
+    for (let guard = 0; guard < 10 && free.length; guard++) {
+      const wsum = free.reduce((a, i) => a + i.weight, 0);
+      let changed = false;
+      for (const i of free) {
+        const share = pool * i.weight / wsum;
+        if (share > i.cap) {
+          alloc[i.id] = i.cap;
+          fixed.add(i.id);
+          changed = true;
+        } else if (share < i.min) {
+          alloc[i.id] = i.min;
+          fixed.add(i.id);
+          changed = true;
+        }
+      }
+      if (changed) {
+        pool = content - [...fixed].reduce((a, id) => a + alloc[id], 0);
+        free = items.filter((i) => !fixed.has(i.id));
+        continue;
+      }
+      for (const i of free) alloc[i.id] = pool * i.weight / wsum;
+      break;
+    }
+    for (const i of items) if (alloc[i.id] === void 0) alloc[i.id] = i.min;
+  }
+  const rounded = {};
+  for (const i of items) rounded[i.id] = Math.round(alloc[i.id]);
+  const total = hook + closing + recap + connection + Object.values(rounded).reduce((a, b) => a + b, 0);
+  const shorter = total < secs - 2;
+  if (shorter) warnings.push(`The sourced material supports about ${total} seconds, not ${secs}. The edition is shorter on purpose and is not padded.`);
+  return { hook, closing, recap, connection, items: rounded, total, ceiling: secs, shorterThanCeiling: shorter, warnings };
+}
+var canon = (v) => Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, canon(x)])) : v;
+function configHash(settings, names, lex) {
+  const rel = pronunciationCheck(names, lex).map((p) => ({ n: p.name, e: p.entry ? { ...p.entry } : null }));
+  return createHash2("sha256").update(JSON.stringify(canon({ v: PRESENTER_VERSION, voice: settings.voice, tools: [...settings.toolsConfirmed].sort(), lex: rel }))).digest("hex");
+}
+var DEFAULT_SETTINGS = { voice: DEFAULT_VOICE, toolsConfirmed: [] };
+
+// netlify/lib/blueprint.mts
+var refsOf = (p) => p.sources.map((s) => s.ref);
+var factsOf = (p) => p.claim_classes.filter((c) => c.class !== "UNKNOWN").slice(0, 3).map((c) => ({ text: c.statement, ref: c.refs.join("+") || "editor note", cls: c.class }));
+var TRANSITIONS = ["Type push: the next headline pushes the current one off, marking a new story.", "Cross-dissolve through the Midnight Navy field to the next plate.", "Cut on the beat after the last word, with the soft transition cue."];
+function buildBlueprint(inp) {
+  const { ev, secs, format, voice, lex, sound, now } = inp;
+  const ordered = ev.sequence.map((s) => inp.members.find((m) => m.dev.id === s.id)).filter(Boolean);
+  const refOf = (m) => `D${inp.members.indexOf(m) + 1}`;
+  const perDev = {};
+  for (const m of inp.members) {
+    const et = evidenceTreatment(m.dev, m.pack);
+    perDev[m.dev.id] = { ref: refOf(m), et, delivery: selectDelivery(m.dev, et, now), visualKey: visualKey(m.dev) };
+  }
+  const names = namesIn(inp.members);
+  const pron = pronunciationCheck(names, lex);
+  const alloc = allocateRuntime(ordered.map((m) => runtimeItem(m.dev, perDev[m.dev.id].et, m.pack, secs)), secs, format.key);
+  const sp = soundPlan(format.key, sound);
+  const plan = [];
+  const first = ordered[0] ?? null;
+  const lead = format.key === "focused_briefing" ? ordered.find((m) => m.dev.id === format.leadId) ?? first : null;
+  plan.push({ kind: "hook", m: lead ?? first, seconds: alloc.hook, title: "Hook", purpose: `Open with the strongest evidence-backed hook: ${ev.check.strongestOpening}. News in the first clause; the brand plate stays under two seconds.` });
+  if (format.key === "focused_briefing" && lead) {
+    const a = alloc.items[lead.dev.id] ?? 12;
+    const s1 = Math.round(a * 0.4), s2 = Math.round(a * 0.3), s3 = Math.max(3, a - s1 - s2);
+    plan.push({ kind: "story", m: lead, seconds: s1, title: "What happened", purpose: "State what happened, who did it and what is different, as far as the evidence supports. The hook already used the lead fact: do not repeat that sentence; open with what is new." });
+    plan.push({ kind: "context", m: lead, seconds: s2, title: "Context and background", purpose: "Give relevant context. Background that is not in section 6 must be labelled BACKGROUND (NOT FROM THE EVIDENCE PACK, EDITOR TO VERIFY), with no numbers, dates or quotes from memory." });
+    plan.push({ kind: "consequence", m: lead, seconds: s3, title: "Consequences and what is not yet known", purpose: "Say what follows from the sourced facts and what the evidence does not yet establish. Possible implications are labelled as possibilities." });
+    for (const m of ordered) if (m !== lead) plan.push({ kind: "story", m, seconds: alloc.items[m.dev.id], title: "Related development", purpose: "A related development, verified separately; say plainly how it relates only if the evidence states it." });
+  } else {
+    ordered.forEach((m, i) => plan.push({ kind: "story", m, seconds: alloc.items[m.dev.id], title: `Story ${i + 1}`, purpose: `${ev.sequence[i]?.role ?? "Development"}. ${format.key === "global_roundup" ? "Stands on its own significance; no link to the other stories is claimed." : "Shows what this place adds to the theme."}${i === 0 && m === (lead ?? first) ? " The hook already used this development's lead fact: do not repeat that sentence; open with what is new." : ""}` }));
+    if (alloc.connection) plan.push({ kind: "connection", m: null, seconds: alloc.connection, title: "What connects them", purpose: `State the connection and why the combination explains more than the separate stories. Label it ${format.connectionLabel}.` });
+    if (alloc.recap) plan.push({ kind: "recap", m: null, seconds: alloc.recap, title: "Recap", purpose: "A brief recap of what was covered. No new facts and no unifying claim." });
+  }
+  plan.push({ kind: "closing", m: null, seconds: alloc.closing, title: "Closing", purpose: "Close on what matters, only as far as the evidence supports. No new facts, no prediction." });
+  const storyish = plan.map((p) => p.m ? { kind: perDev[p.m.dev.id].visualKey, intensity: inp.visualMode === "typographic" ? "MINIMAL" : perDev[p.m.dev.id].et.intensity } : { kind: "human_interest", intensity: "MINIMAL" });
+  const comps = pickCompositions(storyish, plan.map((p) => !!(p.m && inp.assets?.[p.m.dev.id]?.length)));
+  const confirmed = (k) => inp.toolsConfirmed.includes(k);
+  const cap2 = (need, key) => ({ need, key, cls: capByKey(key).cls, confirmed: confirmed(key) });
+  const scenes = [];
+  let t = 0;
+  plan.forEach((p, i) => {
+    const m = p.m;
+    const d = m ? perDev[m.dev.id] : null;
+    const brandOnly = p.kind === "closing" || p.kind === "recap" || p.kind === "connection";
+    const prof = p.kind === "closing" ? PROFILES.closing : p.kind === "recap" || p.kind === "connection" ? PROFILES.roundup_transition : d.delivery.profile;
+    const reason = p.kind === "closing" ? "closing line" : p.kind === "recap" ? "recap marks the end of the stories" : p.kind === "connection" ? "marks the move to the connection" : d.delivery.reason;
+    const intensity = d ? inp.visualMode === "typographic" ? "MINIMAL" : d.et.intensity : "STANDARD";
+    const seconds = Math.max(2, p.seconds);
+    const words = { min: Math.round(seconds * prof.paceLo), max: Math.round(seconds * prof.paceHi), target: Math.round(seconds * paceMid(prof)) };
+    const from = t;
+    t += seconds;
+    const comp = comps[i];
+    const vk = d ? d.visualKey : "human_interest";
+    const treat = d ? TREATMENT_SET[vk] : null;
+    const map = m && !brandOnly && p.kind !== "hook" ? mapSpec(m.dev, intensity, format.key) : { use: false, text: p.kind === "hook" ? "No map in the hook; the map starts with the story." : "No map in this scene." };
+    const nm = m ? namesInDev(m.dev, names) : [];
+    const pr = nm.map((n) => {
+      const x = pron.find((q2) => q2.name === n);
+      return { name: n, state: x.state, respelling: x.entry?.pronunciation || null };
+    });
+    let facts = m ? factsOf(m.pack) : [];
+    if (p.kind === "hook") facts = facts.slice(0, 1);
+    if (p.kind === "context") facts = [];
+    if (p.kind === "consequence" && m) facts = [...m.dev.a.humanConsequences ? [{ text: `Human consequences (from the evidence): ${m.dev.a.humanConsequences}`, ref: refsOf(m.pack).join("+"), cls: "INTERPRETATION" }] : [], ...m.dev.a.possibleImplications ? [{ text: `Possible implications (NOT established): ${m.dev.a.possibleImplications}`, ref: "none", cls: "FUTURE POSSIBILITY" }] : [], ...m.dev.a.missingEvidence.slice(0, 2).map((x) => ({ text: `Not yet known: ${x}`, ref: "none", cls: "UNKNOWN" }))];
+    if (p.kind === "connection") facts = [{ text: ev.check.belongTogether, ref: "edition-level", cls: "EDITORIAL INTERPRETATION" }];
+    const factLines = facts.length ? facts.map((f) => `${f.text} [${f.ref}; ${f.cls}]`).join(" | ") : brandOnly ? "none: this scene adds no new facts" : "no sourced fact available: leave this item out";
+    const sfxSerious = d && ["human_impact", "accountability"].includes(d.delivery.profile.key);
+    const transition = i === plan.length - 1 ? "End on the closing motif and a short silence." : format.key === "connected_edition" ? "Bridge to the next scene that marks only the change of story and may show the theme label tagged EDITORIAL INFERENCE. Never imply a causal link." : TRANSITIONS[i % TRANSITIONS.length] + (intensity === "STANDARD" && i % 2 === 0 ? " Optional match cut on a shared SHAPE (for example circle to circle) for rhythm only; the on-screen labels stay factual and no link between the stories is implied." : "");
+    const caps = [cap2("Narration audio, generated by you in the configured voice from the clean transcript", "ai_studio_manual")];
+    if (inp.deliverable === "narrated_video") caps.push(cap2("Procedural visual plates and motion", "python_pil"), cap2("Assembly of audio and video", "ffmpeg"));
+    else if (inp.deliverable === "animated_html") caps.push(cap2("One self-contained HTML animation", "html_animation"));
+    else caps.push(cap2("Written script, storyboard and specification", "written_deliverables"));
+    if (map.use) caps.push(cap2("Country geometry for the locator map", "natural_earth"));
+    if (pr.length) caps.push(cap2("Pronunciation and listening review", "pronunciation_review"));
+    caps.push(cap2("Sound and music assets (record licence evidence)", "external_media"));
+    caps.push({ need: "Per-word emphasis, SSML, custom pronunciation or numeric pace controls", key: "engine_controls", cls: voice.verifiedControls.length ? "MANUAL" : "UNVERIFIED", confirmed: false });
+    const review = ["Editor checks every claim against its evidence refs."];
+    if (d && d.et.intensity !== "STANDARD") review.push(`Editor decides whether to include this item at all (evidence: ${d.et.tier.toLowerCase().replace("_", " ")}).`);
+    if (d && d.et.claimKind === "ALLEGATION") review.push("Editor confirms the allegation is attributed correctly.");
+    if (pr.some((x) => x.state === "CHECK_REQUIRED")) review.push("PRONUNCIATION CHECK REQUIRED for: " + pr.filter((x) => x.state === "CHECK_REQUIRED").map((x) => x.name).join(", ") + ".");
+    if (map.use) review.push("Editor verifies the map geometry and labels.");
+    if (p.kind === "context") review.push("Editor verifies any BACKGROUND that is not in the evidence pack.");
+    review.push("Editor confirms every sound asset has licence evidence.");
+    scenes.push({
+      n: i + 1,
+      kind: p.kind,
+      devRef: m ? d.ref : null,
+      title: p.title,
+      timecode: { from, to: t },
+      seconds,
+      purpose: p.purpose,
+      storyRef: m && !brandOnly ? `${d.ref}: ${m.dev.headline}` : p.kind === "hook" && m ? `${d.ref}: ${m.dev.headline} (opening)` : "Edition-level",
+      narration: { instruction: `Write the EXACT spoken narration for this scene: about ${words.target} words (${words.min} to ${words.max}) for ${seconds} seconds. Use ONLY these facts: ${factLines}. News in the first clause. At most 18 words per sentence unless clarity needs more. Spell numbers and abbreviations as spoken. ${d ? `Attribution and qualification: ${d.et.spoken.rule}` : "No new claims."}`, words, maxSentenceWords: 18, facts },
+      delivery: { key: prof.key, label: prof.label, paceLo: prof.paceLo, paceHi: prof.paceHi, direction: prof.direction, reason },
+      pronunciation: pr,
+      visual: brandOnly || p.kind === "hook" ? { treatment: p.kind === "hook" ? "Brand opening plate, then the lead fact as typography" : p.kind === "closing" ? "Brand closing plate" : "Minimal typographic plate", compositionId: comp.id, composition: p.kind === "hook" ? "Approved logo unchanged on Midnight Navy for under two seconds, then the key fact in large type with the source chip." + (d && d.et.intensity !== "STANDARD" ? " Evidence is limited, so no animation." : "") : p.kind === "closing" ? "Approved logo unchanged and the tagline, a single quiet fade." : comp.text } : { treatment: treat.label + ": " + treat.devices, compositionId: comp.id, composition: comp.text + (treat.illustrative ? " Mark this ILLUSTRATIVE on screen." : "") },
+      imagery: `No photographs, footage, crowds, buildings or likenesses of named people. Editor-supplied verified assets for this scene: ${m && inp.assets?.[m.dev.id]?.length ? inp.assets[m.dev.id].join("; ") + " (confirm rights before use)" : "none"}. Use typography, map or schematic treatment only. Label any illustration ILLUSTRATIVE.`,
+      camera: !d || intensity === "MINIMAL" ? "No camera movement." : intensity === "RESTRAINED" ? "A very slow push-in of at most two percent, only if it serves reading the text." : comp.id.endsWith("map") || comp.id === "ei_map" || comp.id === "en_map" || comp.id === "ic_map" ? "Pan and ease to the marker over about a second; purpose: show where this is." : "A slow push-in of three to five percent over the scene; purpose: keep the plate alive without changing the meaning.",
+      motion: !d || intensity === "MINIMAL" ? "None beyond a fade in and out; purpose: legibility." : /chart|compare|data|score|callout/.test(comp.id) ? "Values grow from zero over under a second; purpose: show magnitude honestly." : "Text appears in phrase groups in time with the narration; purpose: guide the eye to the fact being spoken.",
+      onScreen: { headline: d ? `A factual headline of at most eight words drawn from ${d.ref} (no stronger than its evidence).` : p.kind === "closing" ? "The tagline: What happened. What changed. What matters." : p.kind === "connection" ? `A short theme label tagged EDITORIAL INFERENCE.` : "A one-line list of the stories covered.", chip: d ? `Persistent chip: ${d.et.chip}` : "No evidence chip (no new claims).", captionRule: "Captions follow the clean transcript word for word.", keyFacts: d && !brandOnly ? "Two to three key facts, each with its source ref, only from the facts listed in the narration field." : "None." },
+      mapData: map.text,
+      sfx: i === plan.length - 1 ? "None." : !d ? "A single soft transition cue." : sfxSerious || intensity !== "STANDARD" ? "A soft tick at most, or silence. No impacts." : map.use ? "Quiet marker tick when the marker lands; the shared transition cue at the change of story." : "The shared transition cue at the change of story.",
+      music: sound === "minimal" ? p.kind === "hook" ? "Opening motif only." : p.kind === "closing" ? "Closing motif only." : "No music." : p.kind === "hook" ? "Opening motif, then the bed fades in under the first sentence." : p.kind === "closing" ? "Bed fades out; closing motif resolves quietly." : sfxSerious ? "Bed ducked to near silence; one beat of silence before the first fact." : "The single music bed, ducked under narration" + (d && d.et.spoken.material ? " and a further 3 to 6 dB on the qualified claim." : "."),
+      transition,
+      evidenceRefs: m ? refsOf(m.pack) : p.kind === "connection" ? inp.members.flatMap((x) => refsOf(x.pack)) : [],
+      capabilities: caps,
+      humanReview: review,
+      intensity,
+      tier: d ? d.et.tier : "n/a"
+    });
+  });
+  return { scenes, allocation: alloc, totalWords: scenes.reduce((a, s) => a + s.narration.words.target, 0), names, pronunciation: pron, perDev };
+}
+var tc = (s) => `${s}s`;
+function renderScene(s) {
+  const cap2 = s.capabilities.map((c) => `${c.need}: ${c.cls}${c.confirmed ? " (you confirmed this is available)" : c.cls === "FREE TOOL" || c.cls === "NATIVE" ? " (availability not confirmed by you)" : ""}`).join("; ");
+  return [
+    `SCENE ${s.n} (${s.kind.toUpperCase()}): ${s.title}`,
+    `  1. Timecode: ${tc(s.timecode.from)} to ${tc(s.timecode.to)} (${s.seconds}s)`,
+    `  2. Editorial purpose: ${s.purpose}`,
+    `  3. Story reference: ${s.storyRef}`,
+    `  4. Exact narration (YOU WRITE IT; put it ONLY in the clean transcript, with no directions inside it): ${s.narration.instruction}`,
+    `  5. Presenter delivery profile: ${s.delivery.label}, ${s.delivery.paceLo} to ${s.delivery.paceHi} words per second (target to check by ear, not a guarantee). ${s.delivery.direction} Chosen because: ${s.delivery.reason}.`,
+    `  6. Pronunciation: ${s.pronunciation.length ? s.pronunciation.map((p) => `${p.name} [${p.state === "CHECK_REQUIRED" ? "PRONUNCIATION CHECK REQUIRED" : p.state}${p.respelling ? `: say "${p.respelling}"` : ""}]`).join("; ") : "no names flagged in this scene"}`,
+    `  7. Visual composition (${s.visual.compositionId}; ${s.visual.treatment}): ${s.visual.composition}`,
+    `  8. Imagery and rights: ${s.imagery}`,
+    `  9. Camera movement: ${s.camera}`,
+    ` 10. Motion graphics: ${s.motion}`,
+    ` 11. On-screen text: Headline: ${s.onScreen.headline} ${s.onScreen.chip}. Captions: ${s.onScreen.captionRule} Key facts: ${s.onScreen.keyFacts}`,
+    ` 12. Map or data specification: ${s.mapData}`,
+    ` 13. Sound effects: ${s.sfx}`,
+    ` 14. Music direction: ${s.music}`,
+    ` 15. Transition: ${s.transition}`,
+    ` 16. Evidence references: ${s.evidenceRefs.length ? s.evidenceRefs.join(", ") : "none (no new claims in this scene)"}; evidence level: ${s.tier}; creative intensity: ${s.intensity}`,
+    ` 17. Production capability classification: ${cap2}`,
+    ` 18. Human review required: ${s.humanReview.join(" ")}`
+  ].join("\n");
+}
+
 // netlify/lib/edition-prompt.mts
 var MAX_EDITION_PROMPT_CHARS = 2e5;
 var MAX_EDITION_SNAPSHOT_BYTES = 6e5;
 var EditionPromptTooLarge = class extends Error {
 };
-var WPS = [2.2, 2.8];
 var bullets2 = (a) => a.map((x) => `- ${x}`).join("\n");
 var q = (s) => `"${cleanField(s, 160)}"`;
 function pickRoles(members, ev, deliverable) {
@@ -490,8 +1055,8 @@ function pickRoles(members, ev, deliverable) {
   return roles.slice(0, 8);
 }
 function evidenceHash(members) {
-  const canon = members.map((m) => ({ id: m.dev.id, s: m.pack.sources.map((s) => [s.url, s.title, s.published_at, s.snippet]).sort() }));
-  return createHash2("sha256").update(JSON.stringify(canon)).digest("hex");
+  const canon2 = members.map((m) => ({ id: m.dev.id, s: m.pack.sources.map((s) => [s.url, s.title, s.published_at, s.snippet]).sort() }));
+  return createHash3("sha256").update(JSON.stringify(canon2)).digest("hex");
 }
 function buildEditionPrompt(input) {
   const { members, evaluation: ev } = input;
@@ -501,7 +1066,15 @@ function buildEditionPrompt(input) {
   const d = DELIVERABLES.find((x) => x.key === input.deliverable) ?? DELIVERABLES[0];
   const tools = selectTools(d.key, ev.check.mapUseful);
   const roles = pickRoles(members, ev, d.key);
-  const budget = { min: Math.round(secs * WPS[0]), max: Math.round(secs * WPS[1]), target: Math.round(secs * 2.5) };
+  const cz = input.creative ?? {};
+  const voice = cz.voice ?? DEFAULT_SETTINGS.voice, toolsConfirmed = cz.toolsConfirmed ?? [], lex = cz.lex ?? [];
+  const format = selectFormat(ev, members, cz.format);
+  const sound = cz.sound ?? "subtle";
+  const bp = buildBlueprint({ members, ev, secs, format, voice, lex, toolsConfirmed, sound, visualMode: cz.visual ?? "adaptive", deliverable: d.key, now: cz.now ?? Date.now(), assets: cz.assets });
+  const sp = soundPlan(format.key, sound);
+  const appr = approvalState(voice);
+  const apprText = appr === "APPROVED" ? `APPROVED by the editor after listening (${voice.approval.approvedAt})` : appr === "VOID_VOICE_CHANGED" ? "NOT APPROVED: the engine, voice or model changed since the last listening approval, so the approval no longer applies" : "NOT APPROVED: no listening approval has been recorded for this voice";
+  const controls = allowedControls(voice);
   const angle = cleanField(input.angle, 200);
   const title = cleanField(input.title, 200);
   const evidenceBlocks = members.map((m, i) => {
@@ -514,25 +1087,6 @@ function buildEditionPrompt(input) {
     ].join("\n");
   }).join("\n\n");
   const classLegend = Object.keys(CLASS_MEANING).map((k) => `- ${k}: ${CLASS_MEANING[k]}`).join("\n");
-  const hookPct = 0.1, connectPct = 0.12, uncertainPct = 0.08, matterPct = 0.1;
-  const devPct = (1 - hookPct - connectPct - uncertainPct - matterPct) / Math.max(n, 1);
-  let t = 0;
-  const seg = (label, pct, body) => {
-    const len = Math.max(3, Math.round(pct * secs));
-    const from = t;
-    t = Math.min(secs, t + len);
-    return `Scene ${label} (${from}s to ${t}s): ${body}`;
-  };
-  const scenes = [];
-  scenes.push(seg("1 - Hook and introduction", hookPct, `Open with the strongest evidence-backed hook (see section 9), then one short line telling the audience what this edition covers (${n} development${n === 1 ? "" : "s"}).`));
-  ev.sequence.forEach((s, i) => {
-    const m = members.find((x) => x.dev.id === s.id);
-    const where = m.dev.a.locations[0] ? `${m.dev.a.locations[0].country} (${m.dev.a.locations[0].basis})` : "place not established";
-    scenes.push(seg(`${i + 2} - D${members.indexOf(m) + 1}`, devPct, `${s.role}. Development: ${q(m.dev.headline)}. Place: ${where}. Attribute every fact to its source ref (D${members.indexOf(m) + 1}-S#). Say what happened and what is different about this one.`));
-  });
-  scenes.push(seg(`${n + 2} - ${roundup ? "Recap" : "What connects them"}`, connectPct, roundup ? `Briefly recap the stories covered. Do not add a unifying claim.` : `State the connection (section 4) and why the combination explains more than the separate stories.`));
-  scenes.push(seg(`${n + 3} - What remains uncertain`, uncertainPct, `Say plainly what is single-source, conflicting or unknown (section 6).`));
-  scenes.push(seg(`${n + 4} - What matters`, matterPct, `Strong conclusion: close on what matters, only as far as the evidence supports. Do not predict.`));
   const placed = ev.sequence.map((s, i) => ({ s, l: members.find((m) => m.dev.id === s.id).dev.a.locations[0], i }));
   const mapBlock = ev.check.mapUseful ? [
     `A map IS useful here: ${ev.check.mapWhy}`,
@@ -555,6 +1109,7 @@ function buildEditionPrompt(input) {
 - Every claim has an evidence class. You may not state a claim more strongly than its class allows. Separate, always labelled: EDITORIAL INTERPRETATION (our reading of the connection) and FUTURE POSSIBILITY (anything that "could" or "may" happen, only if a source says it). Creative treatment may never turn a SINGLE_SOURCE, CONFLICTING or UNKNOWN item into an asserted fact.
 - Several outlets repeating one announcement or one wire report are NOT independent confirmation. Do not write "confirmed by multiple sources" unless section 6 shows separate original sources.
 - The connection between the developments is the editorial thesis. Present it as our interpretation. Do not imply the places coordinated, caused each other, or share a cause unless a source states that.
+- Evidence strength constrains creative treatment. A single-source or weak item never receives a style that implies certainty or corroboration (no "BREAKING" or "CONFIRMED" labels, no impact sounds, no dramatic reveal). Unsupported claims are left out, not made dramatic through hedging.
 - Anything illustrative must be visibly or verbally framed as illustrative, never as real footage or evidence.
 - Everything must be free to produce: no paid services, trials, subscriptions or API keys. If something cannot be done free, say so.
 ${flagged.length ? `- Single-outlet developments (${flagged.join(", ")}) must be framed on screen and in narration as "reported by <outlet>, not independently confirmed".
@@ -567,6 +1122,7 @@ ${angle ? `Editor's chosen angle: "${angle}" (follow it only where the evidence 
 ` : ""}
 === 3. EDITORIAL STRUCTURE ===
 ${ev.structureLabel}. ${structureBrief}
+PROGRAMME FORMAT: ${format.label}${format.overridden ? " (chosen by the editor)" : ""}. ${FORMATS[format.key].description} Selected because ${format.why}.${format.connectionLabel ? ` Connection label: ${format.connectionLabel}.` : ""}
 
 === 4. WHY THESE DEVELOPMENTS BELONG TOGETHER ===
 ${roundup ? "Grouping: chosen by the editor as a multi-topic roundup. The fixed-rule check found no shared theme (" + ev.coherence.verdict + (ev.coherence.score !== null ? ` ${ev.coherence.score}/100` : "") + "), which is acceptable for this structure. Do NOT present the stories as connected, as a pattern or as a trend." : "Coherence check by fixed rules: " + ev.coherence.verdict + (ev.coherence.score !== null ? ` (${ev.coherence.score}/100)` : "") + "."}
@@ -606,8 +1162,30 @@ ${roundup ? "Edition-level: variety and pace are the engine. Give every story it
 Lead with: ${ev.check.strongestOpening}
 The hook must be a verified fact or an honest question the evidence raises. It must not exaggerate or tease with withheld facts.
 
-=== 10. INTEGRATED NARRATION SCRIPT ===
-Write ONE continuous script for ${secs} seconds: ${budget.min} to ${budget.max} words in total (aim for about ${budget.target}), at roughly ${WPS[0]} to ${WPS[1]} words per second. It must read as ONE professionally edited briefing, not ${n} separate scripts joined together. Required parts, in order: (a) one compelling opening hook; (b) a short introduction that tells the audience what this edition covers; (c) one segment per development in the order of section 11; (d) a transition between every pair of segments; (e) a strong conclusion${roundup ? " (a brief recap of what was covered and why each item matters on its own terms; no invented unifying lesson)" : " that returns to the central angle"}. Short, declarative, calm sentences; attribute each factual statement ("according to ...", "reported by ...").
+=== 10. INTEGRATED NARRATION SCRIPT AND PRESENTER DIRECTION ===
+PRESENTER (a recurring identity, independent of any voice engine): ${PRESENTER.identity}
+Energy: ${PRESENTER.energy.join(" ")}
+Never imitate: ${PRESENTER.never.join(", ")}.
+VOICE CONFIGURATION USED FOR THIS PROMPT (the editor's saved setup; changing the engine never changes the presenter identity):
+- Engine: ${voice.engine}. Voice: ${voice.voiceName}.${voice.model ? ` Model: ${voice.model}.` : " Model: not recorded."}
+- Voice status: ${voice.status.replace(/_/g, " ")}. Listening approval: ${apprText}. Last tested: ${voice.lastTested ?? "never"}.
+- Licence and commercial use: ${voice.licence.status.replace(/_/g, " ")}${voice.licence.checkedAt ? ` (checked ${voice.licence.checkedAt})` : ""}. ${voice.licence.note}
+- Style notes: ${(voice.styleInstructions || "none recorded").replace(/\.+$/, "")}. Pace notes: ${(voice.paceInstructions || "none recorded").replace(/\.+$/, "")}.
+- Pronunciation handling: ${voice.pronunciationHandling.replace(/_/g, " ").toLowerCase()}.
+- Controls verified for this engine by the editor: ${controls.length ? controls.join(", ") : "none"}. Request nothing else: do NOT put SSML, per-word emphasis markers, phonetic markup or numeric speed settings in anything the engine reads, and do NOT claim the engine supports them.
+${/laomedeia/i.test(voice.voiceName) ? `Reference sample for the target feel (measured on ONE supplied sample, not a universal rule; the editor's ears outrank the numbers): ${LAOMEDEIA_REFERENCE.format}; about ${LAOMEDEIA_REFERENCE.durationSeconds} s; about ${LAOMEDEIA_REFERENCE.integratedLufs} LUFS; true peak about ${LAOMEDEIA_REFERENCE.truePeakDbfs} dBFS; median pitch about ${LAOMEDEIA_REFERENCE.medianPitchHz} Hz; pitch variation about ${LAOMEDEIA_REFERENCE.pitchVariationSemitones} semitones; about ${LAOMEDEIA_REFERENCE.wordsPerSecond} words per second (${LAOMEDEIA_REFERENCE.paceNote}); ${LAOMEDEIA_REFERENCE.pauses}
+` : ""}Voice and licence status above is the editor's record. Nothing here claims the voice has been tested, approved or cleared for commercial use unless it says so.
+
+Script length: about ${bp.totalWords} spoken words across about ${bp.allocation.total} seconds (the edition ceiling is ${secs} seconds; ${bp.allocation.shorterThanCeiling ? "it is shorter on purpose because the sourced material supports no more, so do NOT pad it" : "pace targets are in each scene"}). Per-scene word budgets are in section 13. The news occupies the programme: the opening, recap and closing together are a small share of it.${bp.allocation.warnings.length ? "\nRuntime warnings: " + bp.allocation.warnings.join(" ") : ""}
+Narration rules:
+- Put the news in the first clause. Write for the ear, not for an article. Vary sentence length and openings.
+- Aim for at most 18 words per sentence, with exceptions only where clarity requires them.
+- One natural attribution per story, not on every sentence. State allegations as allegations. Separate claims from established facts. Say plainly whether something is a plan, proposal or target, or is already done.
+- No unnecessary disclaimers. No forced rhetorical questions and no manufactured curiosity: at most ONE rhetorical question in the whole edition. Do not invent or strengthen facts for effect.
+- Spell numbers, units, symbols and abbreviations as they are spoken.
+- Per story: the on-screen chip carries the evidence level. Speak a qualification only where the audience needs it (allegations, contested claims, plans, material uncertainty). Never repeat a phrase like "not independently confirmed" through the programme, and never drop a material qualification just to save time.
+Read this as ONE professionally edited briefing, not separate scripts joined together. Required parts, in order: (a) one opening hook; (b) a short introduction; (c) one segment per development in the order of section 11; (d) a transition between every pair of segments; (e) a conclusion${roundup ? " (no invented unifying lesson)" : " that returns to the central angle"}.
+OUTPUT THE NARRATION IN TWO SEPARATE BLOCKS: (1) CLEAN TRANSCRIPT: only the words to be spoken, scene by scene, with no brackets, stage directions, pronunciation marks or sound cues inside it (they could be read aloud); (2) DELIVERY SHEET: per scene, the delivery profile, pace target, pauses, emphasis, pronunciation notes and the sound cue, written as guidance for the editor.
 
 === 11. STORY SEQUENCE AND TRANSITIONS ===
 Recommended order (chosen for hook strength and short geographic moves):
@@ -618,26 +1196,53 @@ ${roundup ? "Write a short transition between each pair that only marks the move
 ${ev.check.geographicDimension}
 ${mapBlock}
 
-=== 13. STORYBOARD AND TIMECODES (${secs} seconds; skip or shorten any scene the evidence cannot support) ===
-${scenes.join("\n")}
-For every scene give: narration, on-screen text, visual cue, motion, transition and the source refs used.
+=== 13. PRODUCTION BLUEPRINT (${bp.scenes.length} scenes, about ${bp.allocation.total} seconds; skip or shorten any scene the evidence cannot support) ===
+Runtime was allocated by editorial significance, evidence and how much sourced material exists. Do not add scenes, stories or filler to reach a length. Every scene below has 18 fields; follow them. Delivery directions here are guidance for the voice, never text to be spoken.
+${bp.scenes.map(renderScene).join("\n\n")}
 
 === 14. ON-SCREEN TEXT AND NUMERICAL ANCHORS ===
 Large, minimal, one idea per scene. For every development give: an on-screen headline (short, factual), a caption, and 2 to 3 key facts, each with its source ref. Use a number only if it appears in section 6 with its unit and source.
 Numbers found in the retrieved headlines and snippets (verify each against its source before use):
 ${numericAnchors.length ? bullets2(numericAnchors) : "- none found; do not invent numerical anchors"}
 
-=== 15 and 16. VISUAL ASSETS, MAPS, DATA AND GEOGRAPHIC VISUALISATION ===
-${members.map((m, i) => `D${i + 1} (${m.dev.a.typeLabel}): ${m.dev.a.type === "law_regulation" || m.dev.a.type === "government_decision" || m.dev.a.type === "institutional_decision" ? "document-style panel with only wording that appears in the evidence" : m.dev.a.type === "scientific_discovery" ? "clean labelled diagram of the finding; no fake lab footage" : m.dev.a.type === "economic_change" ? "one clearly labelled figure with unit and period; zero-based axes" : "restrained editorial graphic"}.`).join("\n")}
+=== 15 and 16. VISUAL SYSTEM, ASSETS, MAPS AND DATA ===
+Each development gets a treatment chosen from its category and its evidence level (the per-scene fields in section 13 give the exact composition):
+${members.map((m, i) => {
+    const x = bp.perDev[m.dev.id];
+    const tr = TREATMENT_SET[x.visualKey];
+    return `D${i + 1} (${tr.label}: ${tr.devices}). Evidence: ${x.et.tier.replace("_", " ")}, creative intensity ${x.et.intensity}. ${x.et.allowed}${x.et.forbidden.length ? ` Do NOT use: ${x.et.forbidden.join("; ")}.` : ""}`;
+  }).join("\n")}
+Visual rules:
+- Do not give every story the same composition and do not repeat a layout in consecutive scenes without an editorial reason you state.
+- Every animation, camera move, parallax layer, callout and transition must have a stated editorial purpose. Use movement to guide reading, not to decorate.
+- A match cut may connect SHAPES for rhythm. It must never imply that unrelated developments are causally connected, and the labels must not change to suggest it.
+- Maps use verified geographic information only. Never invent routes, borders, locations, infrastructure or exact event positions. Illustrative diagrams and reconstructions are labelled ILLUSTRATIVE.
+- Do not invent photographs, footage, crowds, buildings, visual evidence or likenesses of named people. If usable imagery is not supplied and verified, use a typographic, map-based or schematic treatment, never misleading stock footage.
+- Use the brand palette; do not use all four colours at equal intensity.
 ${rules}
-Do not use photographs of real people or logos unless the editor supplies them. Use the brand palette; do not use all four colours at equal intensity.
+Geographic map notes are in section 12.
 
 === 17. NARRATION AND PRONUNCIATION ===
-Voice: informed, calm, precise; steady pace, a short pause before each key fact, one emphasised word per sentence; never shout or dramatise.
-Pronunciation: list every person, place and organisation name in the script with a plain-text phonetic guide, and mark any you are unsure of.
+Delivery follows the profile named in each scene (pace targets are initial, editable and must be checked against the actual engine output).
+Delivery profiles available: ${Object.values(PROFILES).map((p) => `${p.label} ${p.paceLo} to ${p.paceHi} words per second`).join("; ")}.
+PRONUNCIATION LEXICON (never invent a phonetic transcription; use only what is listed):
+${bp.pronunciation.filter((x) => x.state !== "CHECK_REQUIRED").map((x) => `- ${x.name}: say "${x.entry.pronunciation}" (${x.entry.status}; ${x.entry.source}${x.entry.engineNotes[voice.engine] ? `; for ${voice.engine}: ${x.entry.engineNotes[voice.engine]}` : ""})`).join("\n") || "- no confirmed or sourced entries apply to this edition"}
+${bp.pronunciation.some((x) => x.state === "CHECK_REQUIRED") ? `PRONUNCIATION CHECK REQUIRED (the editor must confirm these before the voice-over is recorded; do not guess, and do not hide this list):
+${bp.pronunciation.filter((x) => x.state === "CHECK_REQUIRED").map((x) => `- ${x.name}: ${x.note}`).join("\n")}` : "PRONUNCIATION CHECK: every name found in the evidence has a confirmed or sourced entry."}
+List every person, place, organisation and acronym that is spoken, with the pronunciation status above, in the delivery sheet.
 
-=== 18. SOUND AND MUSIC ===
-Restrained and supportive. No music that competes with the narration; no sound effects that imply events the evidence does not state. Use only royalty-free sound you can verify is free to use, and say what you used.
+=== 18. SOUND AND MUSIC PLAN ===
+Opening sonic identity: ${sp.opening}
+Music: ${sp.bed}
+Story transitions: ${sp.transitions}
+Map and data cues: ${sp.mapData}
+Strategic silence: ${sp.silence}
+Serious stories: ${sp.serious}
+Closing: ${sp.closing}
+Format note: ${sp.formatNote}
+Avoid: ${sp.avoid}
+Sound sources and licences: ${sp.licence}
+WorldFiled Desk does not generate or render audio.
 
 === 19. SUBTITLES AND TYPOGRAPHY ===
 Provide subtitles as short caption groups with start times. Strong editorial headlines, legible sans-serif supporting text, large high-contrast text for a 9:16 phone screen, restrained uppercase labels, no long all-caps paragraphs. See the brand specification below.
@@ -649,25 +1254,30 @@ ${tools.needed.length ? "Tools genuinely needed for this deliverable (candidates
 ${tools.optional.length ? "Optional only if you have a specific reason:\n" + tools.optional.map((x) => `- ${x.name} (${x.repo}): ${x.why}.`).join("\n") : ""}
 Not needed: ${tools.notNeeded.map((x) => `${x.name} (${x.reason})`).join("; ")}.
 ${tools.note}
+PRODUCTION CAPABILITY REGISTRY (nothing below is marked tested; being listed is not testing):
+${CAPABILITIES.map((c) => `- ${c.label}: ${c.cls}${toolsConfirmed.includes(c.key) ? " (you confirmed this is available)" : ""}. ${c.note}`).join("\n")}
+Use NATIVE and FREE TOOL items only after verifying them; ask the editor for MANUAL items; do not rely on UNVERIFIED items; never use PAID items. Kokoro or any alternative voice is NOT the default presenter without the editor's listening approval and licence review.
 Report actual availability, cost, licence and compatibility of anything you use. Do not install anything not listed as needed. If a tool fails verification, say so and propose a free alternative or reduce the deliverable. Never substitute a paid service.
 
 === 22. DELIVERABLES ===
 Produce: ${d.text}
 Also always provide, in this order:
-1. The integrated script with caption groups and start times, and total word count.
-2. The storyboard with timecodes.
+1. The CLEAN TRANSCRIPT (spoken words only, no directions inside it), with caption groups and start times and the total word count, and SEPARATELY the DELIVERY SHEET.
+2. The blueprint scene by scene with timecodes, all 18 fields.
 3. The deliverable files described above, if any.
 4. A claim-to-source table: every number, date, name, place and quote on screen or in the script, with its source ref (D#-S#) and evidence class, and whether it is a fact, EDITORIAL INTERPRETATION or FUTURE POSSIBILITY. Anything unsourced: mark UNSOURCED and remove it.
 5. A list of scenes you skipped or softened, and any development whose connection to the others you could not support.
 6. A tools note: what you used and how you verified it.
-7. Two separate checklists, answered honestly: FACT CHECK and BRAND COMPLIANCE (section 23).
+7. A PRONUNCIATION CHECK list (every uncertain name) and a SOUND LICENCE table (asset, source, licence, link, date checked).
+8. Two separate checklists, answered honestly: FACT CHECK and BRAND COMPLIANCE (section 23).
 
 === 23. QUALITY CONTROL ===
 Fact check (separate from brand):
 - Every claim traces to a source ref and does not exceed its class; interpretation and future possibility are labelled.
 - No invented detail; no corroboration beyond the evidence; illustrative elements are labelled.
 - The connection is presented as interpretation and the edition reads as one coherent argument.
-- Visual clarity and mobile readability; voiceover quality; pronunciation list complete; timing matches the word budget.
+- Visual clarity and mobile readability; voiceover quality; pronunciation list complete; timing matches the per-scene word budgets.
+- Narration checks: sentences mostly at most 18 words; at most one rhetorical question; no repeated sentence openings; the qualification phrase not repeated; numbers spelled out; no directions inside the transcript; no claim stronger than its evidence level.
 - Technical correctness: files open and play as described; report what you tested.
 Brand compliance (checked separately from facts):
 ${bullets2(brandChecklist())}
@@ -685,18 +1295,33 @@ Do not copy any other news brand's name, wording, visual identity or presentatio
   };
   if (Buffer.byteLength(JSON.stringify(snapshot)) > MAX_EDITION_SNAPSHOT_BYTES) throw new EditionPromptTooLarge("The evidence for this edition exceeds the storage limit. Nothing was shortened; remove a development.");
   return {
+    blueprint: bp,
+    format,
     prompt,
     roles,
     tools,
     snapshot,
     evidenceHash: evidenceHash(members),
     brandVersion: BRAND_VERSION,
-    rationale: { structure: ev.structure, theme: ev.theme, catalyst: ev.catalyst, coherence: { score: ev.coherence.score, verdict: ev.coherence.verdict, components: ev.coherence.components }, sequence: ev.sequence, roles, deliverable: d.key, duration_seconds: secs, map_useful: ev.check.mapUseful, recommendations: ev.check.recommendations, approved_style_rules: input.approvedRules.map((r) => `${r.rule_key}@v${r.version}`) }
+    rationale: {
+      structure: ev.structure,
+      theme: ev.theme,
+      catalyst: ev.catalyst,
+      coherence: { score: ev.coherence.score, verdict: ev.coherence.verdict, components: ev.coherence.components },
+      sequence: ev.sequence,
+      roles,
+      deliverable: d.key,
+      duration_seconds: secs,
+      map_useful: ev.check.mapUseful,
+      recommendations: ev.check.recommendations,
+      approved_style_rules: input.approvedRules.map((r) => `${r.rule_key}@v${r.version}`),
+      creative: { presenter_version: PRESENTER_VERSION, config_hash: configHash({ voice, toolsConfirmed }, bp.names, lex), names: bp.names, voice: { key: voiceKey(voice), engine: voice.engine, voice: voice.voiceName, status: voice.status, approval: appr, licence: voice.licence.status }, format: { key: format.key, why: format.why, overridden: format.overridden }, sound, visual: cz.visual ?? "adaptive", runtime: { total: bp.allocation.total, ceiling: secs, warnings: bp.allocation.warnings }, pronunciation_check_required: bp.pronunciation.filter((x) => x.state === "CHECK_REQUIRED").map((x) => x.name), scenes: bp.scenes.map((x) => ({ n: x.n, kind: x.kind, ref: x.devRef, from: x.timecode.from, to: x.timecode.to, delivery: x.delivery.key, composition: x.visual.compositionId, intensity: x.intensity, tier: x.tier })) }
+    }
   };
 }
 
 // netlify/lib/editions.mts
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash4 } from "node:crypto";
 
 // netlify/lib/scoring.mts
 var CURIOSITY_WEIGHTS = {
@@ -712,7 +1337,7 @@ var CURIOSITY_WEIGHTS = {
   hidden_connection: 5
 };
 var hit = (text2, words) => [...new Set((text2.match(words) ?? []).map((w) => w.toLowerCase()))];
-var clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+var clamp2 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 var CUES = {
   gap: /\b(why|how|what|who|whether|unexpected|mystery|mysterious|unknown|unexplained|secret|behind|first time|unclear)\b|\?/gi,
   surprise: /\b(reverses|reversal|overturns|strikes down|scraps|u-turn|backtracks|surprising|unexpected|despite|instead|rare|first-ever|record|unprecedented|shock result|unexpectedly)\b/gi,
@@ -770,7 +1395,7 @@ function scoreStory(story, now = Date.now()) {
   const novelHits = hit(headline, CUES.novel);
   const recycled = hit(all, CUES.recycled);
   const live = hit(headline, CUES.liveUpdate);
-  const nov = clamp((fresh ? 3 : 2) + (novelHits.length ? 1 : 0) - (recycled.length ? 2 : 0) - (live.length ? 1 : 0), 0, 5);
+  const nov = clamp2((fresh ? 3 : 2) + (novelHits.length ? 1 : 0) - (recycled.length ? 2 : 0) - (live.length ? 1 : 0), 0, 5);
   add("novelty", nov, 5, `${fresh ? "First seen in the last day and a half" : "Already on the desk from an earlier run"}${novelHits.length ? `; new-development wording (${novelHits.join(", ")})` : ""}${recycled.length ? `; looks recycled or background (${recycled.join(", ")})` : ""}${live.length ? "; live-update format" : ""}.`);
   const evRaw = (hasPrimary ? 1 : 0) + (outlets >= 2 ? 1 : 0);
   add("evidence_quality", Math.min(evRaw, 2), 5, `${hasPrimary ? "Includes an official or primary source" : "No official or primary source"}; ${outlets >= 2 ? `${outlets} outlets` : "one outlet"}. Capped at 2 of 5: only headlines and short summaries were collected, no full text and no claim has been checked.`);
@@ -792,10 +1417,10 @@ function scoreStory(story, now = Date.now()) {
   };
   const sigHits = hit(headline + " " + all.slice(0, 600), CUES.sigWords);
   const inst = hit(headline, CUES.institution);
-  const sig = clamp((base[story.category ?? ""] ?? 1) + Math.min(sigHits.length, 2) * 0.75 + (regions.length > 1 ? 0.5 : 0) + (hasPrimary ? 0.5 : 0) + (inst.length ? 0.25 : 0), 0, 5);
+  const sig = clamp2((base[story.category ?? ""] ?? 1) + Math.min(sigHits.length, 2) * 0.75 + (regions.length > 1 ? 0.5 : 0) + (hasPrimary ? 0.5 : 0) + (inst.length ? 0.25 : 0), 0, 5);
   add("editorial_significance", sig, 5, `Category "${story.category ?? "unknown"}"${sigHits.length ? `; significance wording (${sigHits.slice(0, 4).join(", ")})` : ""}${regions.length > 1 ? "; reported in more than one region" : ""}${hasPrimary ? "; official source present" : ""}.`);
   const ppl = hit(all, CUES.people);
-  const rel = clamp(ppl.length * 1.25, 0, 5);
+  const rel = clamp2(ppl.length * 1.25, 0, 5);
   add("human_relevance", rel, 5, ppl.length ? `Touches everyday life: ${ppl.slice(0, 5).join(", ")}.` : "No clear everyday-life wording found (the rules can miss subtle relevance).");
   const flags = [];
   const clickbait = hit(headline, CUES.clickbait);
@@ -810,21 +1435,21 @@ function scoreStory(story, now = Date.now()) {
   const comp = {};
   const g = hit(headline, CUES.gap);
   comp.curiosity_gap = { v: caps(g.length >= 2 ? 0.9 : g.length === 1 ? 0.6 : novelHits.length ? 0.3 : 0.15), why: g.length ? `raises a question (${g.join(", ")})` : "no clear question raised" };
-  comp.human_impact = { v: clamp(ppl.length / 3, 0, 1), why: ppl.length ? `affects people (${ppl.slice(0, 4).join(", ")})` : "no direct effect on people found" };
+  comp.human_impact = { v: clamp2(ppl.length / 3, 0, 1), why: ppl.length ? `affects people (${ppl.slice(0, 4).join(", ")})` : "no direct effect on people found" };
   const sur = hit(all, CUES.surprise);
   comp.surprise = { v: sur.length >= 2 ? 1 : sur.length === 1 ? 0.6 : 0.1, why: sur.length ? `surprise wording (${sur.join(", ")})` : "no surprise or reversal wording" };
   const con = hit(headline + " " + all.slice(0, 500), CUES.consequence);
-  comp.consequences = { v: clamp(con.length / 3, 0, 1), why: con.length ? `consequence wording (${con.slice(0, 4).join(", ")})` : "no stated consequences" };
+  comp.consequences = { v: clamp2(con.length / 3, 0, 1), why: con.length ? `consequence wording (${con.slice(0, 4).join(", ")})` : "no stated consequences" };
   comp.relevance = { v: rel / 5, why: `from human relevance ${rel.toFixed(1)}/5` };
   comp.novelty = { v: nov / 5, why: `from novelty ${nov}/5` };
   const deb = hit(all, CUES.debate);
-  comp.conversation_potential = { v: clamp(deb.length / 2 + (outlets > 1 ? 0.2 : 0), 0, 1), why: deb.length ? `debatable (${deb.slice(0, 4).join(", ")})` : "no obvious debate" };
+  comp.conversation_potential = { v: clamp2(deb.length / 2 + (outlets > 1 ? 0.2 : 0), 0, 1), why: deb.length ? `debatable (${deb.slice(0, 4).join(", ")})` : "no obvious debate" };
   const emo = hit(all, CUES.emotion);
-  comp.emotional_resonance = { v: caps(clamp(emo.length / 2, 0, 1)), why: emo.length ? `legitimate emotional cues (${emo.slice(0, 3).join(", ")})` : "no strong emotional cue" };
+  comp.emotional_resonance = { v: caps(clamp2(emo.length / 2, 0, 1)), why: emo.length ? `legitimate emotional cues (${emo.slice(0, 3).join(", ")})` : "no strong emotional cue" };
   const sc = hit(all, CUES.scale);
-  comp.scale = { v: clamp(sc.length / 2 + (regions.length > 2 ? 0.3 : 0), 0, 1), why: sc.length ? `wide scale (${sc.slice(0, 3).join(", ")})` : "scale not indicated" };
+  comp.scale = { v: clamp2(sc.length / 2 + (regions.length > 2 ? 0.3 : 0), 0, 1), why: sc.length ? `wide scale (${sc.slice(0, 3).join(", ")})` : "scale not indicated" };
   const lk = hit(headline + " " + all.slice(0, 500), CUES.link);
-  comp.hidden_connection = { v: clamp(lk.length / 2, 0, 1), why: lk.length ? `connection wording (${lk.slice(0, 3).join(", ")})` : "no hidden link indicated" };
+  comp.hidden_connection = { v: clamp2(lk.length / 2, 0, 1), why: lk.length ? `connection wording (${lk.slice(0, 3).join(", ")})` : "no hidden link indicated" };
   let cur = 0;
   for (const [k, w] of Object.entries(CURIOSITY_WEIGHTS)) cur += w * comp[k].v;
   cur = Math.round(cur * 10) / 10;
@@ -1017,7 +1642,7 @@ function jaccard(a, b) {
 
 // netlify/lib/editions.mts
 var STRUCTURE_LABEL = { multi_country: "Multi-country synthesis", single_country: "Single-country deep dive", event_roundup: "Event-driven thematic roundup", news_roundup: "Multi-topic news roundup" };
-var membersKey = (ids) => createHash3("md5").update(ids.join(",")).digest("hex");
+var membersKey = (ids) => createHash4("md5").update(ids.join(",")).digest("hex");
 function buildDev(input, sources, now = Date.now()) {
   const scored = scoreStory(input, now);
   const a = assessDevelopment(scored, sources, now);
@@ -1040,7 +1665,7 @@ function buildDev(input, sources, now = Date.now()) {
   };
 }
 var countriesOf = (d) => [...new Set(d.a.locations.map((l) => l.country))];
-var clamp2 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+var clamp3 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 function pairConnection(a, b) {
   const sig = [];
   const add = (name, points, max, why) => sig.push({ name, points: Math.round(points * 10) / 10, max, why });
@@ -1066,10 +1691,10 @@ function pairConnection(a, b) {
   add("complementary evidence", a.a.type !== b.a.type || a.scored.hasPrimary !== b.scored.hasPrimary ? 5 : 0, 5, a.a.type !== b.a.type ? "different development types" : a.scored.hasPrimary !== b.scored.hasPrimary ? "official and reported sources complement each other" : "same type of evidence");
   let score = sig.reduce((x, s) => x + s.points, 0);
   if (!th && !sp.length && !se.length) score = Math.min(score, 25);
-  return { a: a.id, b: b.id, score: Math.round(clamp2(score, 0, 100)), signals: sig, duplicate, duplicateWhy: duplicate ? dup ? "near-identical headlines: probably the same underlying event" : "same named subjects in the same place" : void 0 };
+  return { a: a.id, b: b.id, score: Math.round(clamp3(score, 0, 100)), signals: sig, duplicate, duplicateWhy: duplicate ? dup ? "near-identical headlines: probably the same underlying event" : "same named subjects in the same place" : void 0 };
 }
 var hookScore = (d) => d.a.curiosityScore * (0.4 + 0.6 * (d.scored.get("evidence_quality") / 5)) + (d.a.corroborated ? 10 : 0);
-function evaluateEdition(members, opts = {}) {
+function evaluateEdition(members, opts2 = {}) {
   const n = members.length;
   const ids = members.map((m) => m.id);
   const pairs = [];
@@ -1119,9 +1744,9 @@ function evaluateEdition(members, opts = {}) {
   const verdict = n < 2 ? "SINGLE DEVELOPMENT" : score >= 60 ? "COHERENT" : score >= 40 ? "WEAK" : "INCOHERENT";
   const namedCatalyst = !!bestNoun && !bestNoun[0].startsWith("event:");
   const autoRoundup = n >= 2 && verdict !== "COHERENT";
-  const roundup = opts.structure ? opts.structure === "news_roundup" && n >= 2 : autoRoundup;
+  const roundup = opts2.structure ? opts2.structure === "news_roundup" && n >= 2 : autoRoundup;
   const autoStructure = autoRoundup ? "news_roundup" : catalystCoverage >= 0.5 && n >= 2 && (namedCatalyst || catalystCoverage > themeCoverage && countries.length >= 2) ? "event_roundup" : countries.length >= 2 ? "multi_country" : "single_country";
-  const structure = opts.structure ?? autoStructure;
+  const structure = opts2.structure ?? autoStructure;
   const themeLabel = bestTheme && themeCoverage ? bestTheme[1].label : n === 1 ? members[0].a.typeLabel : "No shared theme";
   const place = countries.length === 1 ? countries[0] : null;
   const title = structure === "news_roundup" ? `Today's developments: ${countries.slice(0, 4).join(", ") || `${n} stories`}${countries.length > 4 ? " and more" : ""}` : structure === "event_roundup" && catalyst ? `How are countries responding to ${catalyst}?` : structure === "multi_country" && bestTheme && themeCoverage ? bestTheme[1].q.replace(/\?$/, "?") : structure === "single_country" && place ? bestTheme && themeCoverage ? `What is driving ${place}'s moves on ${themeLabel.toLowerCase()}?` : `What explains the latest developments in ${place}?` : n === 1 ? members[0].headline : "Unthemed selection";
@@ -1168,7 +1793,7 @@ function evaluateEdition(members, opts = {}) {
     "Full article text was not read for any development.",
     ...locs.some((l) => l.basis === "publisher location only") ? ["Some places are the publisher's location, not confirmed event locations."] : []
   ];
-  const conflicts = (opts.conflictNotes ?? []).filter(Boolean);
+  const conflicts = (opts2.conflictNotes ?? []).filter(Boolean);
   const recs = [];
   if (roundup) recs.push("No genuine shared theme was found, so this is treated as a multi-topic news roundup (no invented connection). To make a thematic edition instead, choose stories that share a real issue or event.");
   if (n >= 2 && !roundup && hasLink && linkCov < 0.6) recs.push(`Only ${Math.round(linkCov * n)} of ${n} developments share the connecting theme or event. The others are weakly connected; consider separate coverage for them.`);
@@ -1190,7 +1815,7 @@ function evaluateEdition(members, opts = {}) {
     conflicts,
     recommendations: recs
   };
-  const hrs = times.length ? Math.round(((opts.now ?? Date.now()) - Math.max(...times)) / 36e5 * 10) / 10 : null;
+  const hrs = times.length ? Math.round(((opts2.now ?? Date.now()) - Math.max(...times)) / 36e5 * 10) / 10 : null;
   const cur = members.length ? Math.round((members.reduce((x, m) => x + m.a.curiosityScore, 0) / n + (verdict === "COHERENT" ? 8 : 0)) * 10) / 10 : 0;
   return {
     ids,
@@ -1213,6 +1838,37 @@ function evaluateEdition(members, opts = {}) {
     check,
     pairs
   };
+}
+
+// netlify/lib/creative-data.mts
+async function setting(key) {
+  try {
+    const r = await db(`system_settings?key=eq.${key}&select=value`);
+    return r[0]?.value ?? null;
+  } catch (e) {
+    if (e instanceof DbError && e.upstream === 404) return null;
+    throw e;
+  }
+}
+async function loadCreative() {
+  const cd = await setting("creative_desk");
+  const lx = await setting("pronunciation_lexicon");
+  let settings = DEFAULT_SETTINGS;
+  let configured = false;
+  if (cd) {
+    const v = validateVoice(cd.voice);
+    const tools = Array.isArray(cd.toolsConfirmed) ? cd.toolsConfirmed.filter((k) => CAPABILITIES.some((c) => c.key === k && c.cls !== "PAID")) : [];
+    if (v.ok) {
+      settings = { voice: v.voice, toolsConfirmed: tools };
+      configured = true;
+    }
+  }
+  const lex = [];
+  for (const e of Array.isArray(lx?.entries) ? lx.entries : []) {
+    const r = validateLexEntry(e);
+    if (r.ok) lex.push(r.entry);
+  }
+  return { settings, lex, configured };
 }
 
 // netlify/lib/edition-data.mts
@@ -1297,6 +1953,18 @@ async function promptValidity(p, now = Date.now(), checkEvidence = true) {
 
 // netlify/functions/edition-prompt.mts
 var json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+var FORMAT_KEYS = Object.keys(FORMATS);
+var opts = (src) => ({
+  format: typeof src.format === "string" && FORMAT_KEYS.includes(src.format) ? src.format : null,
+  sound: src.sound === "minimal" ? "minimal" : "subtle",
+  visual: src.visual === "typographic" ? "typographic" : "adaptive"
+});
+async function creativeStale(r) {
+  const h = r.rationale?.creative?.config_hash;
+  if (!h) return null;
+  const { settings, lex } = await loadCreative();
+  return configHash(settings, r.rationale.creative.names ?? [], lex) === h ? null : "The presenter or voice setup, the tool confirmations or a pronunciation entry used by this prompt changed after it was written.";
+}
 async function approvedRules() {
   try {
     const rows = await db("style_rules?status=eq.APPROVED&select=rule_key,version,category,statement&order=version.desc");
@@ -1318,7 +1986,7 @@ var edition_prompt_default = async (req) => {
       if (id) return await one(id);
       const eid = u.searchParams.get("editionId");
       if (!eid || !UUID.test(eid)) return json({ error: "bad_request" }, 400);
-      return await preview(eid);
+      return await preview(eid, req);
     }
     if (req.method === "POST") return await generate(req);
     return json({ error: "method_not_allowed" }, 405);
@@ -1345,12 +2013,26 @@ async function readiness(editionId) {
   if (missing.length) return { fail: json({ error: "not_found", detail: "A development is no longer available.", missing }, 404) };
   return { ed, ids, dec, loaded };
 }
-async function preview(editionId) {
+async function preview(editionId, req) {
   const r = await readiness(editionId);
   if ("fail" in r) return r.fail;
   const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i).dev), { now: Date.now(), structure: r.ed.structure });
   const members = packsFor(r.ids, r.loaded);
+  const u = new URL(req.url);
+  const secs = [60, 90, 120].includes(Number(u.searchParams.get("durationSeconds"))) ? Number(u.searchParams.get("durationSeconds")) : 90;
+  const o = opts({ format: u.searchParams.get("format"), sound: u.searchParams.get("sound"), visual: u.searchParams.get("visual") });
+  const cr = await loadCreative();
+  const format = selectFormat(ev, members, o.format);
+  const bp = buildBlueprint({ members, ev, secs, format, voice: cr.settings.voice, lex: cr.lex, toolsConfirmed: cr.settings.toolsConfirmed, sound: o.sound, visualMode: o.visual, deliverable: "script_storyboard", now: Date.now() });
   return json({
+    creative: {
+      format: { key: format.key, label: format.label, why: format.why, overridden: format.overridden },
+      formats: Object.entries(FORMATS).map(([k, v]) => ({ key: k, label: v.label, description: v.description })),
+      voice: { engine: cr.settings.voice.engine, voice: cr.settings.voice.voiceName, status: cr.settings.voice.status, approval: approvalState(cr.settings.voice), licence: cr.settings.voice.licence.status, configured: cr.configured },
+      runtime: { total: bp.allocation.total, ceiling: secs, shorter: bp.allocation.shorterThanCeiling, warnings: bp.allocation.warnings, words: bp.totalWords },
+      scenes: bp.scenes.map((x) => ({ n: x.n, kind: x.kind, ref: x.devRef, title: x.title, seconds: x.seconds, delivery: x.delivery.label, pace: `${x.delivery.paceLo} to ${x.delivery.paceHi}`, composition: x.visual.compositionId, treatment: x.visual.treatment, intensity: x.intensity, tier: x.tier })),
+      pronunciationCheckRequired: bp.pronunciation.filter((p) => p.state === "CHECK_REQUIRED").map((p) => ({ name: p.name, note: p.note }))
+    },
     editionId,
     title: r.ed.title,
     structure: r.ed.structure,
@@ -1384,6 +2066,8 @@ async function generate(req) {
   const evaluation = evaluateEdition(members.map((m) => m.dev), { conflictNotes: notes.filter(Boolean), now: Date.now(), structure });
   const ev = evaluation;
   const { rules, installed: rulesInstalled } = await approvedRules();
+  const cr = await loadCreative();
+  const o = opts(b);
   const out = buildEditionPrompt({
     title: r.ed.title,
     members,
@@ -1392,7 +2076,8 @@ async function generate(req) {
     durationSeconds: duration,
     angle: typeof b.angle === "string" && b.angle.trim() ? b.angle : r.ed.narrative_angle ?? "",
     conflictNotes: notes.filter(Boolean),
-    approvedRules: rules
+    approvedRules: rules,
+    creative: { voice: cr.settings.voice, toolsConfirmed: cr.settings.toolsConfirmed, lex: cr.lex, format: o.format, sound: o.sound, visual: o.visual }
   });
   const reply = {
     structure: { key: structure, label: STRUCTURE_LABEL[structure] },
@@ -1403,7 +2088,8 @@ async function generate(req) {
     evidenceClasses: members.map((m, i) => ({ ref: `D${i + 1}`, ...classCounts(m.pack) })),
     brandChecklist: brandChecklist(),
     brandVersion: BRAND_VERSION,
-    prompt: out.prompt
+    prompt: out.prompt,
+    creative: { format: out.format, runtime: out.rationale.creative.runtime, voiceApproval: approvalState(cr.settings.voice), pronunciationCheckRequired: out.rationale.creative.pronunciation_check_required, voiceConfigured: cr.configured }
   };
   let version = 1;
   try {
@@ -1451,7 +2137,7 @@ async function generate(req) {
 async function history() {
   let rows;
   try {
-    rows = await db("edition_prompts?select=id,edition_id,version,structure,title,deliverable,members,members_hash,approval_decision_id,created_at&order=created_at.desc&limit=40");
+    rows = await db("edition_prompts?select=id,edition_id,version,structure,title,deliverable,members,members_hash,approval_decision_id,rationale,created_at&order=created_at.desc&limit=40");
   } catch (e) {
     if (e instanceof DbError && e.upstream === 404) return json({ notInstalled: true, prompts: [] });
     throw e;
@@ -1459,7 +2145,8 @@ async function history() {
   const out = [];
   for (const r of rows) {
     const v = await promptValidity(r, Date.now(), false);
-    out.push({ id: r.id, editionId: r.edition_id, title: r.title, version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.approvalCurrent && v.membersCurrent && v.storiesOk, reasons: v.reasons });
+    const stale = await creativeStale(r);
+    out.push({ id: r.id, editionId: r.edition_id, title: r.title, version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.approvalCurrent && v.membersCurrent && v.storiesOk && !stale, reasons: stale ? [...v.reasons, stale] : v.reasons });
   }
   return json({ prompts: out });
 }
@@ -1468,7 +2155,9 @@ async function one(id) {
   const rows = await db(`edition_prompts?id=eq.${id}&select=*`);
   const r = rows[0];
   if (!r) return json({ error: "not_found" }, 404);
-  const v = await promptValidity(r, Date.now());
+  const v0 = await promptValidity(r, Date.now());
+  const stale = await creativeStale(r);
+  const v = stale ? { ...v0, current: false, reasons: [...v0.reasons, stale] } : v0;
   return json({
     id: r.id,
     editionId: r.edition_id,

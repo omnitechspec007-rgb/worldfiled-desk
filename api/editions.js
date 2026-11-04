@@ -805,6 +805,24 @@ var PIPER = {
   checks: [...CHECKS, "the licence of the specific voice model (some voices restrict commercial use)", "voice quality and language coverage for this script, and pronunciation of the names involved", "any platform rules on disclosing synthetic voices"]
 };
 
+// netlify/lib/presenter.mts
+var cap = (key, label, cls, note) => ({ key, label, cls, note, tested: false });
+var CAPABILITIES = [
+  cap("written_deliverables", "Written script, storyboard and specification", "NATIVE", "Claude writes text deliverables in the current workflow."),
+  cap("html_animation", "One self-contained HTML animation (screen-recordable)", "NATIVE", "A single HTML file with a master clock; no extra tool."),
+  cap("piper", "Piper (local narration experiments)", "FREE TOOL", "Voice-model licence and installation on your machine are not verified."),
+  cap("kokoro", "Kokoro (local narration experiments)", "FREE TOOL", "Not the default presenter. Needs your listening approval and licence review first."),
+  cap("natural_earth", "Natural Earth (geographic data)", "FREE TOOL", "Natural Earth describes its data as public domain; confirm its current terms before relying on that."),
+  cap("python_pil", "Python with PIL (procedural visual plates and motion)", "FREE TOOL", "Needs Python and PIL available where Claude runs."),
+  cap("ffmpeg", "FFmpeg (audio and video assembly)", "FREE TOOL", "Licence terms depend on the build; confirm for your use."),
+  cap("ai_studio_manual", "Manual voice generation in Google AI Studio (Laomedeia)", "MANUAL", "You generate and listen yourself. Engine terms, regional availability and commercial use are unverified."),
+  cap("pronunciation_review", "Pronunciation and listening review", "MANUAL", "You listen and approve names and delivery."),
+  cap("external_media", "External licensed or CC0 media", "MANUAL", "Only where you verify the rights and record the licence evidence."),
+  cap("engine_controls", "Per-word emphasis, SSML, custom pronunciation, numeric pace controls", "UNVERIFIED", "Not requested from any engine unless you record the control as verified for that engine."),
+  cap("paid_tts", "Paid text-to-speech (cloud TTS or API services)", "PAID", "Never assumed and never used automatically."),
+  cap("paid_media", "Paid stock footage, music or sound libraries", "PAID", "Never assumed and never used automatically.")
+];
+
 // netlify/lib/edition-data.mts
 var UUID = /^[0-9a-f-]{36}$/i;
 var SCORE_WINDOW_HOURS = 72;
