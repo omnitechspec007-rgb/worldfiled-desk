@@ -1,0 +1,61 @@
+// Real-Postgres test of supabase/migrations/005_edition_cycles.sql (NOT part of `npm test`; adds no dependency to the app).
+// Run in a throwaway folder as a non-root user:  npm i --no-save embedded-postgres pg   then  node <repo>/tests/db/migration005.test.mjs
+import EmbeddedPostgres from "embedded-postgres";
+import pg from "pg";
+import fs from "fs";
+const R=new URL("../../supabase/", import.meta.url).pathname;
+const server=new EmbeddedPostgres({databaseDir:"./data5",user:"postgres",password:"pw",port:54331,persistent:false});
+await server.initialise(); await server.start();
+const c=new pg.Client({host:"localhost",port:54331,user:"postgres",password:"pw",database:"postgres"});
+await c.connect();
+let pass=0,fail=0;
+const ok=(n,v)=>{console.log((v?"PASS ":"FAIL ")+n);v?pass++:fail++;};
+const fails=async(n,sql,p,re)=>{try{await c.query(sql,p);ok(n,false);}catch(e){ok(n+"  ["+e.message.slice(0,70)+"]",re.test(e.message));}};
+const sleep=()=>new Promise(r=>setTimeout(r,20));
+await c.query("create role anon nologin; create role authenticated nologin;");
+for (const f of ["schema.sql","migrations/002_scoring.sql","migrations/003_creative_prompts.sql","migrations/004_editions.sql"]) await c.query(fs.readFileSync(R+f,"utf8"));
+const before=(await c.query("select count(*) n from information_schema.tables where table_schema='public'")).rows[0].n;
+const trigBefore=(await c.query("select tgname from pg_trigger where not tgisinternal")).rows.map(r=>r.tgname);
+const st1=(await c.query("insert into stories(headline,cluster_key) values('a','k1') returning id")).rows[0].id;
+const sql=fs.readFileSync(R+"migrations/005_edition_cycles.sql","utf8");
+await c.query(sql); ok("migration 005 runs",true);
+await c.query(sql); ok("migration 005 re-runs safely (idempotent)",true);
+ok("exactly 2 new tables",(await c.query("select count(*) n from information_schema.tables where table_schema='public'")).rows[0].n-before===2);
+const added=(await c.query("select tgname from pg_trigger where not tgisinternal")).rows.map(r=>r.tgname).filter(t=>!trigBefore.includes(t));
+ok("only cycle triggers added: "+added.join(","),added.every(t=>/cycle/.test(t))&&added.length===3);
+ok("existing rows untouched",(await c.query("select count(*) n from stories")).rows[0].n==1);
+const rls=(await c.query("select relrowsecurity from pg_class where relname in ('edition_cycles','cycle_stories')")).rows;
+ok("RLS on both",rls.length===2&&rls.every(r=>r.relrowsecurity));
+for (const t of ["edition_cycles","cycle_stories"]){const g=(await c.query("select has_table_privilege('anon',$1,'select') a, has_table_privilege('authenticated',$1,'insert') b",[t])).rows[0];ok("anon/authenticated have no privileges on "+t,!g.a&&!g.b);}
+const cyc=(extra="")=>c.query(`insert into edition_cycles(label,mode,planned_publish_at,timezone,coverage_start,coverage_end,research_cutoff${extra?",status":""}) values('Tue AM','continuous','2026-11-02T11:00Z','America/New_York','2026-11-01T17:45Z','2026-11-02T05:45Z','2026-11-02T05:45Z'${extra?",'"+extra+"'":""}) returning id`);
+const cid=(await cyc()).rows[0].id; ok("open cycle created",!!cid);
+await fails("second open cycle refused (one open at a time)",`insert into edition_cycles(label,mode,planned_publish_at,timezone,coverage_start,coverage_end,research_cutoff) values('x','rolling','2026-11-03T11:00Z','UTC','2026-11-02T05:45Z','2026-11-03T05:45Z','2026-11-03T05:45Z')`,[],/unique|duplicate/);
+await fails("start after end refused","insert into edition_cycles(label,mode,planned_publish_at,timezone,coverage_start,coverage_end,research_cutoff,status) values('x','custom','2026-11-03T11:00Z','UTC','2026-11-03T05:45Z','2026-11-02T05:45Z','2026-11-02T05:45Z','skipped')",[],/check/);
+await fails("cutoff must equal coverage end","insert into edition_cycles(label,mode,planned_publish_at,timezone,coverage_start,coverage_end,research_cutoff,status,skip_reason) values('x','custom','2026-11-03T11:00Z','UTC','2026-11-01T05:45Z','2026-11-02T05:45Z','2026-11-02T04:00Z','skipped','r')",[],/check/);
+await fails("coverage must end before publication","insert into edition_cycles(label,mode,planned_publish_at,timezone,coverage_start,coverage_end,research_cutoff,status,skip_reason) values('x','custom','2026-11-01T11:00Z','UTC','2026-10-31T05:45Z','2026-11-02T05:45Z','2026-11-02T05:45Z','skipped','r')",[],/check/);
+await fails("bad mode refused","insert into edition_cycles(label,mode,planned_publish_at,timezone,coverage_start,coverage_end,research_cutoff) values('x','weird','2026-11-03T11:00Z','UTC','2026-11-01T05:45Z','2026-11-02T05:45Z','2026-11-02T05:45Z')",[],/check/);
+await fails("skipped without a reason refused","insert into edition_cycles(label,mode,planned_publish_at,timezone,coverage_start,coverage_end,research_cutoff,status) values('x','custom','2026-11-03T11:00Z','UTC','2026-11-01T05:45Z','2026-11-02T05:45Z','2026-11-02T05:45Z','skipped')",[],/check/);
+await fails("publish without an edition refused",`update edition_cycles set status='published',actual_published_at=now() where id='${cid}'`,[],/check|no current human approval/);
+// edition + approval
+const e=(await c.query("insert into editions(title,structure) values('E','news_roundup') returning id")).rows[0].id;
+await c.query("insert into edition_developments(edition_id,story_id,position) values($1,$2,1)",[e,st1]);
+await c.query("update edition_cycles set edition_id=$1 where id=$2",[e,cid]); ok("edition can be linked",true);
+await fails("publish with no approval refused",`update edition_cycles set status='published',actual_published_at=now() where id='${cid}'`,[],/no current human approval/);
+await c.query("insert into edition_decisions(edition_id,decision,decided_by) values($1,'approved','ed')",[e]);
+await fails("window cannot change while publishing",`update edition_cycles set status='published',actual_published_at=now(),coverage_start='2026-11-01T00:00Z' where id='${cid}'`,[],/window cannot change/);
+await sleep(); const st2=(await c.query("insert into stories(headline,cluster_key) values('b','k2') returning id")).rows[0].id;
+await c.query("insert into edition_developments(edition_id,story_id,position) values($1,$2,2)",[e,st2]);
+await fails("publish after members changed (stale approval) refused",`update edition_cycles set status='published',actual_published_at=now() where id='${cid}'`,[],/no current human approval/);
+await sleep(); await c.query("insert into edition_decisions(edition_id,decision,decided_by) values($1,'approved','ed')",[e]);
+await c.query(`update edition_cycles set status='published',actual_published_at=now() where id='${cid}'`); ok("publish with a current approval works",true);
+await fails("published cycle is closed",`update edition_cycles set label='z' where id='${cid}'`,[],/closed/);
+await fails("published cycle cannot reopen",`update edition_cycles set status='open' where id='${cid}'`,[],/closed/);
+ok("a new open cycle is possible after the first is closed",!!(await c.query("insert into edition_cycles(label,mode,planned_publish_at,timezone,coverage_start,coverage_end,research_cutoff) values('Tue PM','continuous','2026-11-02T23:00Z','UTC','2026-11-02T05:45Z','2026-11-02T17:45Z','2026-11-02T17:45Z') returning id")).rows[0].id);
+// story marks
+await c.query("insert into cycle_stories(cycle_id,story_id,mark) values($1,$2,'published')",[cid,st1]);
+await c.query("insert into cycle_stories(cycle_id,story_id,mark,note) values($1,$2,'held_over','later')",[cid,st2]); ok("marks recorded",true);
+await fails("bad mark refused",`insert into cycle_stories(cycle_id,story_id,mark) values('${cid}','${st1}','weird')`,[],/check/);
+await fails("marks cannot be edited","update cycle_stories set mark='rejected'",[],/append-only/);
+ok("marks can still disappear with their story (cascade is not blocked)",await (async()=>{await c.query("delete from stories where id=$1",[st2]);return (await c.query("select count(*) n from cycle_stories")).rows[0].n==1;})());
+await c.end(); await server.stop();
+console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail?1:0);

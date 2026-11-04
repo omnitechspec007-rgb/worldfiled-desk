@@ -62,6 +62,11 @@ export default function EditionDesk() {
   const [recFilter, setRecFilter] = useState("");
   const [msg, setMsg] = useState("");
   const [inspect, setInspect] = useState<string | null>(null);
+  // coverage window (from the Planner): classify developments as new / update / renewed / held over / already published
+  type WinCls = { cls: string; candidate: boolean; reason: string };
+  const [win, setWin] = useState("");
+  const [winInfo, setWinInfo] = useState<{ local: string; hours: number; overlaps: { label: string; minutes: number }[]; map: Record<string, WinCls> } | null>(null);
+  const [cycleWin, setCycleWin] = useState<{ start: string; end: string; label: string } | null>(null);
   const [rejectedLinks, setRejectedLinks] = useState<string[]>([]);
   // workspace
   const [ids, setIds] = useState<string[]>([]);
@@ -92,6 +97,12 @@ export default function EditionDesk() {
     } catch { setMsg("Could not load the Edition Desk."); }
   }, []);
   useEffect(() => { void loadDesk(); }, [loadDesk]);
+  useEffect(() => { fetch(api + "cycles").then((r) => (r.ok ? r.json() : null)).then((j) => { if (j?.cycle) setCycleWin({ start: j.cycle.coverage.start, end: j.cycle.coverage.end, label: j.cycle.label }); }).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!win) { setWinInfo(null); return; }
+    const q = win === "cycle" && cycleWin ? `mode=custom&from=${encodeURIComponent(cycleWin.start)}&to=${encodeURIComponent(cycleWin.end)}` : `mode=rolling&hours=${win}&end=now`;
+    fetch(`${api}cycles?preview=1&${q}`).then(async (r) => { if (!r.ok) { setWinInfo(null); setMsg("Could not load the coverage window."); return; } const j = await r.json(); setWinInfo({ local: j.window.local, hours: j.window.hours, overlaps: j.overlaps, map: Object.fromEntries(j.stories.map((x: any) => [x.id, { cls: x.cls, candidate: x.candidate, reason: x.reason }])) }); }).catch(() => setMsg("Could not load the coverage window."));
+  }, [win, cycleWin]);
 
   // live coherence check whenever the chosen developments or structure change
   useEffect(() => {
@@ -213,7 +224,7 @@ export default function EditionDesk() {
 
       {desk && tab === "developments" && (() => {
         const recs = [...new Set(desk.developments.map((d) => d.recommendation))];
-        const list = desk.developments.filter((d) => (showOlder || d.fresh || ids.includes(d.id)) && (!recFilter || d.recommendation === recFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
+        const list = desk.developments.filter((d) => (win && winInfo ? !!winInfo.map[d.id] || ids.includes(d.id) : (showOlder || d.fresh || ids.includes(d.id))) && (!recFilter || d.recommendation === recFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
         return (
           <div className="panel">
             <h2>Select the developments for your edition</h2>
@@ -226,10 +237,16 @@ export default function EditionDesk() {
               </div>
             </div>
             <div className="row">
+              <label>Coverage window<select value={win} onChange={(e) => setWin(e.target.value)}>
+                <option value="">Any recent research (default)</option>
+                {cycleWin && <option value="cycle">This edition's window ({cycleWin.label})</option>}
+                <option value="6">Last 6 hours</option><option value="12">Last 12 hours</option><option value="24">Last 24 hours</option>
+              </select></label>
               <label>Search<input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="words in the headline" /></label>
               <label>Recommendation<select value={recFilter} onChange={(e) => setRecFilter(e.target.value)}><option value="">All</option>{recs.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
               <label className="inline"><input type="checkbox" checked={showOlder} onChange={(e) => setShowOlder(e.target.checked)} /> Also show older and rejected ({desk.developments.filter((d) => !d.fresh).length})</label>
             </div>
+            {win && winInfo && <p className="meta">Window: {winInfo.local} ({winInfo.hours} h). Includes the start, excludes the end. Only stories with reporting in this window are listed. <a href="/planner">Open the Planner</a>{winInfo.overlaps.length ? ` · Overlaps earlier coverage: ${winInfo.overlaps.map((o) => o.label).join(", ")}` : ""}</p>}
             {list.length === 0 && <p>No developments match. Run research from the Dashboard, or change the filters.</p>}
             <table>
               <thead><tr><th></th><th>Development</th><th>Recommendation</th><th>Curiosity (hypothesis)</th><th>Evidence</th><th>Places</th><th></th></tr></thead>
@@ -238,7 +255,7 @@ export default function EditionDesk() {
                   <Fragment key={d.id}>
                     <tr className={ids.includes(d.id) ? "picked" : ""}>
                       <td><input type="checkbox" aria-label={`Select ${d.headline}`} checked={ids.includes(d.id)} disabled={d.decision === "rejected"} onChange={() => toggle(d.id)} /></td>
-                      <td>{d.headline}<div className="meta">{d.type} · {d.outlets} outlet{d.outlets === 1 ? "" : "s"} · {d.ageHours !== null ? `${d.ageHours}h old` : "age unknown"} · {d.decision === "rejected" ? "REJECTED (cannot be selected)" : d.decision ?? "not yet reviewed"}{!d.fresh && d.decision !== "rejected" ? ` · ${d.notFreshWhy}` : ""}</div></td>
+                      <td>{winInfo?.map[d.id] && <span className={`chip ${winInfo.map[d.id].candidate ? "" : "bad"}`} title={winInfo.map[d.id].reason}>{({ NEW: "New", UPDATE: "Update", RENEWED: "Renewed", HELD_OVER: "Held over", ALREADY_PUBLISHED: "Already published", NEVER_VERIFIED: "Never verified", REJECTED_EARLIER: "Left out earlier", REJECTED: "Rejected" } as Record<string, string>)[winInfo.map[d.id].cls] ?? winInfo.map[d.id].cls}</span>} {d.headline}{winInfo?.map[d.id] && <div className="meta">{winInfo.map[d.id].reason}</div>}<div className="meta">{d.type} · {d.outlets} outlet{d.outlets === 1 ? "" : "s"} · {d.ageHours !== null ? `${d.ageHours}h old` : "age unknown"} · {d.decision === "rejected" ? "REJECTED (cannot be selected)" : d.decision ?? "not yet reviewed"}{!d.fresh && d.decision !== "rejected" ? ` · ${d.notFreshWhy}` : ""}</div></td>
                       <td>{d.recommendation}</td><td>{d.curiosityScore}/100</td><td>{d.evidenceStrength.label}{d.corroborated ? "" : " · single outlet"}</td>
                       <td>{d.locations.map((l) => l.country).join(", ") || "none established"}</td>
                       <td><button onClick={() => setInspect(inspect === d.id ? null : d.id)}>{inspect === d.id ? "Hide" : "Evidence"}</button></td>

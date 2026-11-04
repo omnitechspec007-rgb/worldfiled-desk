@@ -31,3 +31,6 @@ Netlify: Site configuration → Environment variables.
 
 ## Edition Desk (local build, not yet pushed)
 See `docs/EDITIONS.md`. Needs migration `004_editions.sql` (not run). Without it the desk still suggests editions and builds prompts, clearly marked NOT saved.
+
+## Planner (news cycle and publishing schedule)
+See `docs/PLANNER.md`. Page: Planner. Needs migration 005 to save plans; until then it shows NOT INSTALLED and still previews windows.
