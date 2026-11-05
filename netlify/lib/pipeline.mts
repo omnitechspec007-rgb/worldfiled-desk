@@ -95,7 +95,10 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
         // Save items first; only report success if the write succeeded.
         await db("retrieved_sources?on_conflict=url_hash", {
           method: "POST",
-          prefer: "resolution=ignore-duplicates,return=minimal",
+          // Refresh previously seen feed items as well as inserting new ones. Ignoring
+          // duplicate URLs left retrieved_at stale, which made repeat runs appear unchanged
+          // and excluded still-current items from the rolling discovery window.
+          prefer: "resolution=merge-duplicates,return=minimal",
           body: r.items.map((it) => ({
             registry_id: s.id,
             url: it.url,
