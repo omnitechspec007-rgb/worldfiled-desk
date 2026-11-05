@@ -99,6 +99,49 @@ export default function EditionDesk() {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const lastEv = useRef<Evaluation | null>(null);
+  const draftReady = useRef(false);
+  const draftKey = "worldfiled:edition-desk:draft:v1";
+
+  // Keep the in-progress workspace locally so refreshes do not discard work.
+  // Server approvals and generated prompts are deliberately not restored.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (draft && Array.isArray(draft.ids) && draft.ids.length <= 12) {
+          setIds(draft.ids.filter((x: unknown) => typeof x === "string"));
+          setTitle(typeof draft.title === "string" ? draft.title : "");
+          setAngle(typeof draft.angle === "string" ? draft.angle : "");
+          setStructure(typeof draft.structure === "string" ? draft.structure : "");
+          setTab(["developments", "suggested", "mine"].includes(draft.tab) ? draft.tab : "developments");
+          setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "script_storyboard");
+          setDuration([60, 90, 120].includes(draft.duration) ? draft.duration : 90);
+          setPAngle(typeof draft.pAngle === "string" ? draft.pAngle : "");
+          setFmt(typeof draft.fmt === "string" ? draft.fmt : "");
+          setSound(draft.sound === "minimal" ? "minimal" : "subtle");
+          setVisual(draft.visual === "typographic" ? "typographic" : "adaptive");
+          setConflicts(Array.isArray(draft.conflicts) ? draft.conflicts : []);
+          setMsg("Recovered your locally saved Edition Desk draft. Review it and save the edition to keep it in your account.");
+        }
+      }
+    } catch {
+      setMsg("A previous local draft could not be read. Your saved editions are unchanged.");
+    }
+    draftReady.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!draftReady.current) return;
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({
+        ids, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts,
+        savedAt: new Date().toISOString(),
+      }));
+    } catch {
+      setMsg("Browser storage is unavailable; keep this tab open until you save the edition.");
+    }
+  }, [ids, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts]);
 
   const loadDesk = useCallback(async () => {
     try {
