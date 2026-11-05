@@ -85,7 +85,7 @@ export default async (req: Request) => {
             ? await stageDiscover(prev, run.config ?? {})
             : next === "cluster"
               ? await stageCluster(runId, run.config ?? {})
-              : await stageRank(runId);
+              : await stageRank(runId, run.config ?? {});
       await upsertStage({
         status: result.done ? "completed" : "running",
         detail: result.detail,
