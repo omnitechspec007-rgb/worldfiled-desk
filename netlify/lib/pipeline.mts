@@ -157,7 +157,8 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
       finished,
       healthy,
       problems: finished - healthy,
-      items: list.reduce((n: number, x: any) => n + (x.items ?? 0), 0),\n      newItems: list.reduce((n: number, x: any) => n + (x.newItems ?? 0), 0),\n      refreshedItems: list.reduce((n: number, x: any) => n + (x.refreshedItems ?? 0), 0),
+      items: list.reduce((n: number, x: any) => n + (x.items ?? 0), 0),
+      newItems: list.reduce((n: number, x: any) => n + (x.newItems ?? 0), 0),\n      refreshedItems: list.reduce((n: number, x: any) => n + (x.refreshedItems ?? 0), 0),
     },
   };
 }
