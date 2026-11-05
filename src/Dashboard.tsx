@@ -112,7 +112,7 @@ export default function Dashboard() {
         </button>
         <button type="button" onClick={() => { if (window.confirm("Clear the current Dashboard view? Saved stories, editions and research history will not be deleted.")) { setStatus(null); setStages([]); setMsg(""); setBad(false); setViewCleared(true); } }} disabled={busy || (!status && stages.length === 0 && !msg)}>CLEAR RESULTS</button>
         </div>
-        <p>The desk chooses its own sources and coverage. You only review what it finds.</p>
+        <p>The desk checks its configured source registry and coverage. You review what it discovers; a new run refreshes the feed items it finds.</p>
         {viewCleared && <p className="status">Dashboard results cleared from this view. Saved stories and research history remain available in Story Desk.</p>}
         {msg && <p className={bad ? "status bad" : "status"}>{msg}</p>}
         {!viewCleared && stages.some((s) => s.status !== "pending") && (
@@ -125,7 +125,7 @@ export default function Dashboard() {
             ))}
           </ol>
         )}
-        {status?.latest?.error_summary && !busy && <p className="status bad">Last run note: {status.latest.error_summary}</p>}
+        {!viewCleared && status?.latest?.error_summary && !busy && <p className="status bad">Last run note: {status.latest.error_summary}</p>}
         {!viewCleared && (msg + (status?.latest?.error_summary ?? "")).includes("002_scoring.sql") && (
           <p className="caution">One-time setup needed: open Supabase, go to SQL Editor, paste the contents of supabase/migrations/002_scoring.sql from your repo, run it, then click Resume.</p>
         )}
