@@ -7,7 +7,7 @@
 // required for any stage here.
 import { db } from "./db.mts";
 import { SEED_SOURCES } from "./seed-sources.mts";
-import { fetchFeed, urlHash } from "./feeds.mts";
+import { fetchFeed, feedText, urlHash } from "./feeds.mts";
 import { clusterItems } from "./cluster.mts";
 import { MODEL_VERSION, buildShortlist, scoreStory, type StoryInput } from "./scoring.mts";
 
@@ -20,7 +20,7 @@ const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length
 
 type StageResult = { done: boolean; detail: Record<string, any> };
 
-type SourceRow = { id: string; name: string; country_scope: string | null; category: string | null; feed_url: string | null; reliability_note?: string | null };
+type SourceRow = { id: string; name: string; country_scope: string | null; category: string | null; feed_url: unknown; reliability_note?: string | null };
 
 export async function stagePrepare(): Promise<StageResult> {
   // Built-in list is the source of truth. Existing rows keep their recorded health, unless the
@@ -93,7 +93,8 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
       const now = new Date().toISOString();
       // Official/primary sources publish less often, so they get a longer freshness window.
       const windowDays = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
-      const r = await fetchFeed(s.feed_url!, windowDays);
+      const feedAddress = feedText(s.feed_url).trim();
+      const r = feedAddress ? await fetchFeed(feedAddress, windowDays) : { status: "failing" as const, items: [] as [], error: "feed URL is missing or is not a valid text value", http: 0 };
       if (r.status === "healthy" && r.items.length > 0) {
         // Count genuinely new URLs separately from records refreshed on this run.
         const itemsToSave = [...new Map(r.items.map((it) => [urlHash(it.url), it])).values()];
