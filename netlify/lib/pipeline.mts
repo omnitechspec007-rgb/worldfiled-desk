@@ -104,7 +104,8 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
       const r = await fetchFeed(s.feed_url!, windowDays);
       if (r.status === "healthy" && r.items.length > 0) {
         // Count genuinely new URLs separately from records refreshed on this run.
-        const hashes = r.items.map((it) => urlHash(it.url));
+        const itemsToSave = [...new Map(r.items.map((it) => [urlHash(it.url), it])).values()];
+        const hashes = itemsToSave.map((it) => urlHash(it.url));
         const existingRows = await db<{ url_hash: string }[]>(
           `retrieved_sources?select=url_hash&url_hash=in.(${hashes.join(",")})`
         );
@@ -118,7 +119,7 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
           // duplicate URLs left retrieved_at stale, which made repeat runs appear unchanged
           // and excluded still-current items from the rolling discovery window.
           prefer: "resolution=merge-duplicates,return=minimal",
-          body: r.items.map((it) => ({
+          body: itemsToSave.map((it) => ({
             registry_id: s.id,
             url: it.url,
             url_hash: urlHash(it.url),
@@ -136,7 +137,7 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
           prefer: "return=minimal",
           body: { retrieval_status: "healthy", enabled: true, last_checked_at: now, last_success_at: now, last_error: null },
         });
-        results[s.id] = { name: s.name, status: "healthy", items: r.items.length, newItems, refreshedItems, skippedOld: r.skippedOld };
+        results[s.id] = { name: s.name, status: "healthy", items: itemsToSave.length, newItems, refreshedItems, skippedOld: r.skippedOld };
       } else {
         const status = r.status === "healthy" ? "degraded" : r.status;
         const error = r.status === "healthy" ? `no items within the freshness window (${r.skippedOld} older items skipped)` : r.error;
