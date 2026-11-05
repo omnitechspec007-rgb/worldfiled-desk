@@ -16,7 +16,6 @@ export type StageName = (typeof STAGES)[number];
 
 export const BATCH_SIZE = 6;
 const WINDOW_DAYS = 3;
-const OFFICIAL_WINDOW_DAYS = 14;
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
 type StageResult = { done: boolean; detail: Record<string, any> };
@@ -93,8 +92,7 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
     batch.map(async (s) => {
       const now = new Date().toISOString();
       // Official/primary sources publish less often, so they get a longer freshness window.
-      const requestedWindow = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
-      const windowDays = /tier:primary/.test(s.reliability_note ?? "") ? Math.max(requestedWindow, OFFICIAL_WINDOW_DAYS) : requestedWindow;
+      const windowDays = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
       const r = await fetchFeed(s.feed_url!, windowDays);
       if (r.status === "healthy" && r.items.length > 0) {
         // Count genuinely new URLs separately from records refreshed on this run.
@@ -245,7 +243,7 @@ export async function stageCluster(runId: string, config: { windowDays?: number 
 const SCORE_WINDOW_HOURS = 72;
 const OFFICIAL_SCORE_WINDOW_HOURS = 14 * 24;
 
-export async function stageRank(runId: string): Promise<StageResult> {
+export async function stageRank(runId: string, config: { windowDays?: number; region?: string } = {}): Promise<StageResult> {
   try {
     await db("shortlist?select=id&limit=1");
     await db("story_scores?select=id&limit=1");
@@ -264,6 +262,7 @@ export async function stageRank(runId: string): Promise<StageResult> {
     sources: (r.story_source_links ?? [])
       .map((l: any) => l.retrieved_sources)
       .filter(Boolean)
+      .filter((s: any) => !config.region || config.region === "all" || (s.source_registry?.country_scope ?? "").startsWith(config.region))
       .map((s: any) => ({
         outlet: s.source_registry?.name ?? "Unknown",
         region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
@@ -279,7 +278,8 @@ export async function stageRank(runId: string): Promise<StageResult> {
     .map((x) => scoreStory(x, now))
     .filter((s) => {
       const ageH = s.newest ? (now - s.newest) / 3_600_000 : Infinity;
-      return ageH <= SCORE_WINDOW_HOURS || (s.hasPrimary && ageH <= OFFICIAL_SCORE_WINDOW_HOURS);
+      const selectedHours = ([1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : 3) * 24;
+      return ageH <= selectedHours;
     });
 
   const scoreRows = scored.flatMap((s) =>
