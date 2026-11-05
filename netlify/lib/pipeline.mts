@@ -52,15 +52,26 @@ export async function stagePrepare(): Promise<StageResult> {
     });
   }
   let changed = 0;
+  let reactivated = 0;
   for (const s of SEED_SOURCES) {
     const e = byName.get(s.name);
-    if (e && e.feed_url !== s.feed) {
+    if (!e) continue;
+    if (e.feed_url !== s.feed) {
       await db(`source_registry?name=eq.${encodeURIComponent(s.name)}`, {
         method: "PATCH",
         prefer: "return=minimal",
         body: { feed_url: s.feed, retrieval_status: "untested", enabled: false, last_error: null },
       });
       changed++;
+    } else if (e.retrieval_status === "disabled" && /built-in candidate/.test(e.reliability_note ?? "")) {
+      // A feed that was quiet in a previous run must be checked again on the next run.
+      // Only app-managed built-in candidates are reactivated; user-managed disabled rows stay disabled.
+      await db(`source_registry?name=eq.${encodeURIComponent(s.name)}`, {
+        method: "PATCH",
+        prefer: "return=minimal",
+        body: { retrieval_status: "untested", enabled: false, last_error: null },
+      });
+      reactivated++;
     }
   }
   let retired = 0;
