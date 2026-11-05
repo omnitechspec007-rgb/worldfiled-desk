@@ -91,6 +91,7 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
   await Promise.all(
     batch.map(async (s) => {
       const now = new Date().toISOString();
+      try {
       // Official/primary sources publish less often, so they get a longer freshness window.
       const windowDays = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
       const feedAddress = feedText(s.feed_url).trim();
@@ -140,6 +141,17 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
           body: { retrieval_status: status, enabled: false, last_checked_at: now, last_error: error },
         });
         results[s.id] = { name: s.name, status, items: 0, newItems: 0, refreshedItems: 0, error };
+      }
+      } catch (cause: any) {
+        // Isolate unexpected publisher/parser data from the rest of the research run.
+        // Keep the precise source name and error for diagnosis; continue other feeds.
+        const error = String(cause?.message ?? cause ?? "unexpected source error").slice(0, 240);
+        await db(`source_registry?id=eq.${s.id}`, {
+          method: "PATCH",
+          prefer: "return=minimal",
+          body: { retrieval_status: "failing", enabled: false, last_checked_at: now, last_error: error },
+        });
+        results[s.id] = { name: s.name, status: "failing", items: 0, newItems: 0, refreshedItems: 0, error };
       }
     })
   );
