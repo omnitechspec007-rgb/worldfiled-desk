@@ -103,6 +103,14 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
       const windowDays = /tier:primary/.test(s.reliability_note ?? "") ? OFFICIAL_WINDOW_DAYS : WINDOW_DAYS;
       const r = await fetchFeed(s.feed_url!, windowDays);
       if (r.status === "healthy" && r.items.length > 0) {
+        // Count genuinely new URLs separately from records refreshed on this run.
+        const hashes = r.items.map((it) => urlHash(it.url));
+        const existingRows = await db<{ url_hash: string }[]>(
+          `retrieved_sources?select=url_hash&url_hash=in.(${hashes.join(",")})`
+        );
+        const existingHashes = new Set(existingRows.map((row) => row.url_hash));
+        const refreshedItems = hashes.filter((hash) => existingHashes.has(hash)).length;
+        const newItems = hashes.length - refreshedItems;
         // Save items first; only report success if the write succeeded.
         await db("retrieved_sources?on_conflict=url_hash", {
           method: "POST",
@@ -128,7 +136,7 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
           prefer: "return=minimal",
           body: { retrieval_status: "healthy", enabled: true, last_checked_at: now, last_success_at: now, last_error: null },
         });
-        results[s.id] = { name: s.name, status: "healthy", items: r.items.length, skippedOld: r.skippedOld };
+        results[s.id] = { name: s.name, status: "healthy", items: r.items.length, newItems, refreshedItems, skippedOld: r.skippedOld };
       } else {
         const status = r.status === "healthy" ? "degraded" : r.status;
         const error = r.status === "healthy" ? `no items within the freshness window (${r.skippedOld} older items skipped)` : r.error;
@@ -137,7 +145,7 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
           prefer: "return=minimal",
           body: { retrieval_status: status, enabled: false, last_checked_at: now, last_error: error },
         });
-        results[s.id] = { name: s.name, status, items: 0, error };
+        results[s.id] = { name: s.name, status, items: 0, newItems: 0, refreshedItems: 0, error };
       }
     })
   );
@@ -158,7 +166,7 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
       finished,
       healthy,
       problems: finished - healthy,
-      items: list.reduce((n: number, x: any) => n + (x.items ?? 0), 0),
+      items: list.reduce((n: number, x: any) => n + (x.items ?? 0), 0),\n      newItems: list.reduce((n: number, x: any) => n + (x.newItems ?? 0), 0),\n      refreshedItems: list.reduce((n: number, x: any) => n + (x.refreshedItems ?? 0), 0),
     },
   };
 }
