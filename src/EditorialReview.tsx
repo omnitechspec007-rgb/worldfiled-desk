@@ -56,7 +56,8 @@ export default function EditorialReview() {
     <section>
       <h1>Editorial Review</h1>
       <p className="status">Nothing moves forward without your decision. Approval means "cleared for drafting", not "verified": claims have not been checked yet.</p>
-      {msg && <p className="status">{msg}</p>}
+      {msg && <div className="panel state-error" role="alert"><p className="status bad">{msg}</p><button onClick={() => void load()}>Try again</button></div>}
+      {!picks && !msg && <div className="panel state-loading" role="status"><p className="meta">Loading stories for review…</p></div>}
       {notInstalled && <div className="panel"><p className="caution">One-time setup needed: run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click RUN RESEARCH.</p></div>}
       {picks && picks.length === 0 && !notInstalled && <div className="panel"><p>Nothing to review yet. Click RUN RESEARCH on the Dashboard.</p></div>}
       {picks?.map((s) => (
