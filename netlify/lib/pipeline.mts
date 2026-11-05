@@ -91,11 +91,24 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
   await Promise.all(
     batch.map(async (s) => {
       const now = new Date().toISOString();
-      try {
       // Official/primary sources publish less often, so they get a longer freshness window.
       const windowDays = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
       const feedAddress = feedText(s.feed_url).trim();
-      const r = feedAddress ? await fetchFeed(feedAddress, windowDays) : { status: "failing" as const, items: [] as [], error: "feed URL is missing or is not a valid text value", http: 0 };
+      let r: Awaited<ReturnType<typeof fetchFeed>> | { status: "failing"; items: []; error: string; http: number };
+      try {
+        r = feedAddress ? await fetchFeed(feedAddress, windowDays) : { status: "failing", items: [], error: "feed URL is missing or is not a valid text value", http: 0 };
+      } catch (cause: any) {
+        // Isolate unexpected feed/parser errors, but let database write failures fail the stage.
+        // Preserve the source's enabled setting so a transient parser issue can be retried.
+        const error = String(cause?.message ?? cause ?? "unexpected feed error").slice(0, 240);
+        await db(`source_registry?id=eq.${s.id}`, {
+          method: "PATCH",
+          prefer: "return=minimal",
+          body: { retrieval_status: "failing", last_checked_at: now, last_error: error },
+        });
+        results[s.id] = { name: s.name, status: "failing", items: 0, newItems: 0, refreshedItems: 0, error };
+        return;
+      }
       if (r.status === "healthy" && r.items.length > 0) {
         // Count genuinely new URLs separately from records refreshed on this run.
         const itemsToSave = [...new Map(r.items.map((it) => [urlHash(it.url), it])).values()];
@@ -141,17 +154,6 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
           body: { retrieval_status: status, enabled: false, last_checked_at: now, last_error: error },
         });
         results[s.id] = { name: s.name, status, items: 0, newItems: 0, refreshedItems: 0, error };
-      }
-      } catch (cause: any) {
-        // Isolate unexpected publisher/parser data from the rest of the research run.
-        // Keep the precise source name and error for diagnosis; continue other feeds.
-        const error = String(cause?.message ?? cause ?? "unexpected source error").slice(0, 240);
-        await db(`source_registry?id=eq.${s.id}`, {
-          method: "PATCH",
-          prefer: "return=minimal",
-          body: { retrieval_status: "failing", enabled: false, last_checked_at: now, last_error: error },
-        });
-        results[s.id] = { name: s.name, status: "failing", items: 0, newItems: 0, refreshedItems: 0, error };
       }
     })
   );
