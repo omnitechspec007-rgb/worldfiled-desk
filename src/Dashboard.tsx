@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; newItems: number | null; refreshedItems: number | null; stories: number | null; multiSource: number | null; shortlisted: number | null; candidates: number | null };
+type RunHistory = { id: string; status: string; created_at: string; completed_at: string | null; config: { windowDays?: number; region?: string }; newItems: number; refreshedItems: number; stories: number; newStories: number; shortlisted: number };
 type Status = {
+  history: RunHistory[];
   latest: { id: string; status: string; error_summary: string | null; created_at: string; completed_at: string | null } | null;
   stages: Stage[];
   counts: { awaitingReview: number; approved: number; stories: number; multiOutlet: number; sourcesHealthy: number; sourcesNeedAttention: number; sourcesUntested: number; sourcesTotal: number };
@@ -35,6 +37,8 @@ export default function Dashboard() {
   const [msg, setMsg] = useState("");
   const [bad, setBad] = useState(false);
   const [viewCleared, setViewCleared] = useState(false);
+  const [windowDays, setWindowDays] = useState("3");
+  const [region, setRegion] = useState("all");
   const lock = useRef(false);
 
   const load = useCallback(async () => {
@@ -68,7 +72,7 @@ export default function Dashboard() {
       const start = await fetch("/.netlify/functions/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idempotencyKey: newKey() }),
+        body: JSON.stringify({ idempotencyKey: newKey(), windowDays: Number(windowDays), region }),
       });
       if (!start.ok) throw new Error("start");
       const { run, resumed } = await start.json();
@@ -110,6 +114,8 @@ export default function Dashboard() {
         <button className="primary big" onClick={() => void run()} disabled={busy}>
           {busy ? "RESEARCH RUNNING…" : unfinished ? "RESUME RESEARCH" : "RUN RESEARCH"}
         </button>
+        <label>Coverage window<select value={windowDays} onChange={(e) => setWindowDays(e.target.value)} disabled={busy}><option value="1">Past 24 hours</option><option value="3">Past 3 days</option><option value="7">Past 7 days</option><option value="14">Past 14 days</option></select></label>
+        <label>Region<select value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}><option value="all">All regions</option>{["Africa","Asia","Europe","Latin America","Middle East","North America","Oceania"].map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
         <button type="button" onClick={() => { if (window.confirm("Clear the current Dashboard view? Saved stories, editions and research history will not be deleted.")) { setStatus(null); setStages([]); setMsg(""); setBad(false); setViewCleared(true); } }} disabled={busy || (!status && stages.length === 0 && !msg)}>CLEAR RESULTS</button>
         </div>
         <p>The desk checks its configured source registry and coverage. You review what it discovers; a new run refreshes the feed items it finds.</p>
@@ -137,6 +143,15 @@ export default function Dashboard() {
         <div className="panel stat"><span className="stat-label">Covered by 2+ outlets</span><span className="stat-value">{c?.multiOutlet ?? "—"}</span><span className="stat-note">Not the same as independently confirmed</span></div>
         <div className="panel stat"><span className="stat-label">Sources reachable</span><span className="stat-value">{c ? `${c.sourcesHealthy}/${c.sourcesTotal}` : "—"}</span><span className="stat-note">{c && c.sourcesNeedAttention > 0 ? `${c.sourcesNeedAttention} need attention` : c && c.sourcesUntested === c.sourcesTotal ? "Not tested yet" : " "}</span></div>
         <div className="panel stat"><span className="stat-label">Regions with a live source</span><span className="stat-value">{status ? `${status.regions.filter((r) => r.healthy > 0).length}/7` : "—"}</span><span className="stat-note"><Link to="/health">Details in System Health</Link></span></div>
+      </div>}
+
+      {!viewCleared && <div className="panel">
+        <h2>Recent research runs</h2>
+        <p className="meta">New items are URLs not previously stored. Refreshed items were already known; they are not new developments.</p>
+        {status?.history?.length ? status.history.map((r) => <div className="source" key={r.id}>
+          <strong>{new Date(r.created_at).toLocaleString()}</strong> · {r.status}
+          <p className="meta">{r.config?.region && r.config.region !== "all" ? r.config.region : "All regions"} · {r.config?.windowDays ?? 3}-day window · {r.newItems} new feed items · {r.refreshedItems} refreshed · {r.newStories} new story clusters · {r.shortlisted} shortlisted</p>
+        </div>) : <p>No research history yet.</p>}
       </div>}
 
       <div className="panel">
