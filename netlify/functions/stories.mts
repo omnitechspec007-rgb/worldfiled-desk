@@ -8,7 +8,7 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 const EMBED =
-  "story_source_links(role,retrieved_sources(id,title,url,publisher,published_at,retrieved_at,content_status,extract,source_registry(name,country_scope,source_type,reliability_note)))";
+  "story_source_links(role,retrieved_sources(id,title,url,publisher,published_at,retrieved_at,content_status,extract,source_registry(name,publisher,country_scope,source_type,reliability_note)))";
 
 function shape(story: any, withExtract: boolean) {
   const sources = (story.story_source_links ?? [])
@@ -20,7 +20,7 @@ function shape(story: any, withExtract: boolean) {
         id: s.id,
         title: s.title,
         url: s.url,
-        outlet: reg.name ?? s.publisher ?? "Unknown",
+        outlet: reg.publisher ?? reg.name ?? s.publisher ?? "Unknown",
         scope: reg.country_scope ?? null,
         region: (reg.country_scope ?? "").split(" · ")[0] || "Unknown",
         tier: /tier:primary/.test(reg.reliability_note ?? "") ? "primary" : "reporting",
