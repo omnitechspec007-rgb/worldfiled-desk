@@ -63,7 +63,6 @@ export async function stagePrepare(): Promise<StageResult> {
       });
       changed++;
     }
-    }
   }
   let retired = 0;
   for (const e of existing) {
