@@ -217,11 +217,26 @@ function Desk({ onLogout }: { onLogout: () => void }) {
     "/editions": "/planner", "/creative": "/editions", "/architect": "/editions",
     "/reference": "/", "/history": "/architect", "/health": "/",
   };
+  const [editionDirty, setEditionDirty] = useState(false);
+  useEffect(() => {
+    const update = (event: Event) => setEditionDirty(Boolean((event as CustomEvent<{ dirty?: boolean }>).detail?.dirty));
+    window.addEventListener("worldfiled:edition-dirty", update);
+    return () => window.removeEventListener("worldfiled:edition-dirty", update);
+  }, []);
+  const confirmLeave = () => !editionDirty || window.confirm("You have unsaved Edition Desk changes. Your draft is saved in this browser, but your changes are not yet saved to your account. Leave this page?");
   const from = (location.state as { from?: string } | null)?.from;
   const backTo = from && from !== location.pathname && titles[from] ? from : parent[location.pathname] ?? "/";
   const pageTitle = titles[location.pathname] ?? (location.pathname.startsWith("/evidence/") ? "Evidence Room" : "WorldFiled Desk");
   return (
-    <div className="shell">
+    <div className="shell" onClickCapture={(event) => {
+      if (!editionDirty) return;
+      const target = event.target as HTMLElement;
+      const link = target.closest("a[href^='/']") as HTMLAnchorElement | null;
+      if (link && !link.target && !link.hasAttribute("download") && !confirmLeave()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }}>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-name">The World, Filed.</span>
@@ -239,13 +254,13 @@ function Desk({ onLogout }: { onLogout: () => void }) {
             </div>
           ))}
         </nav>
-        <button className="linklike" onClick={onLogout}>Sign out</button>
+        <button className="linklike" onClick={() => { if (confirmLeave()) onLogout(); }}>Sign out</button>
         <a className="logo-download" href="/brand/TWF_final_logo.svg" download="TWF_final_logo.svg">Download official logo (SVG)</a>
         <span className="desk-label">WorldFiled Desk · v0.1</span>
       </aside>
       <main>
         <div className="page-toolbar">
-          <button className="back-button" onClick={() => navigate(backTo)} aria-label="Go back to the previous workflow page">
+          <button className="back-button" onClick={() => { if (confirmLeave()) navigate(backTo); }} aria-label="Go back to the previous workflow page">
             <span aria-hidden="true">←</span> Back
           </button>
           <span className="page-context">{pageTitle}</span>
