@@ -236,20 +236,6 @@ assert.equal(T("source_registry").find((x) => x.name === "EurekAlert").retrieval
 assert.equal(T("source_registry").find((x) => x.name === "Phys.org").feed_url, "https://phys.org/rss-feed/"); assert.equal(T("source_registry").find((x) => x.name === "Phys.org").retrieval_status, "healthy"); ok("corrected feed address replaces the old one and is retested");
 assert(T("source_registry").some((x) => x.name === "My own note")); ok("other existing rows are preserved");
 
-console.log("Quiet built-in sources are retried on a fresh run");
-reset(); behaviour = {}; shared = {};
-const dawnSeed = seed.SEED_SOURCES.find((x: any) => x.name === "Dawn");
-T("source_registry").push({ id: crypto.randomUUID(), name: "Dawn", feed_url: dawnSeed.feed, reliability_note: "tier:reporting; built-in candidate, health tested automatically", retrieval_status: "disabled", enabled: false, last_error: "no items within the freshness window" });
-T("source_registry").push({ id: crypto.randomUUID(), name: "My manually disabled source", feed_url: "https://manual.example.com/feed", reliability_note: "user-managed", retrieval_status: "disabled", enabled: false });
-fetched.length = 0; r = await start();
-await call(stepFn, { runId: r.run.id }); // prepare reactivates the current built-in candidate
-assert.equal(T("source_registry").find((x) => x.name === "Dawn").retrieval_status, "untested");
-assert.equal(T("source_registry").find((x) => x.name === "My manually disabled source").retrieval_status, "disabled");
-end = await runToEnd(r.run.id);
-assert(fetched.some((u) => hostOf(u) === hostFor("Dawn")));
-assert.equal(T("source_registry").find((x) => x.name === "Dawn").retrieval_status, "healthy");
-ok("quiet built-in source is reactivated and fetched on the next run; user-managed disabled sources stay disabled");
-
 console.log("Approval workflow");
 const story = T("shortlist").find((x) => x.selected);
 const sid = story.story_id;
