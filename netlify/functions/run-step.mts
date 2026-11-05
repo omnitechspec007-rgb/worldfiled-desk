@@ -49,7 +49,7 @@ export default async (req: Request) => {
   if (!UUID.test(runId)) return json({ error: "bad_request" }, 400);
 
   try {
-    const runs = await db<any[]>(`research_runs?id=eq.${runId}&select=id,status,error_summary`);
+    const runs = await db<any[]>(`research_runs?id=eq.${runId}&select=id,status,error_summary,config`);
     const run = runs[0];
     if (!run) return json({ error: "not_found" }, 404);
     let stages = await db<any[]>(`research_run_stages?run_id=eq.${runId}&select=stage,status,attempt,detail,error`);
@@ -82,9 +82,9 @@ export default async (req: Request) => {
         next === "prepare"
           ? await stagePrepare()
           : next === "discover"
-            ? await stageDiscover(prev)
+            ? await stageDiscover(prev, run.config ?? {})
             : next === "cluster"
-              ? await stageCluster(runId)
+              ? await stageCluster(runId, run.config ?? {})
               : await stageRank(runId);
       await upsertStage({
         status: result.done ? "completed" : "running",
