@@ -255,7 +255,7 @@ export async function stageRank(runId: string, config: { windowDays?: number; re
     throw new Error("The scoring tables are not installed. Run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click Resume.");
   }
   const rows = await db<any[]>(
-    "stories?select=id,headline,category,created_at,story_source_links(retrieved_sources(title,published_at,retrieved_at,extract,source_registry(name,country_scope,reliability_note)))&order=created_at.desc&limit=300"
+    "stories?select=id,headline,category,created_at,story_source_links(retrieved_sources(title,published_at,retrieved_at,extract,source_registry(name,publisher,country_scope,reliability_note)))&order=created_at.desc&limit=300"
   );
   const now = Date.now();
   const inputs: StoryInput[] = rows.map((r) => ({
@@ -268,7 +268,7 @@ export async function stageRank(runId: string, config: { windowDays?: number; re
       .filter(Boolean)
       .filter((s: any) => !config.region || config.region === "all" || (s.source_registry?.country_scope ?? "").startsWith(config.region))
       .map((s: any) => ({
-        outlet: s.source_registry?.name ?? "Unknown",
+        outlet: s.source_registry?.publisher ?? s.source_registry?.name ?? "Unknown",
         region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
         tier: /tier:primary/.test(s.source_registry?.reliability_note ?? "") ? "primary" : "reporting",
         publishedAt: s.published_at,
