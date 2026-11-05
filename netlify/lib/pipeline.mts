@@ -78,19 +78,23 @@ export async function stagePrepare(): Promise<StageResult> {
   return { done: true, detail: { builtIn: SEED_SOURCES.length, added: fresh.length, updated: changed, retired } };
 }
 
-export async function stageDiscover(prev: Record<string, any>): Promise<StageResult> {
+export async function stageDiscover(prev: Record<string, any>, config: { windowDays?: number; region?: string } = {}): Promise<StageResult> {
   const sources = await db<SourceRow[]>(
     "source_registry?select=id,name,country_scope,category,feed_url,reliability_note&feed_url=not.is.null&retrieval_status=neq.disabled&order=name.asc"
   );
+  const scopedSources = config.region && config.region !== "all"
+    ? sources.filter((s) => (s.country_scope ?? "").startsWith(config.region!))
+    : sources;
   const results: Record<string, any> = prev.results ?? {};
-  const pending = sources.filter((s) => !(s.id in results));
+  const pending = scopedSources.filter((s) => !(s.id in results));
   const batch = pending.slice(0, BATCH_SIZE);
 
   await Promise.all(
     batch.map(async (s) => {
       const now = new Date().toISOString();
       // Official/primary sources publish less often, so they get a longer freshness window.
-      const windowDays = /tier:primary/.test(s.reliability_note ?? "") ? OFFICIAL_WINDOW_DAYS : WINDOW_DAYS;
+      const requestedWindow = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
+      const windowDays = /tier:primary/.test(s.reliability_note ?? "") ? Math.max(requestedWindow, OFFICIAL_WINDOW_DAYS) : requestedWindow;
       const r = await fetchFeed(s.feed_url!, windowDays);
       if (r.status === "healthy" && r.items.length > 0) {
         // Count genuinely new URLs separately from records refreshed on this run.
@@ -141,7 +145,7 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
     })
   );
 
-  const total = sources.length;
+  const total = scopedSources.length;
   const finished = Object.keys(results).length;
   const done = finished >= total;
   const list = Object.values(results);
@@ -164,8 +168,9 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
   };
 }
 
-export async function stageCluster(runId: string): Promise<StageResult> {
-  const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
+export async function stageCluster(runId: string, config: { windowDays?: number } = {}): Promise<StageResult> {
+  const days = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
   const rows = await db<{ id: string; title: string; registry_id: string | null }[]>(
     `retrieved_sources?select=id,title,registry_id&retrieved_at=gte.${since}&order=url_hash.asc&limit=1500`
   );
