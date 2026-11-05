@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; stories: number | null; multiSource: number | null; shortlisted: number | null; candidates: number | null };
+type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; newItems: number | null; refreshedItems: number | null; stories: number | null; multiSource: number | null; shortlisted: number | null; candidates: number | null };
 type Status = {
   latest: { id: string; status: string; error_summary: string | null; created_at: string; completed_at: string | null } | null;
   stages: Stage[];
@@ -20,7 +20,7 @@ const newKey = () => crypto.randomUUID().replace(/-/g, "");
 
 function describe(s: Stage) {
   if (s.status === "completed" && s.stage === "discover")
-    return `${s.healthy} of ${s.total} sources reachable · ${s.items} items collected${s.problems ? ` · ${s.problems} need attention` : ""}`;
+    return `${s.healthy} of ${s.total} sources reachable · ${s.newItems ?? 0} new · ${s.refreshedItems ?? 0} refreshed${s.problems ? ` · ${s.problems} need attention` : ""}`;
   if (s.status === "completed" && s.stage === "cluster") return `${s.stories} stories (${s.multiSource} covered by more than one outlet)`;
   if (s.status === "completed" && s.stage === "rank") return `${s.shortlisted} stories shortlisted from ${s.candidates} candidates`;
   if (s.status === "running" && s.stage === "discover") return `${s.finished ?? 0} of ${s.total ?? "…"} sources checked`;
