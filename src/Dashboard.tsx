@@ -34,6 +34,7 @@ export default function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [bad, setBad] = useState(false);
+  const [viewCleared, setViewCleared] = useState(false);
   const lock = useRef(false);
 
   const load = useCallback(async () => {
@@ -43,6 +44,7 @@ export default function Dashboard() {
       const data: Status = await res.json();
       setStatus(data);
       setStages(data.stages);
+      setViewCleared(false);
     } catch {
       setMsg("Could not load the latest status.");
       setBad(true);
@@ -58,6 +60,7 @@ export default function Dashboard() {
   const run = async () => {
     if (lock.current) return; // ignore double clicks while a run is in progress
     lock.current = true;
+    setViewCleared(false);
     setBusy(true);
     setBad(false);
     setMsg("Starting…");
@@ -103,12 +106,16 @@ export default function Dashboard() {
     <section>
       <h1>Dashboard</h1>
       <div className="panel hero">
+        <div className="row" style={{ alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
         <button className="primary big" onClick={() => void run()} disabled={busy}>
           {busy ? "RESEARCH RUNNING…" : unfinished ? "RESUME RESEARCH" : "RUN RESEARCH"}
         </button>
+        <button type="button" onClick={() => { if (window.confirm("Clear the current Dashboard view? Saved stories, editions and research history will not be deleted.")) { setStatus(null); setStages([]); setMsg(""); setBad(false); setViewCleared(true); } }} disabled={busy || (!status && stages.length === 0 && !msg)}>CLEAR RESULTS</button>
+        </div>
         <p>The desk chooses its own sources and coverage. You only review what it finds.</p>
+        {viewCleared && <p className="status">Dashboard results cleared from this view. Saved stories and research history remain available in Story Desk.</p>}
         {msg && <p className={bad ? "status bad" : "status"}>{msg}</p>}
-        {stages.some((s) => s.status !== "pending") && (
+        {!viewCleared && stages.some((s) => s.status !== "pending") && (
           <ol className="steps">
             {stages.map((s) => (
               <li key={s.stage} className={s.status}>
@@ -119,18 +126,18 @@ export default function Dashboard() {
           </ol>
         )}
         {status?.latest?.error_summary && !busy && <p className="status bad">Last run note: {status.latest.error_summary}</p>}
-        {(msg + (status?.latest?.error_summary ?? "")).includes("002_scoring.sql") && (
+        {!viewCleared && (msg + (status?.latest?.error_summary ?? "")).includes("002_scoring.sql") && (
           <p className="caution">One-time setup needed: open Supabase, go to SQL Editor, paste the contents of supabase/migrations/002_scoring.sql from your repo, run it, then click Resume.</p>
         )}
       </div>
 
-      <div className="grid">
+      {!viewCleared && <div className="grid">
         <div className="panel stat"><span className="stat-label">Stories found</span><span className="stat-value">{c?.stories ?? "—"}</span><span className="stat-note"><Link to="/stories">Open Story Desk</Link></span></div>
         <div className="panel stat"><span className="stat-label">Awaiting your review</span><span className="stat-value">{c?.awaitingReview ?? "—"}</span><span className="stat-note"><Link to="/review">Open Editorial Review</Link> · {c?.approved ?? 0} approved</span></div>
         <div className="panel stat"><span className="stat-label">Covered by 2+ outlets</span><span className="stat-value">{c?.multiOutlet ?? "—"}</span><span className="stat-note">Not the same as independently confirmed</span></div>
         <div className="panel stat"><span className="stat-label">Sources reachable</span><span className="stat-value">{c ? `${c.sourcesHealthy}/${c.sourcesTotal}` : "—"}</span><span className="stat-note">{c && c.sourcesNeedAttention > 0 ? `${c.sourcesNeedAttention} need attention` : c && c.sourcesUntested === c.sourcesTotal ? "Not tested yet" : " "}</span></div>
         <div className="panel stat"><span className="stat-label">Regions with a live source</span><span className="stat-value">{status ? `${status.regions.filter((r) => r.healthy > 0).length}/7` : "—"}</span><span className="stat-note"><Link to="/health">Details in System Health</Link></span></div>
-      </div>
+      </div>}
 
       <div className="panel">
         <h2>Not built yet</h2>
