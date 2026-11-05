@@ -26,7 +26,7 @@ export const summarize = (rows: any[]) =>
       total: d.total ?? null,
       healthy: d.healthy ?? null,
       problems: d.problems ?? null,
-      items: d.items ?? null,
+      items: d.items ?? null,\n      newItems: d.newItems ?? null,\n      refreshedItems: d.refreshedItems ?? null,
       stories: d.stories ?? null,
       multiSource: d.multiSource ?? null,
       shortlisted: d.shortlisted ?? null,
