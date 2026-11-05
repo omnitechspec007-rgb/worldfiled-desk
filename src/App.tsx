@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import Dashboard from "./Dashboard";
 import StoryDesk from "./StoryDesk";
 import EvidenceRoom from "./EvidenceRoom";
@@ -11,18 +11,19 @@ import EditionDesk from "./EditionDesk";
 import Planner from "./Planner";
 import CreativeSetup from "./CreativeSetup";
 
-const NAV = [
-  { to: "/", label: "Dashboard" },
-  { to: "/stories", label: "Story Desk" },
-  { to: "/evidence", label: "Evidence Room" },
-  { to: "/review", label: "Editorial Review" },
-  { to: "/planner", label: "Planner" },
-  { to: "/editions", label: "Edition Desk" },
-  { to: "/creative", label: "Presenter and Voice" },
-  { to: "/architect", label: "Prompt Architect" },
-  { to: "/reference", label: "Reference Library" },
-  { to: "/history", label: "Prompt History" },
-  { to: "/health", label: "System Health" },
+const NAV_GROUPS = [
+  { label: "RESEARCH", items: [
+    { to: "/", label: "Dashboard" }, { to: "/stories", label: "Story Desk" },
+    { to: "/evidence", label: "Evidence Room" }, { to: "/review", label: "Editorial Review" },
+  ] },
+  { label: "EDITION WORKFLOW", items: [
+    { to: "/planner", label: "Planner" }, { to: "/editions", label: "Edition Desk" },
+    { to: "/creative", label: "Presenter and Voice" }, { to: "/architect", label: "Prompt Architect" },
+  ] },
+  { label: "LIBRARY & SYSTEM", items: [
+    { to: "/reference", label: "Reference Library" }, { to: "/history", label: "Prompt History" },
+    { to: "/health", label: "System Health" },
+  ] },
 ];
 
 type Health =
@@ -203,6 +204,22 @@ export default function App() {
 }
 
 function Desk({ onLogout }: { onLogout: () => void }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const titles: Record<string, string> = {
+    "/": "Dashboard", "/stories": "Story Desk", "/evidence": "Evidence Room",
+    "/review": "Editorial Review", "/planner": "Planner", "/editions": "Edition Desk",
+    "/creative": "Presenter and Voice", "/architect": "Prompt Architect",
+    "/reference": "Reference Library", "/history": "Prompt History", "/health": "System Health",
+  };
+  const parent: Record<string, string> = {
+    "/stories": "/", "/evidence": "/stories", "/review": "/stories", "/planner": "/",
+    "/editions": "/planner", "/creative": "/editions", "/architect": "/editions",
+    "/reference": "/", "/history": "/architect", "/health": "/",
+  };
+  const from = (location.state as { from?: string } | null)?.from;
+  const backTo = from && from !== location.pathname && titles[from] ? from : parent[location.pathname] ?? "/";
+  const pageTitle = titles[location.pathname] ?? (location.pathname.startsWith("/evidence/") ? "Evidence Room" : "WorldFiled Desk");
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -210,11 +227,16 @@ function Desk({ onLogout }: { onLogout: () => void }) {
           <span className="brand-name">The World, Filed.</span>
           <span className="brand-tag">What happened. What changed. What matters.</span>
         </div>
-        <nav>
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
-              {n.label}
-            </NavLink>
+        <nav aria-label="Main navigation">
+          {NAV_GROUPS.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <span className="nav-group-label">{group.label}</span>
+              {group.items.map((n) => (
+                <NavLink key={n.to} to={n.to} state={{ from: location.pathname }} end={n.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
+                  {n.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         <button className="linklike" onClick={onLogout}>Sign out</button>
@@ -222,6 +244,12 @@ function Desk({ onLogout }: { onLogout: () => void }) {
         <span className="desk-label">WorldFiled Desk · v0.1</span>
       </aside>
       <main>
+        <div className="page-toolbar">
+          <button className="back-button" onClick={() => navigate(backTo)} aria-label="Go back to the previous workflow page">
+            <span aria-hidden="true">←</span> Back
+          </button>
+          <span className="page-context">{pageTitle}</span>
+        </div>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/stories" element={<StoryDesk />} />
