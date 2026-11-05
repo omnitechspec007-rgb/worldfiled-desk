@@ -99,8 +99,10 @@ export default function EditionDesk() {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const lastEv = useRef<Evaluation | null>(null);
-  const draftReady = useRef(false);
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState("");
   const draftKey = "worldfiled:edition-desk:draft:v1";
+  const workspaceSnapshot = JSON.stringify({ ids, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts });
 
   // Keep the in-progress workspace locally so refreshes do not discard work.
   // Server approvals and generated prompts are deliberately not restored.
@@ -128,11 +130,11 @@ export default function EditionDesk() {
     } catch {
       setMsg("A previous local draft could not be read. Your saved editions are unchanged.");
     }
-    draftReady.current = true;
+    setDraftHydrated(true);
   }, []);
 
   useEffect(() => {
-    if (!draftReady.current) return;
+    if (!draftHydrated) return;
     try {
       localStorage.setItem(draftKey, JSON.stringify({
         ids, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts,
@@ -141,7 +143,20 @@ export default function EditionDesk() {
     } catch {
       setMsg("Browser storage is unavailable; keep this tab open until you save the edition.");
     }
-  }, [ids, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts]);
+  }, [draftHydrated, ids, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts]);
+
+  useEffect(() => {
+    if (!draftHydrated) return;
+    const hasWorkspace = ids.length > 0 || Boolean(title.trim());
+    const dirty = hasWorkspace && workspaceSnapshot !== savedSnapshot;
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [draftHydrated, workspaceSnapshot, savedSnapshot, ids.length, title]);
 
   const loadDesk = useCallback(async () => {
     try {
@@ -180,6 +195,7 @@ export default function EditionDesk() {
   const openSet = (s: { ids: string[]; title: string; angle?: string; structure?: string }, id: string | null = null) => {
     lastEv.current = null; setPrevScore(null);
     setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setAck(false); setNotes(""); setMsg("");
+    setSavedSnapshot(JSON.stringify({ ids: s.ids, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
     setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
   const openSaved = async (id: string) => {
@@ -205,7 +221,7 @@ export default function EditionDesk() {
       const r = await post("editions", { action: "save", id: editionId ?? undefined, title, ids, angle, structure: structure || undefined });
       const d = await r.json();
       if (!r.ok) setMsg(d.detail ?? "Could not save the edition.");
-      else { setEditionId(d.id); setMsg(d.note ?? "Edition saved."); await openSavedQuiet(d.id); void loadDesk(); }
+      else { setEditionId(d.id); setSavedSnapshot(workspaceSnapshot); setMsg(d.note ?? "Edition saved."); await openSavedQuiet(d.id); void loadDesk(); }
     } catch { setMsg("Could not save the edition."); }
     setBusy(false);
   };
