@@ -149,6 +149,7 @@ export default function EditionDesk() {
     if (!draftHydrated) return;
     const hasWorkspace = ids.length > 0 || Boolean(title.trim());
     const dirty = hasWorkspace && workspaceSnapshot !== savedSnapshot;
+    window.dispatchEvent(new CustomEvent("worldfiled:edition-dirty", { detail: { dirty } }));
     const warn = (event: BeforeUnloadEvent) => {
       if (!dirty) return;
       event.preventDefault();
