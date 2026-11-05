@@ -169,10 +169,14 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
 export async function stageCluster(runId: string, config: { windowDays?: number } = {}): Promise<StageResult> {
   const days = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
-  const rows = await db<{ id: string; title: string; registry_id: string | null }[]>(
+  const retrieved = await db<{ id: string; title: string; registry_id: string | null }[]>(
     `retrieved_sources?select=id,title,registry_id&retrieved_at=gte.${since}&order=url_hash.asc&limit=1500`
   );
   const sources = await db<SourceRow[]>("source_registry?select=id,name,country_scope,category,feed_url");
+  const allowedSourceIds = new Set(
+    sources.filter((s) => !config.region || config.region === "all" || (s.country_scope ?? "").startsWith(config.region)).map((s) => s.id)
+  );
+  const rows = retrieved.filter((r) => allowedSourceIds.has(r.registry_id ?? ""));
   const reg = new Map(sources.map((s) => [s.id, s]));
   const clusters = clusterItems(rows.map((r) => ({ id: r.id, title: r.title ?? "" })));
   const byId = new Map(rows.map((r) => [r.id, r]));
