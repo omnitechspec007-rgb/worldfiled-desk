@@ -14,7 +14,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
-  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method === "GET") return await view();
     if (req.method === "POST") {
