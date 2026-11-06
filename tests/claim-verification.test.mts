@@ -13,6 +13,7 @@ const claims: any[] = [], evidence: any[] = [], decisions: any[] = [];
 const stories: any[] = [{ id: storyId, headline: "Test story", verification_status: "unverified", editorial_status: "pending" }];
 const sources: any[] = [{ id: sourceId, title: "Primary source", url: "https://example.org/report", publisher: "Example", published_at: new Date().toISOString() }];
 const links = [{ story_id: storyId, source_id: sourceId, role: "primary" }];
+let testClock = Date.now();
 const response = (x: any, status=200) => new Response(x === null ? null : JSON.stringify(x), { status });
 const filter = (rows: any[], p: URLSearchParams) => rows.filter(row => [...p.entries()].every(([k,v]) => ["select","order","on_conflict"].includes(k) || (v.startsWith("eq.") && String(row[k]) === v.slice(3))));
 globalThis.fetch = (async (input: any, init: any = {}) => {
@@ -30,7 +31,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   }
   const body = JSON.parse(init.body || "{}");
   if (method === "POST") {
-    const row = { id: crypto.randomUUID(), created_at: new Date(Date.now()+Math.random()*1000).toISOString(), ...body };
+    const row = { id: crypto.randomUUID(), created_at: new Date(++testClock).toISOString(), ...body };
     rows.push(row);
     return response(init.headers?.Prefer?.includes("return=representation") ? [row] : null, 201);
   }
