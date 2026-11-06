@@ -16,7 +16,7 @@ import type { StyleRuleIn } from "../lib/prompt-architect.mts";
 import { loadCreative } from "../lib/creative-data.mts";
 import { FORMATS, configHash, approvalState, selectFormat, type SoundOpt } from "../lib/presenter.mts";
 import { buildBlueprint } from "../lib/blueprint.mts";
-import { UUID, loadStories, memberIds, latestEditionDecision, latestDecisions, packsFor, promptValidity } from "../lib/edition-data.mts";
+import { UUID, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, packsFor, promptValidity } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -80,6 +80,8 @@ async function readiness(editionId: string) {
   const decs = await latestDecisions(ids);
   const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(decs.get(i)?.decision ?? ""));
   if (blocked.length) return { fail: json({ error: "member_blocked", detail: "A development in this edition was rejected or sent back for research.", blocked }, 409) };
+  const clearance = await editionClaimClearance(ids);
+  if (!clearance.ready) return { fail: json({ error: "verification_blocked", detail: "Prompt generation is blocked because one or more edition stories have incomplete or unresolved factual verification.", blockedClaims: clearance.blocked }, 409) };
   const loaded = await loadStories(ids);
   const missing = ids.filter((i) => !loaded.has(i));
   if (missing.length) return { fail: json({ error: "not_found", detail: "A development is no longer available.", missing }, 404) };
