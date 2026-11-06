@@ -1,6 +1,7 @@
 // Edition Prompt Architect: one integrated prompt, per-development attribution, no invented connections.
 import { buildDev, evaluateEdition, type Dev } from "../netlify/lib/editions.mts";
 import { buildEditionPrompt, evidenceHash, pickRoles, EditionPromptTooLarge } from "../netlify/lib/edition-prompt.mts";
+import { buildTextEditionPrompt } from "../netlify/lib/text-edition-prompt.mts";
 import { buildEvidencePack, type EvSource } from "../netlify/lib/evidence-pack.mts";
 import type { StoryInput } from "../netlify/lib/scoring.mts";
 
@@ -81,5 +82,13 @@ check("five developments: locator map has no routes or arrows", !/Camera: move f
 check("five developments: scenes = hook + 5 stories + recap + closing, with no separate disclaimer scene", (fp.prompt.match(/^SCENE \d+ \(/gm) ?? []).length === 8 && !/uncertain \(/i.test(fp.prompt.match(/^SCENE .*$/gm)!.join("\n")));
 check("five developments: evidence refs stay separate per development", fp.snapshot.developments.length === 5 && new Set(fp.snapshot.developments.map((d: any) => d.pack.sources[0].ref)).size === 5);
 check("no-map edition explains why and forbids decorative map", /map is NOT recommended|A map is NOT recommended/.test(buildEditionPrompt({ title: "x", members: [members()[0]], evaluation: evaluateEdition([devs[0]], { now: NOW }), deliverable: "script_storyboard", durationSeconds: 60, approvedRules: [] }).prompt));
+const textOut = buildTextEditionPrompt({ title: "Daily world briefing", members: members(), evaluation: ev, approvedRules: [] });
+check("text edition uses its own written-news format, not a video transcript", /TEXT EDITION/.test(textOut.prompt) && /LEAD STORIES/.test(textOut.prompt) && /NEWS BRIEFS/.test(textOut.prompt) && /claim register/.test(textOut.prompt));
+check("text edition preserves all developments and source evidence refs", M.every((m) => textOut.prompt.includes(m.dev.headline)) && textOut.snapshot.developments.length === M.length && /D1-S1/.test(textOut.prompt) && /D3-S1/.test(textOut.prompt));
+check("text edition includes evidence limits, single-source cautions and no-invention rules", /ONLY facts/.test(textOut.prompt) && /not independently confirmed/.test(textOut.prompt) && /Do not fill evidence gaps with memory/.test(textOut.prompt));
+check("text edition has no video runtime, storyboard or voiceover directions", !/PRODUCTION BLUEPRINT|VOICE CONFIGURATION|scene by scene|narration script/i.test(textOut.prompt));
+check("text edition uses a distinct saved-history label and immutable evidence snapshot", textOut.rationale.edition_kind === "text" && textOut.snapshot.developments.length === M.length && textOut.evidenceHash === evidenceHash(members()));
+const longVideo = buildEditionPrompt({ title: "Daily video", members: members(), evaluation: ev, deliverable: "script_storyboard", durationSeconds: 600, approvedRules: [] });
+check("10-minute video edition allocates scenes within the selected runtime", longVideo.blueprint.allocation.total <= 600 && longVideo.blueprint.scenes[0].timecode.from === 0 && longVideo.blueprint.scenes.at(-1)!.timecode.to === longVideo.blueprint.allocation.total);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
