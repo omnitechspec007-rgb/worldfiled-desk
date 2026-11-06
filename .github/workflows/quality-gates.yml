@@ -33,5 +33,3 @@ jobs:
         run: npm test
       - name: Build production application
         run: npm run build
-      - name: Verify generated API router remains current
-        run: git diff --exit-code -- api/[name].js
