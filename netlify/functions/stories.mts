@@ -41,6 +41,7 @@ function shape(story: any, withExtract: boolean) {
     category: story.category,
     region: story.region,
     editorialStatus: story.editorial_status,
+    verificationStatus: story.verification_status,
     createdAt: story.created_at,
     outlets: outlets.size,
     sourceCount: sources.length,
@@ -51,7 +52,7 @@ function shape(story: any, withExtract: boolean) {
   };
 }
 
-const FIELDS = `id,headline,category,region,created_at,editorial_status,${EMBED}`;
+const FIELDS = `id,headline,category,region,created_at,editorial_status,verification_status,${EMBED}`;
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
 async function scoresFor(ids: string[]) {
