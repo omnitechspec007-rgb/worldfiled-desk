@@ -1,7 +1,7 @@
 // Editor decision on a story: approve, reject or request more research.
 // Approval requires a deliberate acknowledgement. Every decision is saved with the editor's notes
 // and an audit event. Nothing is ever approved automatically.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 
 const json = (body: unknown, status = 200) =>
@@ -11,6 +11,7 @@ const STATUS: Record<string, string> = { approved: "approved", rejected: "reject
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   let body: any;
   try {
