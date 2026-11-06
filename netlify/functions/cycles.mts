@@ -10,7 +10,7 @@
 //   POST {action:"publish", id, acknowledgeSkippedStages?}   needs a current human approval of the linked edition
 //   POST {action:"skip", id, reason}
 // Nothing here researches, produces or publishes anything. It records the plan and tells the editor, with plain arithmetic, how the time stands.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import * as C from "../lib/cycle.mts";
 import { loadPool, memberIds, latestEditionDecision, promptValidity, UUID } from "../lib/edition-data.mts";
@@ -23,6 +23,7 @@ const ms = (s: unknown) => (typeof s === "string" ? Date.parse(s) : NaN);
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method === "GET") {
       const u = new URL(req.url);
