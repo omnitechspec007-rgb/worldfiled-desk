@@ -117,8 +117,7 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
     ctx.restore();
 
     ctx.fillStyle = index % 3 === 1 ? "#4CC9B0" : "#FFC857";
-    rounded(ctx, 48, y, 12, cardH, [6, 0, 0, 6]);
-    ctx.fill();
+    ctx.fillRect(48, y, 12, cardH);
 
     const padX = 82;
     const labelY = y + (compact ? 28 : 31);
