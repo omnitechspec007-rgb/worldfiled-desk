@@ -48,10 +48,13 @@ const ok = (s:string) => console.log("PASS "+s);
 
 assert.equal((await get(false)).status,401); assert.equal((await post({action:"add_claim",storyId,claimText:"A valid claim"},false)).status,401); ok("all verification operations require the signed editor session");
 assert.equal((await post({action:"add_claim",storyId:"bad",claimText:"A valid claim"})).status,400); ok("invalid story identifiers are rejected");
+assert.equal((await post({action:"add_claim",storyId,claimText:"x".repeat(1201)})).status,400); ok("overlong claims are rejected rather than silently truncated");
 let r=await post({action:"add_claim",storyId,claimText:"The agency announced the policy on 5 November.",category:"date"}); assert.equal(r.status,200); const claim=(await r.json()).claim; assert(claim.id); assert.equal(stories[0].verification_status,"in_progress"); ok("a material claim is stored and story status moves to in progress");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId:"33333333-3333-4333-8333-333333333333",passage:"Official text"})).status,400); ok("evidence from a source not linked to the story is rejected");
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED"})).status,400); ok("SUPPORTED is refused without an extracted passage");
 assert.equal((await post({action:"complete_story",storyId,acknowledged:true})).status,409); ok("story clearance is refused while claims remain unresolved");
+assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"x".repeat(4001)})).status,400); ok("overlong evidence passages are rejected without truncation");
+assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"Text",isContradiction:"false"})).status,400); ok("string booleans are rejected and cannot silently become contradiction flags");
 r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"}); assert.equal(r.status,200); assert.equal(evidence.length,1); ok("checked passage is attached to a source already linked to the story");
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"Confirmed against the official notice."})).status,200); ok("editor decision is appended to verification history");
 assert.equal((await post({action:"complete_story",storyId,acknowledged:false})).status,400); assert.equal(stories[0].verification_status,"in_progress"); ok("clearance requires explicit completeness acknowledgement");
