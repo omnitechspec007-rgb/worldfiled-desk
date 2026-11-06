@@ -1,7 +1,7 @@
 // Advances a run by ONE small batch, then returns. The browser calls this repeatedly.
 // Progress is saved after every call, so a timeout, closed tab or failed source never loses
 // completed work: the next call resumes from the saved state.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { STAGES, stageCluster, stageDiscover, stagePrepare, stageRank } from "../lib/pipeline.mts";
 
@@ -38,6 +38,7 @@ export const summarize = (rows: any[]) =>
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   let runId = "";
   try {
