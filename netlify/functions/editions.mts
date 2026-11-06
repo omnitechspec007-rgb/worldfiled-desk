@@ -64,6 +64,7 @@ async function savedEditions() {
     return { installed: true, editions: out };
   } catch (e) {
     if (e instanceof DbError && e.upstream === 404) return { installed: false, editions: [] };
+    if (e instanceof DbError && e.upstream === 400) return { installed: false, migrationRequired: true, editions: [] };
     throw e;
   }
 }
@@ -168,6 +169,7 @@ async function save(b: any) {
     }
   } catch (e) {
     if (e instanceof DbError && e.upstream === 404) return json({ error: "not_installed", detail: "Editions are not installed yet (migration 004). Nothing was saved." }, 409);
+    if (e instanceof DbError && e.upstream === 400) return json({ error: "migration_required", detail: "The daily edition profile fields are missing. Run migration 006 after migration 004 before saving video or text editions." }, 409);
     throw e;
   }
   await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: id ? "edition_updated" : "edition_created", entity_type: "edition", entity_id: eid, actor: "editor", detail: { edition_kind: editionKind, members: ids.length, structure, verdict: coherence.verdict, structure_override: coherence.structureOverride } } });
