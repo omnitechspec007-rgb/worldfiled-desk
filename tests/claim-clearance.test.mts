@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { assessClaimClearance } from "../netlify/lib/edition-data.mts";
+import { assessClaimClearance, assessStoryVerificationStatus } from "../netlify/lib/edition-data.mts";
 import { formatReviewerNotes, hasContradictionReconciliation } from "../netlify/lib/claim-clearance.mts";
 const storyId="11111111-1111-4111-8111-111111111111";
 const base={id:"claim-1",story_id:storyId,claim_evidence:[{passage:"A checked supporting passage",extraction_status:"extracted",is_contradiction:false},{passage:"A checked conflicting passage",extraction_status:"extracted",is_contradiction:true}],verification_results:[{id:"decision-1",outcome:"SUPPORTED",created_at:"2026-11-06T10:00:00Z",reviewer_notes:"A long but generic reviewer note that does not explain the conflicting passage in any specific way."}]};
@@ -12,4 +12,12 @@ assert.equal(assessClaimClearance([resolved],[storyId]).ready,true);
 const newerEvidence={...resolved,claim_evidence:[...resolved.claim_evidence,{passage:"Newly added supporting detail",extraction_status:"extracted",is_contradiction:false,created_at:"2026-11-06T10:01:00Z"}]};
 assert.equal(assessClaimClearance([newerEvidence],[storyId]).ready,false);
 assert.equal(assessClaimClearance([], [storyId]).ready,false);
+
+const verified = [{ id: storyId, verification_status: "verified" }];
+const inProgress = [{ id: storyId, verification_status: "in_progress" }];
+assert.equal(assessStoryVerificationStatus(verified, [storyId]).ready, true);
+assert.equal(assessStoryVerificationStatus(inProgress, [storyId]).ready, false);
+assert.match(assessStoryVerificationStatus(inProgress, [storyId]).blocked[0].reason, /not explicitly marked/);
+assert.equal(assessStoryVerificationStatus([], [storyId]).ready, false);
+assert.match(assessStoryVerificationStatus([], [storyId]).blocked[0].reason, /record is missing/);
 console.log("ALL CLAIM CLEARANCE CHECKS PASSED");
