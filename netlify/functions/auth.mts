@@ -9,7 +9,7 @@ const json = (body: Record<string, unknown>, status = 200, extra: Record<string,
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default async (req: Request) => {
-  if (req.method !== "GET" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
 
   if (!isConfigured()) {
     return json(
