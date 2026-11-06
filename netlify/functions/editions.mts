@@ -142,8 +142,8 @@ async function save(b: any) {
   const ids = Array.isArray(b.ids) ? parseIds(b.ids.map(String).join(",")) : null;
   const title = typeof b.title === "string" ? b.title.trim().slice(0, 300) : "";
   const editionKind = b.editionKind === "text" ? "text" : "video";
-  const limit = editionKind === "text" ? 18 : 8;
-  if (!ids || !title || ids.length > limit) return json({ error: "bad_request", detail: "A title and 1 to " + limit + " distinct developments are required for this edition type." }, 400);
+  const limit = editionKind === "text" ? 18 : 12;
+  if (!ids || !title || ids.length > limit) return json({ error: "bad_request", detail: "A title and 1 to " + limit + " distinct developments are required for this edition type. New video selections are capped at 8 in the editor; the API retains compatibility with older saved editions up to 12." }, 400);
   const id = typeof b.id === "string" && UUID.test(b.id) ? b.id : null;
   const angle = typeof b.angle === "string" ? b.angle.trim().slice(0, 1000) : "";
   const r = await evaluateIds(ids, typeof b.structure === "string" ? b.structure : undefined);
