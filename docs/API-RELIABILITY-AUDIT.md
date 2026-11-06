@@ -18,7 +18,7 @@ Scope: read-only review of server handlers and shared DB/session helpers on the 
 2. **Atomic edition membership updates — NOT PROVEN.** Updating an edition, deleting old membership rows, inserting new rows and writing audit events are separate requests. A mid-sequence failure may leave partial state. Move the operation to a database transaction/RPC after schema review and approval.
 3. **Atomic verification decision + story status — NOT PROVEN.** The decision insert and story status update are separate database calls. A partial failure can leave status inconsistent with decision history.
 4. **Audit-event atomicity — NOT PROVEN.** Several handlers write the business record and audit event separately. A failure between them can leave a mutation without its audit record.
-5. **CSRF and origin checks — INCOMPLETE.** SameSite=Strict is helpful, but state-changing cookie-authenticated endpoints need explicit Origin/Host validation or a CSRF token strategy and tests. Do not assume SameSite alone is a complete defence.
+5. **CSRF and origin checks — PARTIALLY IMPLEMENTED; browser validation pending.** Added a fail-closed same-origin Origin check to login/logout and all authenticated state-changing API handlers, including research-run creation and advancement. Added tests for missing, malformed, insecure, hostile and mismatched origins, and updated authenticated API fixtures to send an Origin header. SameSite=Strict remains defence-in-depth. Confirm the production host/proxy behaviour in an authenticated browser test before release.
 6. **Rate limiting — NOT IMPLEMENTED/NOT VERIFIED.** Login uses a fixed one-second delay for invalid passwords; that is not a persistent per-IP/account rate limiter. Mutation and retrieval routes also need abuse controls.
 7. **Retry policy — LIMITED.** The database helper times out and fails closed but does not implement bounded retry/backoff. Add retries only for safe reads or writes carrying durable idempotency keys; never blindly retry an ambiguous write.
 8. **Cache policy — PARTIALLY VERIFIED.** The reviewed JSON handlers set no-store. Confirm every route and CDN/proxy configuration, and add automated assertions. Do not add shared caching for authenticated data.
@@ -28,7 +28,7 @@ Scope: read-only review of server handlers and shared DB/session helpers on the 
 12. **Browser acceptance — NOT COMPLETED.** Automated tests and deployment checks do not replace an authenticated user workflow test.
 
 ## Next implementation sequence
-- Add an explicit Origin/Host validation helper and negative tests for missing, hostile and mismatched origins.
+- Complete authenticated browser validation of the new same-origin Origin checks across Netlify and Vercel routes.
 - Design persistent idempotency storage and atomic mutation RPCs. Do not improvise a serverless in-memory key cache.
 - Move edition membership replacement and decision/status/audit writes into transactions.
 - Add a complete route-level no-store test.
