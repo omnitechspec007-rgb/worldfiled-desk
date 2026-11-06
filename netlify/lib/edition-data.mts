@@ -9,7 +9,7 @@ import type { StoryInput } from "./scoring.mts";
 export const UUID = /^[0-9a-f-]{36}$/i;
 export const SCORE_WINDOW_HOURS = 72; // same windows as the research pipeline's rank stage
 export const OFFICIAL_SCORE_WINDOW_HOURS = 14 * 24;
-export const MAX_MEMBERS = 12;
+export const MAX_MEMBERS = 18;
 const EMBED = "story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(name,country_scope,reliability_note)))";
 const FIELDS = `id,headline,category,created_at,${EMBED}`;
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
