@@ -295,11 +295,15 @@ export default function EditionDesk() {
   return (
     <section>
       <h1>Edition Desk</h1>
-      <p className="meta">One integrated production prompt for a whole edition: several developments linked by a real editorial connection. {desk?.note}</p>
+      <p className="meta">Two independently curated daily products from one researched story pool. The video bulletin prioritises the strongest 6-8 stories; the text briefing can carry 12-18. Unrelated stories remain clearly labelled as a roundup. {desk?.note}</p>
       {msg && <p className={`status ${/Could not|not saved|no longer|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
       {desk && !desk.saved.installed && <div className="panel"><p className="status bad">NOT INSTALLED: saving editions needs migration 004, which has not been run yet. You can still explore suggestions and check coherence.</p></div>}
 
-      <div className="panel">\n        <h2>Daily edition profile</h2>\n        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Flagship video bulletin · target 6-8 stories · 8-12 minutes</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>\n        <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>\n      </div>\n      <div className="tabs">
+      <div className="panel">
+        <h2>Daily edition profile</h2>
+        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Flagship video bulletin · target 6-8 stories · 8-12 minutes</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
+        <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
+      </div>\n      <div className="tabs">
         {([["developments", "1. Select developments"], ["suggested", "Suggested editions (shortcut)"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!desk && !msg && <p className="meta">Loading…</p>}
