@@ -15,7 +15,7 @@ The live registry currently contains 45 source entries (38 enabled, 7 disabled).
 
 These are different facts. A publisher can own multiple outlets; multiple publishers can republish one wire story; one article can cite a primary document without independently verifying it.
 
-## Proposed future metadata (not applied)
+## Lineage metadata proposed in migration 007 (not applied)
 
 For `source_registry`:
 - `publisher_group_key` — stable normalized group identifier, nullable until verified.
@@ -29,7 +29,7 @@ For `retrieved_sources`:
 - `origin_url` — original report or primary document when known.
 - `origin_checked_at` and `origin_checked_by` — audit trail.
 
-This is a proposal only. No database migration, schema change or live data update is included in this PR.
+Migration 007 adds these nullable/defaulted fields and review constraints to this feature branch for review. It has NOT been applied to the live database. Existing records remain unverified/unknown until individually researched and backfilled.
 
 ## Classification policy
 
@@ -56,4 +56,5 @@ A story-wide source count must never automatically upgrade every claim in the st
 - Do not display an independent-source count while ownership/origin metadata is unknown.
 - Do not use `INDEPENDENTLY_CORROBORATED` for multiple publisher labels alone.
 - Do not equate RSS snippets with full-article verification.
-- Do not apply the proposed metadata until a reviewed migration is explicitly approved and a backfill plan is agreed.
+- Do not apply migration 007 to production until the migration is reviewed, tested against a disposable database and separately approved.
+- Do not bulk-fill ownership or origin fields from publisher labels or headline similarity.
