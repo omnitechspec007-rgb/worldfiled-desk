@@ -4,6 +4,7 @@ import { db, DbError } from "./db.mts";
 import { buildDev, membersKey, type Dev } from "./editions.mts";
 import { buildEvidencePack, type EvStory, type EvSource } from "./evidence-pack.mts";
 import { evidenceHash, type EditionMember } from "./edition-prompt.mts";
+import { hasContradictionReconciliation } from "./claim-clearance.mts";
 import type { StoryInput } from "./scoring.mts";
 
 export const UUID = /^[0-9a-f-]{36}$/i;
@@ -109,7 +110,7 @@ export function assessClaimClearance(rows: any[], storyIds: string[]): ClaimClea
       if (!latest) blocked.push({ storyId, claimId: claim.id, reason: "No editor decision recorded." });
       else if (latest.outcome !== "SUPPORTED") blocked.push({ storyId, claimId: claim.id, reason: "Latest decision is " + latest.outcome + "." });
       else if (!support) blocked.push({ storyId, claimId: claim.id, reason: "No extracted supporting passage." });
-      else if (contradiction && String(latest.reviewer_notes ?? "").trim().length < 40) blocked.push({ storyId, claimId: claim.id, reason: "Contradictory evidence has not been reconciled in the editor's reasoning." });
+      else if (contradiction && !hasContradictionReconciliation(latest.reviewer_notes)) blocked.push({ storyId, claimId: claim.id, reason: "Contradictory evidence needs a specific editor reconciliation rationale, not a general note." });
     }
   }
   return { ready: blocked.length === 0, blocked };
