@@ -137,6 +137,7 @@ async function generate(req: Request) {
         conflictNotes: notes.filter(Boolean), approvedRules: rules,
         creative: { voice: cr.settings.voice, toolsConfirmed: cr.settings.toolsConfirmed, lex: cr.lex, format: o.format, sound: o.sound, visual: o.visual },
       });
+  const savedDeliverable = r.ed.edition_kind === "text" ? "text_briefing" : deliverable;
   const reply = {
     structure: { key: structure, label: STRUCTURE_LABEL[structure] },
     coherence: { verdict: ev.coherence.verdict, score: ev.coherence.score },
