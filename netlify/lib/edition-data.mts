@@ -119,10 +119,30 @@ export function assessClaimClearance(rows: any[], storyIds: string[]): ClaimClea
   return { ready: blocked.length === 0, blocked };
 }
 
+/** The editor's explicit story-level completeness acknowledgement is part of clearance. */
+export function assessStoryVerificationStatus(stories: any[], storyIds: string[]): ClaimClearance {
+  const byId = new Map(stories.map((story) => [story.id, story.verification_status]));
+  const blocked = storyIds
+    .filter((storyId) => byId.get(storyId) !== "verified")
+    .map((storyId) => ({
+      storyId,
+      reason: byId.has(storyId)
+        ? "The editor has not explicitly marked this material-claim register complete."
+        : "The story record is missing; claim-register clearance cannot be confirmed.",
+    }));
+  return { ready: blocked.length === 0, blocked };
+}
+
 export async function editionClaimClearance(storyIds: string[]): Promise<ClaimClearance> {
   if (!storyIds.length) return { ready: false, blocked: [{ storyId: "", reason: "The edition has no stories." }] };
-  const rows = await db<any[]>(`claims?story_id=in.(${storyIds.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`);
-  return assessClaimClearance(rows, storyIds);
+  const [claims, stories] = await Promise.all([
+    db<any[]>(`claims?story_id=in.(${storyIds.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`),
+    db<any[]>(`stories?id=in.(${storyIds.join(",")})&select=id,verification_status`),
+  ]);
+  const claimClearance = assessClaimClearance(claims, storyIds);
+  const statusClearance = assessStoryVerificationStatus(stories, storyIds);
+  const blocked = [...statusClearance.blocked, ...claimClearance.blocked];
+  return { ready: blocked.length === 0, blocked };
 }
 
 export type Validity = { current: boolean; reasons: string[]; approvalCurrent: boolean; membersCurrent: boolean; storiesOk: boolean; evidenceCurrent: boolean | null };
