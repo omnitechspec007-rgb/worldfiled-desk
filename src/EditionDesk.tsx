@@ -297,7 +297,7 @@ export default function EditionDesk() {
       <h1>Edition Desk</h1>
       <p className="meta">Two independently curated daily products from one researched story pool. The video bulletin prioritises the strongest 6-8 stories; the text briefing can carry 12-18. Unrelated stories remain clearly labelled as a roundup. {desk?.note}</p>
       {msg && <p className={`status ${/Could not|not saved|no longer|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
-      {desk && !desk.saved.installed && <div className="panel"><p className="status bad">NOT INSTALLED: saving editions needs migration 004, which has not been run yet. You can still explore suggestions and check coherence.</p></div>}
+      {desk && !desk.saved.installed && <div className="panel"><p className="status bad">DATABASE SETUP REQUIRED: run migration 004, then migration 006, before saving and generating daily video or text editions. You can still explore suggestions and check coherence.</p></div>}
 
       <div className="panel">
         <h2>Daily edition profile</h2>
