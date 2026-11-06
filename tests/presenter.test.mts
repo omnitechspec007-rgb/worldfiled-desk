@@ -182,5 +182,7 @@ check("the blueprint is in the prompt, with the configuration actually used (not
 check("a regression fixture with the five-development edition still carries every evidence rule", /NOT independent confirmation/.test(p5) && /EDITORIAL INTERPRETATION/.test(p5) && /FUTURE POSSIBILITY/.test(p5) && five.every((m) => p5.includes(m.dev.headline)));
 check("rationale records per-scene delivery, composition, intensity and tier (for history)", out5.rationale.creative.scenes.length === out5.blueprint.scenes.length && out5.rationale.creative.scenes.every((s: any) => s.delivery && s.composition && s.intensity && s.tier));
 check("rationale stays within the database's size limit", Buffer.byteLength(JSON.stringify(out5.rationale)) < 60000);
+check("daily video runtime uses deeper story slots only for long-form editions", ri(jp, 600).min === 18 && ri(jp, 600).cap > ri(jp, 90).cap && ri(jp, 90).min === 7);
+check("long-form story capacity scales with evidence material, not a fixed social-clip cap", ri(jp, 600).cap === 85 && ri(sport, 600).cap === 65);
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
