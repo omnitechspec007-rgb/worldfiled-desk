@@ -482,9 +482,10 @@ export default function EditionDesk() {
                 <label>Prompt angle override (optional)<input type="text" value={pAngle} onChange={(e) => setPAngle(e.target.value)} maxLength={200} /></label>
                 {ids.map((id, i) => <label key={id}>Conflict note for D{i + 1} (only if you found accounts that disagree)<input type="text" value={conflicts[i] ?? ""} maxLength={600} onChange={(e) => setConflicts((c) => c.map((x, j) => (j === i ? e.target.value : x)))} /></label>)}
                 <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy}>{busy ? "CREATING…" : editionKind === "text" ? "Create text briefing prompt" : "Create video production prompt"}</button></div>
+                </>}
               </>
             )}
-            {res && (
+            {res && !(editionKind === "video" && deliverable === "static_roundup_6s") && (
               <div>
                 {res.saved ? <p className="status good">Saved to Edition Prompt History as version {res.version}.</p> : <p className="status bad">{res.note ?? "This prompt was NOT saved."}</p>}
                 {res.creative && res.creative.pronunciationCheckRequired.length > 0 && <p className="caution">PRONUNCIATION CHECK REQUIRED: {res.creative.pronunciationCheckRequired.join(", ")}. This list is also inside the prompt.</p>}
@@ -496,7 +497,6 @@ export default function EditionDesk() {
                 <p className="meta">Paste into Claude. WorldFiled Desk does not render, voice or publish anything.</p>
               </div>
             )}
-                </>}
           </>
         )}
       </div>
