@@ -60,6 +60,7 @@ export default function StoryDesk() {
       {mode === "shortlist" && !picks && !err && <div className="panel state-loading" role="status"><p className="meta">Loading the shortlist…</p></div>}
       {mode === "all" && !all && !err && <div className="panel state-loading" role="status"><p className="meta">Loading stories…</p></div>}
 
+      {mode === "shortlist" && <p className="caution">Publisher-label counts are not proof of independent corroboration. Shared ownership, syndication and common original reporting are not yet fully traced.</p>}
       {mode === "shortlist" && picks && (
         <>
           {notInstalled && <div className="panel"><p className="caution">One-time setup needed: run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click RUN RESEARCH.</p></div>}
@@ -69,7 +70,7 @@ export default function StoryDesk() {
             <div className="panel story" key={s.id}>
               <p className="rank">#{s.rank}</p>
               <h2><Link to={`/evidence/${s.id}`}>{s.headline}</Link></h2>
-              <p className="meta">{s.category ?? "Uncategorised"} · {s.regions?.join(", ")} · {s.outlets === 1 ? "single outlet" : `${s.outlets} outlets`}{s.hasPrimary ? " · includes an official source" : ""}</p>
+              <p className="meta">{s.category ?? "Uncategorised"} · {s.regions?.join(", ")} · {s.outlets === 1 ? "1 publisher label" : `${s.outlets} publisher labels`}{s.hasPrimary ? " · includes an official source" : ""}</p>
               <p className="why"><strong>Why selected:</strong> {s.reason}</p>
               {s.flags.map((f) => <p className="caution" key={f}>⚠ {f}</p>)}
               <Scores scores={s.scores} compact />
@@ -92,7 +93,7 @@ export default function StoryDesk() {
 
       {mode === "all" && all && (
         <>
-          <p className="status">Showing {shown.length} of {total} stories, in no quality order (more outlets first, then newest).</p>
+          <p className="status">Showing {shown.length} of {total} stories, in no quality order (more publisher labels first, then newest).</p>
           <div className="row">
             <label>Search<input value={q} onChange={(e) => setQ(e.target.value)} /></label>
             <label>Region<select value={region} onChange={(e) => setRegion(e.target.value)}><option value="">All</option>{regions.map((r) => <option key={r}>{r}</option>)}</select></label>
@@ -100,7 +101,7 @@ export default function StoryDesk() {
           {shown.map((s) => (
             <Link to={`/evidence/${s.id}`} key={s.id} className="panel story">
               <h2>{s.headline}</h2>
-              <p className="meta">{s.category ?? "Uncategorised"} · {s.regions.join(", ")} · {s.outlets === 1 ? "single outlet" : `${s.outlets} outlets`}</p>
+              <p className="meta">{s.category ?? "Uncategorised"} · {s.regions.join(", ")} · {s.outlets === 1 ? "1 publisher label" : `${s.outlets} publisher labels`}</p>
             </Link>
           ))}
         </>
