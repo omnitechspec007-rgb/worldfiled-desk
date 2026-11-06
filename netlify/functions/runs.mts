@@ -15,7 +15,7 @@ const COLS = "id,status,current_stage,error_summary,created_at,completed_at,conf
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
-  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
     const text = await req.text();
