@@ -105,7 +105,7 @@ export default function Architect() {
   return (
     <section>
       <h1>Prompt Architect</h1>
-      <p className="meta">Builds a story-specific production prompt for Claude from an approved story. It does not make, voice or publish any content.</p>
+      <p className="meta">Builds a story-specific production prompt for Claude from an approved story. For the daily multi-story video bulletin and written news briefing, use the <a href="/editions">Edition Desk</a>, where video and text editions have separate selections and approvals. This single-story workflow remains available for standalone coverage.</p>
       {msg && <p className="status bad">{msg}</p>}
       {stories && stories.length === 0 && <div className="panel"><p>No approved stories yet. Approve one in Editorial Review.</p></div>}
       {stories && stories.length > 0 && (

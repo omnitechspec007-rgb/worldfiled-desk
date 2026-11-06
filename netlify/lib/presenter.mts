@@ -378,7 +378,10 @@ const TIER_W: Record<Tier, number> = { OFFICIAL: 1, CORROBORATED: 0.8, SINGLE_SO
 export function runtimeItem(d: Dev, et: EvidenceTreatment, pack: EvidencePack, secs: number): RuntimeItem {
   const material = Math.min(pack.sources.length, 4);
   const weight = 0.2 + 0.4 * (d.a.curiosityScore / 100) + 0.25 * TIER_W[et.tier] + 0.15 * (material / 4);
-  return { id: d.id, weight, min: 7, cap: Math.min(secs, 12 + 9 * material) };
+  // Short social clips use compact story slots. A daily bulletin needs room for explanation,
+  // context and consequences, but only where the evidence supports it.
+  const longForm = secs >= 480;
+  return { id: d.id, weight, min: longForm ? 18 : 7, cap: Math.min(secs, longForm ? 45 + 20 * material : 12 + 9 * material) };
 }
 export function allocateRuntime(items: RuntimeItem[], secs: number, format: FormatKey, opts: { roundupRecap?: boolean } = {}): Allocation {
   const warnings: string[] = [];

@@ -24,7 +24,7 @@ type Sug = Evaluation & { key: string; excluded: { id: string; headline: string;
 type Desk = {
   note: string; developments: Dev[]; suggestions: Sug[]; weakConnections: Sug[];
   unmatched: { id: string; headline: string; recommendation: string; why: string }[]; ineligible: { id: string; headline: string; reason: string }[];
-  saved: { installed: boolean; editions: { id: string; title: string; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
+  saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
 };
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
 type CreativePreview = {
@@ -34,7 +34,7 @@ type CreativePreview = {
   scenes: { n: number; kind: string; ref: string | null; title: string; seconds: number; delivery: string; pace: string; composition: string; treatment: string; intensity: string; tier: string }[];
   pronunciationCheckRequired: { name: string; note: string }[];
 };
-type PromptResult = { creative?: { pronunciationCheckRequired: string[]; runtime: { warnings: string[] }; voiceApproval: string }; saved: boolean; notInstalled?: boolean; note?: string; id?: string; version?: number; prompt: string; roles: { role: string; why: string }[]; tools: { needed: { name: string }[]; note: string }; brandChecklist: string[] };
+type PromptResult = { creative?: { pronunciationCheckRequired: string[]; runtime: { warnings: string[] }; voiceApproval: string } | null; saved: boolean; notInstalled?: boolean; note?: string; id?: string; version?: number; prompt: string; roles: { role: string; why: string }[]; tools: { needed: { name: string }[]; note: string }; brandChecklist: string[] };
 
 const STRUCTS = [["multi_country", "Multi-country synthesis"], ["single_country", "Single-country deep dive"], ["event_roundup", "Event-driven thematic roundup"], ["news_roundup", "Multi-topic news roundup (no shared theme)"]];
 const api = "/.netlify/functions/";
@@ -71,12 +71,15 @@ export default function EditionDesk() {
   const [inspect, setInspect] = useState<string | null>(null);
   // coverage window (from the Planner): classify developments as new / update / renewed / held over / already published
   type WinCls = { cls: string; candidate: boolean; reason: string };
-  const [win, setWin] = useState("");
+  const [win, setWin] = useState("24");
   const [winInfo, setWinInfo] = useState<{ local: string; hours: number; overlaps: { label: string; minutes: number }[]; map: Record<string, WinCls> } | null>(null);
   const [cycleWin, setCycleWin] = useState<{ start: string; end: string; label: string } | null>(null);
   const [rejectedLinks, setRejectedLinks] = useState<string[]>([]);
   // workspace
   const [ids, setIds] = useState<string[]>([]);
+  const [editionKind, setEditionKind] = useState<"video" | "text">("video");
+  const [selections, setSelections] = useState<{ video: string[]; text: string[] }>({ video: [], text: [] });
+  const selectionLimit = editionKind === "video" ? 8 : 18;
   const [editionId, setEditionId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [angle, setAngle] = useState("");
@@ -88,7 +91,7 @@ export default function EditionDesk() {
   const [ack, setAck] = useState(false);
   const [notes, setNotes] = useState("");
   const [deliverable, setDeliverable] = useState("script_storyboard");
-  const [duration, setDuration] = useState(90);
+  const [duration, setDuration] = useState(600);
   const [pAngle, setPAngle] = useState("");
   const [fmt, setFmt] = useState("");
   const [sound, setSound] = useState("subtle");
@@ -102,7 +105,7 @@ export default function EditionDesk() {
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const draftKey = "worldfiled:edition-desk:draft:v1";
-  const workspaceSnapshot = JSON.stringify({ ids, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts });
+  const workspaceSnapshot = JSON.stringify({ ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts });
 
   // Keep the in-progress workspace locally so refreshes do not discard work.
   // Server approvals and generated prompts are deliberately not restored.
@@ -111,14 +114,16 @@ export default function EditionDesk() {
       const raw = localStorage.getItem(draftKey);
       if (raw) {
         const draft = JSON.parse(raw);
-        if (draft && Array.isArray(draft.ids) && draft.ids.length <= 12) {
+        if (draft && Array.isArray(draft.ids) && draft.ids.length <= 18) {
+          setEditionKind(draft.editionKind === "text" ? "text" : "video");
           setIds(draft.ids.filter((x: unknown) => typeof x === "string"));
+          setSelections({ video: Array.isArray(draft.selections?.video) ? draft.selections.video.filter((x: unknown) => typeof x === "string").slice(0, 8) : [], text: Array.isArray(draft.selections?.text) ? draft.selections.text.filter((x: unknown) => typeof x === "string").slice(0, 18) : [] });
           setTitle(typeof draft.title === "string" ? draft.title : "");
           setAngle(typeof draft.angle === "string" ? draft.angle : "");
           setStructure(typeof draft.structure === "string" ? draft.structure : "");
           setTab(["developments", "suggested", "mine"].includes(draft.tab) ? draft.tab : "developments");
           setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "script_storyboard");
-          setDuration([60, 90, 120].includes(draft.duration) ? draft.duration : 90);
+          setDuration([480, 600, 720].includes(draft.duration) ? draft.duration : 600);
           setPAngle(typeof draft.pAngle === "string" ? draft.pAngle : "");
           setFmt(typeof draft.fmt === "string" ? draft.fmt : "");
           setSound(draft.sound === "minimal" ? "minimal" : "subtle");
@@ -137,13 +142,15 @@ export default function EditionDesk() {
     if (!draftHydrated) return;
     try {
       localStorage.setItem(draftKey, JSON.stringify({
-        ids, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts,
+        ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts,
         savedAt: new Date().toISOString(),
       }));
     } catch {
       setMsg("Browser storage is unavailable; keep this tab open until you save the edition.");
     }
-  }, [draftHydrated, ids, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts]);
+  }, [draftHydrated, ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts]);
+
+  useEffect(() => { if (draftHydrated) setSelections((s) => ({ ...s, [editionKind]: ids })); }, [ids, editionKind, draftHydrated]);
 
   useEffect(() => {
     if (!draftHydrated) return;
@@ -193,10 +200,12 @@ export default function EditionDesk() {
 
   useEffect(() => { if (ev && !title.trim()) setTitle(ev.title); }, [ev, title]);
 
-  const openSet = (s: { ids: string[]; title: string; angle?: string; structure?: string }, id: string | null = null) => {
+  const openSet = (s: { ids: string[]; title: string; angle?: string; structure?: string; editionKind?: "video" | "text" }, id: string | null = null) => {
     lastEv.current = null; setPrevScore(null);
+    const kind = s.editionKind ?? editionKind;
+    setEditionKind(kind); setSelections((prev) => ({ ...prev, [kind]: s.ids }));
     setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setAck(false); setNotes(""); setMsg("");
-    setSavedSnapshot(JSON.stringify({ ids: s.ids, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
+    setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
     setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
   const openSaved = async (id: string) => {
@@ -204,22 +213,29 @@ export default function EditionDesk() {
       const r = await fetch(`${api}editions?id=${id}`);
       if (!r.ok) throw new Error();
       const d = await r.json();
-      openSet({ ids: d.ids, title: d.title, angle: d.angle, structure: d.structure }, id);
+      openSet({ ids: d.ids, title: d.title, angle: d.angle, structure: d.structure, editionKind: d.editionKind }, id);
       setApproval(d.approval);
       if (d.missing?.length) setMsg("Some developments in this edition are no longer available.");
     } catch { setMsg("Could not open that edition."); }
   };
   const move = (i: number, d: number) => setIds((a) => { const b = [...a]; const j = i + d; if (j < 0 || j >= b.length) return a; [b[i], b[j]] = [b[j], b[i]]; return b; });
   const remove = (id: string) => setIds((a) => a.filter((x) => x !== id));
-  const add = (id: string) => setIds((a) => (a.includes(id) || a.length >= 12 ? a : [...a, id]));
-  const toggle = (id: string) => setIds((a) => (a.includes(id) ? a.filter((x) => x !== id) : a.length >= 12 ? a : [...a, id]));
-  const clearSel = () => { setIds([]); setEditionId(null); setApproval(null); setRes(null); };
+  const add = (id: string) => setIds((a) => (a.includes(id) || a.length >= selectionLimit ? a : [...a, id]));
+  const toggle = (id: string) => setIds((a) => (a.includes(id) ? a.filter((x) => x !== id) : a.length >= selectionLimit ? a : [...a, id]));
+  const clearSel = () => { setIds([]); setSelections((s) => ({ ...s, [editionKind]: [] })); setEditionId(null); setApproval(null); setRes(null); };
+  const switchEditionKind = (kind: "video" | "text") => {
+    if (kind === editionKind) return;
+    setSelections((s) => ({ ...s, [editionKind]: ids }));
+    setIds(selections[kind] ?? []);
+    setEditionKind(kind);
+    setEditionId(null); setApproval(null); setRes(null); setAck(false); setTitle(""); setAngle(""); setStructure(""); setNotes(""); setConflicts([]); setPAngle(""); setFmt(""); setCpv(null); setMsg("Switched edition profile. Your other profile selection is kept separately; save and approve each edition independently.");
+  };
   const applySequence = () => ev && setIds(ev.sequence.map((s) => s.id));
 
   const save = async () => {
     setBusy(true); setMsg("");
     try {
-      const r = await post("editions", { action: "save", id: editionId ?? undefined, title, ids, angle, structure: structure || undefined });
+      const r = await post("editions", { action: "save", id: editionId ?? undefined, title, ids, editionKind, angle, structure: structure || undefined });
       const d = await r.json();
       if (!r.ok) setMsg(d.detail ?? "Could not save the edition.");
       else { setEditionId(d.id); setSavedSnapshot(workspaceSnapshot); setMsg(d.note ?? "Edition saved."); await openSavedQuiet(d.id); void loadDesk(); }
@@ -239,10 +255,10 @@ export default function EditionDesk() {
     setBusy(false);
   };
   useEffect(() => {
-    if (!editionId) { setCpv(null); return; }
+    if (!editionId || editionKind === "text") { setCpv(null); return; }
     const q = `editionId=${editionId}&durationSeconds=${duration}&format=${fmt}&sound=${sound}&visual=${visual}`;
     fetch(`${api}edition-prompt?${q}`).then(async (r) => { if (r.ok) setCpv((await r.json()).creative ?? null); else setCpv(null); }).catch(() => setCpv(null));
-  }, [editionId, duration, fmt, sound, visual, approval?.current]);
+  }, [editionId, editionKind, duration, fmt, sound, visual, approval?.current]);
   const build = async () => {
     if (!editionId) return;
     setBusy(true); setMsg(""); setCopied(false); setRes(null);
@@ -279,11 +295,15 @@ export default function EditionDesk() {
   return (
     <section>
       <h1>Edition Desk</h1>
-      <p className="meta">One integrated production prompt for a whole edition: several developments linked by a real editorial connection. {desk?.note}</p>
+      <p className="meta">Two independently curated daily products from one researched story pool. The video bulletin prioritises the strongest 6-8 stories; the text briefing can carry 12-18. Unrelated stories remain clearly labelled as a roundup. {desk?.note}</p>
       {msg && <p className={`status ${/Could not|not saved|no longer|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
-      {desk && !desk.saved.installed && <div className="panel"><p className="status bad">NOT INSTALLED: saving editions needs migration 004, which has not been run yet. You can still explore suggestions and check coherence.</p></div>}
+      {desk && !desk.saved.installed && <div className="panel"><p className="status bad">DATABASE SETUP REQUIRED: run migration 004, then migration 006, before saving and generating daily video or text editions. You can still explore suggestions and check coherence.</p></div>}
 
-      <div className="tabs">
+      <div className="panel">
+        <h2>Daily edition profile</h2>
+        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Flagship video bulletin · target 6-8 stories · 8-12 minutes</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
+        <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
+      </div>\n      <div className="tabs">
         {([["developments", "1. Select developments"], ["suggested", "Suggested editions (shortcut)"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!desk && !msg && <p className="meta">Loading…</p>}
@@ -303,10 +323,10 @@ export default function EditionDesk() {
         const list = desk.developments.filter((d) => (win && winInfo ? !!winInfo.map[d.id] || ids.includes(d.id) : (showOlder || d.fresh || ids.includes(d.id))) && (!recFilter || d.recommendation === recFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
         return (
           <div className="panel">
-            <h2>Select the developments for your edition</h2>
-            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Up to 12.</p>
+            <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "video bulletin"}</h2>
+            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Video target: 6-8 stories (maximum 8). Text target: 12-18 (maximum 18). These are editorial guides, not quotas.</p>
             <div className="confirm" style={{ position: "sticky", top: 0, zIndex: 2 }}>
-              <strong>{ids.length} selected</strong>
+              <strong>{ids.length} / {selectionLimit} selected</strong>
               <div className="actions">
                 <button className="primary" disabled={!ids.length} onClick={() => { setTab("developments"); setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 30); }}>Review selection ({ids.length}) ↓</button>
                 <button disabled={!ids.length} onClick={clearSel}>Clear selection</button>
@@ -314,9 +334,9 @@ export default function EditionDesk() {
             </div>
             <div className="row">
               <label>Coverage window<select value={win} onChange={(e) => setWin(e.target.value)}>
-                <option value="">Any recent research (default)</option>
+                <option value="">Any recent research</option>
                 {cycleWin && <option value="cycle">This edition's window ({cycleWin.label})</option>}
-                <option value="6">Last 6 hours</option><option value="12">Last 12 hours</option><option value="24">Last 24 hours</option>
+                <option value="6">Last 6 hours</option><option value="12">Last 12 hours</option><option value="24">Last 24 hours (daily edition default)</option>
               </select></label>
               <label>Search<input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="words in the headline" /></label>
               <label>Recommendation<select value={recFilter} onChange={(e) => setRecFilter(e.target.value)}><option value="">All</option>{recs.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
@@ -349,9 +369,9 @@ export default function EditionDesk() {
         <div className="panel">
           {desk.saved.editions.length === 0 ? <p>No saved editions yet.</p> : (
             <table>
-              <thead><tr><th>Edition</th><th>Structure</th><th>Coherence</th><th>Developments</th><th>Approval</th><th></th></tr></thead>
+              <thead><tr><th>Edition</th><th>Profile</th><th>Structure</th><th>Coherence</th><th>Developments</th><th>Approval</th><th></th></tr></thead>
               <tbody>{desk.saved.editions.map((e) => (
-                <tr key={e.id}><td>{e.title}</td><td>{e.structureLabel}</td><td>{e.verdict ?? "—"}{e.score !== null ? ` ${e.score}` : ""}</td><td>{e.members}</td>
+                <tr key={e.id}><td>{e.title}</td><td>{e.editionKind === "text" ? "Text briefing" : "Video bulletin"}</td><td>{e.structureLabel}</td><td>{e.verdict ?? "—"}{e.score !== null ? ` ${e.score}` : ""}</td><td>{e.members}</td>
                   <td className={e.approvalCurrent ? "ok" : "bad"}>{e.approvalCurrent ? "approved (current)" : e.decision ? `${e.decision.replace(/_/g, " ")}${e.decision === "approved" ? " (no longer current)" : ""}` : "not decided"}</td>
                   <td><button onClick={() => void openSaved(e.id)}>Open</button></td></tr>))}</tbody>
             </table>
@@ -360,7 +380,7 @@ export default function EditionDesk() {
       )}
 
       <div id="workspace" className="panel">
-        <h2>2. Review, order and build your edition ({ids.length} selected)</h2>
+        <h2>2. Review, order and build your {editionKind === "text" ? "text briefing" : "video bulletin"} ({ids.length} selected)</h2>
         {ids.length === 0 ? <p className="meta">Nothing selected yet. Tick developments in "1. Select developments", or open a suggested edition.</p> : (
           <>
             <div className="row">
@@ -422,15 +442,16 @@ export default function EditionDesk() {
               </div>
             )}
 
-            <h3>4. Build ONE Claude production prompt for the whole edition</h3>
+            <h3>4. Build the {editionKind === "text" ? "written briefing" : "video"} production prompt</h3>
             {!canBuild && <p className="meta">Available once the saved edition has a current approval.</p>}
             {canBuild && (
               <>
-                <div className="row">
+                {editionKind === "video" && <div className="row">
                   <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="script_storyboard">Script and storyboard</option><option value="animated_html">Animated HTML</option><option value="narrated_video">Narrated video</option></select></label>
-                  <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={60}>60 seconds</option><option value={90}>90 seconds</option><option value={120}>120 seconds</option></select></label>
-                </div>
-                {cpv && (
+                  <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
+                </div>}
+                {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
+                {editionKind === "video" && cpv && (
                   <div className="panel">
                     <label>Programme format<select value={fmt} onChange={(e) => setFmt(e.target.value)}><option value="">Automatic: {cpv.format.label}</option>{cpv.formats.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select></label>
                     <p className="meta">{cpv.format.label}{cpv.format.overridden ? " (your choice)" : ""}: {cpv.format.why}.</p>
@@ -451,7 +472,7 @@ export default function EditionDesk() {
                 )}
                 <label>Prompt angle override (optional)<input type="text" value={pAngle} onChange={(e) => setPAngle(e.target.value)} maxLength={200} /></label>
                 {ids.map((id, i) => <label key={id}>Conflict note for D{i + 1} (only if you found accounts that disagree)<input type="text" value={conflicts[i] ?? ""} maxLength={600} onChange={(e) => setConflicts((c) => c.map((x, j) => (j === i ? e.target.value : x)))} /></label>)}
-                <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy}>Create integrated prompt</button></div>
+                <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy}>{busy ? "CREATING…" : editionKind === "text" ? "Create text briefing prompt" : "Create video production prompt"}</button></div>
               </>
             )}
             {res && (

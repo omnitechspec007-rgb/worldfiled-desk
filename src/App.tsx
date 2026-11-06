@@ -17,8 +17,8 @@ const NAV_GROUPS = [
     { to: "/evidence", label: "Evidence Room" }, { to: "/review", label: "Editorial Review" },
   ] },
   { label: "EDITION WORKFLOW", items: [
-    { to: "/planner", label: "Planner" }, { to: "/editions", label: "Edition Desk" },
-    { to: "/creative", label: "Presenter and Voice" }, { to: "/architect", label: "Prompt Architect" },
+    { to: "/planner", label: "Planner" }, { to: "/editions", label: "Daily Editions (Video + Text)" },
+    { to: "/creative", label: "Presenter and Voice" }, { to: "/architect", label: "Single-story Prompt Architect" },
   ] },
   { label: "LIBRARY & SYSTEM", items: [
     { to: "/reference", label: "Reference Library" }, { to: "/history", label: "Prompt History" },

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
 type Item = { id: string; storyId: string; headline: string; version: number; treatment: string; createdAt: string; approvalCurrent: boolean };
-type EItem = { id: string; editionId: string; title: string; version: number; structure: string; deliverable: string; developments: number; createdAt: string; current: boolean; reasons: string[] };
-type EDetail = { id: string; version: number; title: string; prompt: string | null; withheld?: string; valid: boolean; reasons: string[] };
+type EItem = { id: string; editionId: string; title: string; editionKind?: "video" | "text"; version: number; structure: string; deliverable: string; developments: number; createdAt: string; current: boolean; reasons: string[] };
+type EDetail = { id: string; version: number; title: string; editionKind?: "video" | "text"; prompt: string | null; withheld?: string; valid: boolean; reasons: string[] };
 type Detail = { id: string; version: number; prompt: string | null; withheld?: string; approvalCurrent: boolean; treatment: string };
 
 export default function PromptHistory() {
@@ -102,16 +102,16 @@ export default function PromptHistory() {
       )}
       <h2>Edition prompts</h2>
       <p className="meta">Edition prompts are saved unchanged with the exact developments and evidence they used. A prompt can only be copied while the edition's approval, its developments and their evidence are all unchanged.</p>
-      {eMissing && <div className="panel"><p className="status bad">NOT INSTALLED: Edition Prompt History needs migration 004, which has not been run yet.</p></div>}
+      {eMissing && <div className="panel"><p className="status bad">NOT INSTALLED: Edition Prompt History needs migrations 004 and 006. Run them in order before generating daily editions.</p></div>}
       {eItems && eItems.length === 0 && !eMissing && <div className="panel"><p>No edition prompts saved yet.</p></div>}
       {eItems && eItems.length > 0 && (
         <div className="panel">
           <table>
-            <thead><tr><th>Edition</th><th>Version</th><th>Structure</th><th>Developments</th><th>Created</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Edition</th><th>Profile</th><th>Version</th><th>Structure</th><th>Developments</th><th>Created</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {eItems.map((i) => (
                 <tr key={i.id}>
-                  <td>{i.title}</td><td>v{i.version}</td><td>{i.structure.replace(/_/g, " ")}</td><td>{i.developments}</td>
+                  <td>{i.title}</td><td>{i.editionKind === "text" ? "Text briefing" : "Video bulletin"}</td><td>v{i.version}</td><td>{i.structure.replace(/_/g, " ")}</td><td>{i.developments}</td>
                   <td>{new Date(i.createdAt).toLocaleString()}</td>
                   <td className={i.current ? "ok" : "bad"}>{i.current ? "current" : "may be invalid"}</td>
                   <td><button onClick={() => void viewEdition(i.id)}>Open</button></td>
@@ -123,7 +123,7 @@ export default function PromptHistory() {
       )}
       {eOpen && (
         <div className="panel">
-          <h2>{eOpen.title} · version {eOpen.version}</h2>
+          <h2>{eOpen.title} · {eOpen.editionKind === "text" ? "Text briefing" : "Video bulletin"} · version {eOpen.version}</h2>
           {eOpen.prompt ? (
             <>
               <textarea readOnly value={eOpen.prompt} rows={16} />
