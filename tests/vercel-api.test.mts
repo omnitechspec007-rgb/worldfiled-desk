@@ -35,8 +35,8 @@ ok(`all ${names.length - 2} protected routes refuse requests without a session`)
 assert.equal((await call("/api/nope")).status, 404); assert.equal((await call("/api/__proto__")).status, 404); assert.equal((await call("/api/constructor")).status, 404); ok("unknown routes (including prototype names) return 404");
 const q = await call("/api/cycles?preview=1"); assert.equal(q.status, 401); ok("query strings reach the handler");
 const auth = { fetch: (r: Request) => router.fetch(new Request("https://x/api/auth", { method: r.method, headers: r.headers, body: r.body, ...(r.method !== "GET" ? { duplex: "half" } : {}) } as any)) };
-const bad = await auth.fetch(new Request("https://x/", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "login", passphrase: "wrong" }) })); assert.equal(bad.status, 401);
-const good = await auth.fetch(new Request("https://x/", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "login", passphrase: "blue lantern river 42" }) }));
+const bad = await auth.fetch(new Request("https://x/", { method: "POST", headers: { origin: "https://x", "content-type": "application/json" }, body: JSON.stringify({ action: "login", passphrase: "wrong" }) })); assert.equal(bad.status, 401);
+const good = await auth.fetch(new Request("https://x/", { method: "POST", headers: { origin: "https://x", "content-type": "application/json" }, body: JSON.stringify({ action: "login", passphrase: "blue lantern river 42" }) }));
 assert.equal(good.status, 200); const cookie = good.headers.get("set-cookie")!.split(";")[0]; assert(/HttpOnly/.test(good.headers.get("set-cookie")!));
 assert.equal((await (await auth.fetch(new Request("https://x/", { headers: { cookie } }))).json()).authenticated, true); ok("sign-in works through the Vercel entry point (wrong passphrase refused, right one sets the HttpOnly cookie)");
 console.log("\nAll Vercel hosting checks passed");
