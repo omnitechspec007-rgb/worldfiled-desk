@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import StaticRoundupBuilder from "./StaticRoundupBuilder";
 
 type Loc = { country: string; basis: string };
 type Dev = {
@@ -79,7 +80,7 @@ export default function EditionDesk() {
   const [ids, setIds] = useState<string[]>([]);
   const [editionKind, setEditionKind] = useState<"video" | "text">("video");
   const [selections, setSelections] = useState<{ video: string[]; text: string[] }>({ video: [], text: [] });
-  const selectionLimit = editionKind === "video" ? 8 : 18;
+  const selectionLimit = editionKind === "video" ? 10 : 18;
   const [editionId, setEditionId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [angle, setAngle] = useState("");
@@ -117,7 +118,7 @@ export default function EditionDesk() {
         if (draft && Array.isArray(draft.ids) && draft.ids.length <= 18) {
           setEditionKind(draft.editionKind === "text" ? "text" : "video");
           setIds(draft.ids.filter((x: unknown) => typeof x === "string"));
-          setSelections({ video: Array.isArray(draft.selections?.video) ? draft.selections.video.filter((x: unknown) => typeof x === "string").slice(0, 8) : [], text: Array.isArray(draft.selections?.text) ? draft.selections.text.filter((x: unknown) => typeof x === "string").slice(0, 18) : [] });
+          setSelections({ video: Array.isArray(draft.selections?.video) ? draft.selections.video.filter((x: unknown) => typeof x === "string").slice(0, 10) : [], text: Array.isArray(draft.selections?.text) ? draft.selections.text.filter((x: unknown) => typeof x === "string").slice(0, 18) : [] });
           setTitle(typeof draft.title === "string" ? draft.title : "");
           setAngle(typeof draft.angle === "string" ? draft.angle : "");
           setStructure(typeof draft.structure === "string" ? draft.structure : "");
@@ -292,16 +293,20 @@ export default function EditionDesk() {
   );
 
   const canBuild = !!editionId && !!approval?.current;
+  const roundupStories = ids.map((id) => {
+    const d = devs.find((x) => x.id === id) ?? devById(id);
+    return d ? { id: d.id, headline: d.headline, summary: d.whatChanged || d.whyInteresting[0] || "Consult the linked source material for the verified details.", location: d.locations.map((x) => x.country).join(", "), source: d.sources[0]?.outlet ?? "" } : null;
+  }).filter((x): x is NonNullable<typeof x> => !!x);
   return (
     <section>
       <h1>Edition Desk</h1>
-      <p className="meta">Two independently curated daily products from one researched story pool. The video bulletin prioritises the strongest 6-8 stories; the text briefing can carry 12-18. Unrelated stories remain clearly labelled as a roundup. {desk?.note}</p>
+      <p className="meta">Two independently curated daily products from one researched story pool. The six-second video is one static, text-led international news poster; the written briefing remains a separate product. {desk?.note}</p>
       {msg && <p className={`status ${/Could not|not saved|no longer|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
       {desk && !desk.saved.installed && <div className="panel"><p className="status bad">DATABASE SETUP REQUIRED: run migration 004, then migration 006, before saving and generating daily video or text editions. You can still explore suggestions and check coherence.</p></div>}
 
       <div className="panel">
         <h2>Daily edition profile</h2>
-        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Flagship video bulletin · target 6-8 stories · 8-12 minutes</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
+        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Static news roundup · 8-10 stories · 6 seconds</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
         <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
       </div>\n      <div className="tabs">
         {([["developments", "1. Select developments"], ["suggested", "Suggested editions (shortcut)"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
@@ -323,8 +328,8 @@ export default function EditionDesk() {
         const list = desk.developments.filter((d) => (win && winInfo ? !!winInfo.map[d.id] || ids.includes(d.id) : (showOlder || d.fresh || ids.includes(d.id))) && (!recFilter || d.recommendation === recFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
         return (
           <div className="panel">
-            <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "video bulletin"}</h2>
-            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Video target: 6-8 stories (maximum 8). Text target: 12-18 (maximum 18). These are editorial guides, not quotas.</p>
+            <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "static news roundup"}</h2>
+            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Static video target: 8-10 stories (maximum 10). Text target: 12-18 (maximum 18). These are editorial guides, not quotas.</p>
             <div className="confirm" style={{ position: "sticky", top: 0, zIndex: 2 }}>
               <strong>{ids.length} / {selectionLimit} selected</strong>
               <div className="actions">
@@ -447,11 +452,15 @@ export default function EditionDesk() {
             {canBuild && (
               <>
                 {editionKind === "video" && <div className="row">
-                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="script_storyboard">Script and storyboard</option><option value="animated_html">Animated HTML</option><option value="narrated_video">Narrated video</option></select></label>
+                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="static_roundup_6s">Static text-led news roundup · 6 seconds</option><option value="script_storyboard">Script and storyboard (legacy)</option><option value="animated_html">Animated HTML (legacy)</option><option value="narrated_video">Narrated video (legacy)</option></select></label>
                   <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
                 </div>}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
-                {editionKind === "video" && cpv && (
+                {editionKind === "video" && deliverable === "static_roundup_6s" && (
+                  <StaticRoundupBuilder title={title} stories={roundupStories} />
+                )}
+                {!(editionKind === "video" && deliverable === "static_roundup_6s") && <>
+                {editionKind === "video" && deliverable !== "static_roundup_6s" && cpv && (
                   <div className="panel">
                     <label>Programme format<select value={fmt} onChange={(e) => setFmt(e.target.value)}><option value="">Automatic: {cpv.format.label}</option>{cpv.formats.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select></label>
                     <p className="meta">{cpv.format.label}{cpv.format.overridden ? " (your choice)" : ""}: {cpv.format.why}.</p>
@@ -487,6 +496,7 @@ export default function EditionDesk() {
                 <p className="meta">Paste into Claude. WorldFiled Desk does not render, voice or publish anything.</p>
               </div>
             )}
+                </>}
           </>
         )}
       </div>
