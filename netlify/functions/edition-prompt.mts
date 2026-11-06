@@ -159,12 +159,12 @@ async function generate(req: Request) {
       method: "POST", prefer: "return=representation",
       body: {
         edition_id: editionId, edition_kind: r.ed.edition_kind ?? "video", version, parent_id: parentId, members: r.ids, members_hash: membersKey(r.ids), evidence_hash: out.evidenceHash,
-        structure, title: r.ed.title, deliverable, roles: out.roles, rationale: out.rationale, coherence: { score: ev.coherence.score, verdict: ev.coherence.verdict, components: ev.coherence.components },
+        structure, title: r.ed.title, deliverable: savedDeliverable, roles: out.roles, rationale: out.rationale, coherence: { score: ev.coherence.score, verdict: ev.coherence.verdict, components: ev.coherence.components },
         tools: out.tools, evidence_snapshot: out.snapshot, style_rule_ids: [], brand_spec_version: BRAND_VERSION, prompt_text: out.prompt, created_by: "editor",
       },
     });
     const saved = Array.isArray(rows) ? rows[0] : rows;
-    await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: "edition_prompt_created", entity_type: "edition", entity_id: editionId, actor: "editor", detail: { version, edition_kind: r.ed.edition_kind ?? "video", structure, deliverable, developments: r.ids.length, prompt_id: saved?.id ?? null, approved_style_rules: rules.length, rules_installed: rulesInstalled } } });
+    await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: "edition_prompt_created", entity_type: "edition", entity_id: editionId, actor: "editor", detail: { version, edition_kind: r.ed.edition_kind ?? "video", structure, deliverable: savedDeliverable, developments: r.ids.length, prompt_id: saved?.id ?? null, approved_style_rules: rules.length, rules_installed: rulesInstalled } } });
     return json({ ...reply, saved: true, id: saved?.id ?? null, version });
   } catch (e) {
     if (e instanceof DbError && e.upstream === 400) return json({ error: "refused_by_database", detail: "The database refused this record (an approval is no longer current, the members changed, or a size limit was exceeded). Nothing was saved." }, 409);
