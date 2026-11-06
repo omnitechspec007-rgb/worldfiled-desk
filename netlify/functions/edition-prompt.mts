@@ -128,14 +128,14 @@ async function generate(req: Request) {
   const evaluation = evaluateEdition(members.map((m) => m.dev), { conflictNotes: notes.filter(Boolean), now: Date.now(), structure });
   const ev = evaluation;
   const { rules, installed: rulesInstalled } = await approvedRules();
-  const cr = await loadCreative(); const o = opts(b);
+  const cr = r.ed.edition_kind === "text" ? null : await loadCreative(); const o = opts(b);
   const out = r.ed.edition_kind === "text"
     ? buildTextEditionPrompt({ title: r.ed.title, members, evaluation, angle: typeof b.angle === "string" && b.angle.trim() ? b.angle : r.ed.narrative_angle ?? "", conflictNotes: notes.filter(Boolean), approvedRules: rules })
     : buildEditionPrompt({
         title: r.ed.title, members, evaluation, deliverable, durationSeconds: duration,
         angle: typeof b.angle === "string" && b.angle.trim() ? b.angle : r.ed.narrative_angle ?? "",
         conflictNotes: notes.filter(Boolean), approvedRules: rules,
-        creative: { voice: cr.settings.voice, toolsConfirmed: cr.settings.toolsConfirmed, lex: cr.lex, format: o.format, sound: o.sound, visual: o.visual },
+        creative: { voice: cr!.settings.voice, toolsConfirmed: cr!.settings.toolsConfirmed, lex: cr!.lex, format: o.format, sound: o.sound, visual: o.visual },
       });
   const savedDeliverable = r.ed.edition_kind === "text" ? "text_briefing" : deliverable;
   const reply = {
@@ -144,7 +144,7 @@ async function generate(req: Request) {
     roles: out.roles, rationale: out.rationale, tools: out.tools,
     evidenceClasses: members.map((m, i) => ({ ref: `D${i + 1}`, ...classCounts(m.pack) })),
     brandChecklist: brandChecklist(), brandVersion: BRAND_VERSION, prompt: out.prompt,
-    creative: r.ed.edition_kind === "text" ? null : { format: (out as any).format, runtime: (out.rationale as any).creative.runtime, voiceApproval: approvalState(cr.settings.voice), pronunciationCheckRequired: (out.rationale as any).creative.pronunciation_check_required, voiceConfigured: cr.configured },
+    creative: r.ed.edition_kind === "text" ? null : { format: (out as any).format, runtime: (out.rationale as any).creative.runtime, voiceApproval: approvalState(cr!.settings.voice), pronunciationCheckRequired: (out.rationale as any).creative.pronunciation_check_required, voiceConfigured: cr!.configured },
   };
   let version = 1;
   try {
