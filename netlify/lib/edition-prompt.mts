@@ -24,7 +24,7 @@ export type EditionPromptInput = {
   members: EditionMember[]; // already in the approved story order
   evaluation: Evaluation;
   deliverable: Deliverable;
-  durationSeconds: 480 | 600 | 720;
+  durationSeconds: 60 | 90 | 120 | 480 | 600 | 720;
   angle?: string;
   conflictNotes?: string[];
   approvedRules: StyleRuleIn[];
