@@ -91,6 +91,18 @@ async function readiness(editionId: string) {
 async function preview(editionId: string, req: Request) {
   const r = await readiness(editionId);
   if ("fail" in r) return r.fail;
+  const requestUrl = new URL(req.url);
+  if (requestUrl.searchParams.get("deliverable") === "static_roundup_6s") {
+    return json({
+      editionId,
+      editionKind: r.ed.edition_kind ?? "video",
+      deliverable: "static_roundup_6s",
+      exportReady: r.ed.edition_kind !== "text",
+      approval: { decision: r.dec.decision, membersHash: r.dec.members_hash, current: true },
+      factualClearance: { ready: true, stories: r.ids.length },
+      note: "Server-side preflight passed: this exact saved edition has current human approval and current factual clearance. This is an export preflight, not a public publishing action."
+    });
+  }
   const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now(), structure: r.ed.structure as Structure });
   const members = packsFor(r.ids, r.loaded);
   if (r.ed.edition_kind === "text") return json({ editionId, editionKind: "text", title: r.ed.title, structure: r.ed.structure, structureLabel: STRUCTURE_LABEL[r.ed.structure as Structure], developments: members.map((m, i) => ({ ref: "D" + (i + 1), headline: m.dev.headline, sources: m.pack.sources.length, omitted: m.pack.omitted_sources.count, classes: classCounts(m.pack) })), textBriefing: { targetWords: "1500-2200", targetReadMinutes: "5-8", targetStories: "12-18", note: "Editorial targets, never quotas. Use fewer stories or words when the evidence does not support more." }, deliverables: [{ key: "text_briefing", label: "Written daily news briefing" }], maxPromptChars: MAX_EDITION_PROMPT_CHARS });
