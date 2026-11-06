@@ -10,7 +10,7 @@ const required = [
   "AI-SLOP / LOW-QUALITY OUTPUT DEFENCE",
   "MANIPULATION, PROPAGANDA AND CONFLICT-OF-INTEREST DEFENCE",
   "Multiple outlets, reposts",
-  "Synthetic, illustrative and test-fixture data explicitly",
+  "Mark generated, synthetic, illustrative and test-fixture data explicitly.",
   "Human factual clearance and human editorial approval are separate",
   "Corrections must preserve the prior published version",
   "FINAL SELF-AUDIT",
