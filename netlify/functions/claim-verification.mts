@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
+import { formatReviewerNotes, hasContradictionReconciliation } from "../lib/claim-clearance.mts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -56,7 +57,8 @@ export default async (req: Request) => {
     }
 
     if (b.action === "decide_claim") {
-      const claimId = clean(b.claimId, 36), outcome = clean(b.outcome, 40), notes = clean(b.notes, 1500);
+      const claimId = clean(b.claimId, 36), outcome = clean(b.outcome, 40), notes = clean(b.notes, 400);
+      const contradictionResolution = clean(b.contradictionResolution, 1000);
       if (!UUID.test(claimId) || !OUTCOMES.includes(outcome)) return json({ error: "bad_decision" }, 400);
       const claim = await db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id`);
       if (!claim[0]) return json({ error: "claim_not_found" }, 404);
@@ -65,23 +67,24 @@ export default async (req: Request) => {
       const supportingEvidence = extracted.some((e:any) => !e.is_contradiction);
       const contradictoryEvidence = extracted.some((e:any) => e.is_contradiction);
       if (!supportingEvidence && outcome === "SUPPORTED") return json({ error: "supported_claim_requires_checked_passage" }, 400);
-      if (contradictoryEvidence && outcome === "SUPPORTED" && notes.length < 40) return json({ error: "contradiction_review_required", detail: "This claim has evidence marked as contradictory. Record at least 40 characters explaining how you reconciled that evidence before marking the claim supported." }, 409);
-      const result = await db<any[]>(`verification_results?select=id,claim_id,outcome,determined_by,reviewer_notes,created_at`, { method: "POST", body: { claim_id: claimId, outcome, determined_by: "editor", reviewer_notes: notes || null }, prefer: "return=representation" });
+      if (contradictoryEvidence && outcome === "SUPPORTED" && contradictionResolution.length < 80) return json({ error: "contradiction_review_required", detail: "This claim has contradictory evidence. Explain specifically why the supporting evidence is still persuasive, or why the conflicting passage does not overturn the claim (at least 80 characters)." }, 409);
+      const reviewerNotes = contradictoryEvidence && outcome === "SUPPORTED" ? formatReviewerNotes(contradictionResolution, notes) : notes || null;
+      const result = await db<any[]>(`verification_results?select=id,claim_id,outcome,determined_by,reviewer_notes,created_at`, { method: "POST", body: { claim_id: claimId, outcome, determined_by: "editor", reviewer_notes: reviewerNotes }, prefer: "return=representation" });
       await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: outcome === "CONTRADICTED" ? "failed" : "in_progress", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
       return json({ result: result[0], note: "Decision recorded in the verification history. Story-level clearance remains a separate step." });
     }
 
     if (b.action === "complete_story") {
       if (b.acknowledged !== true) return json({ error: "acknowledgement_required" }, 400);
-      const claims = await db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_evidence(id,passage,extraction_status),verification_results(outcome,created_at)`);
+      const claims = await db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_evidence(id,passage,extraction_status,is_contradiction),verification_results(id,outcome,reviewer_notes,created_at)`);
       if (!claims.length) return json({ error: "no_material_claims_recorded" }, 400);
-      const latest = (items: any[]) => [...(items ?? [])].sort((a,b)=>String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))[0];
+      const latest = (items: any[]) => [...(items ?? [])].sort((a,b)=>String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? "")))[0];
       const unresolved = claims.filter(c => {
         const decision = latest(c.verification_results ?? []);
         const extracted = (c.claim_evidence ?? []).filter((e:any)=>e.passage && e.extraction_status === "extracted");
         const hasSupportingPassage = extracted.some((e:any)=>!e.is_contradiction);
         const hasContradiction = extracted.some((e:any)=>e.is_contradiction);
-        const contradictionReconciled = !hasContradiction || String(decision?.reviewer_notes ?? "").trim().length >= 40;
+        const contradictionReconciled = !hasContradiction || hasContradictionReconciliation(decision?.reviewer_notes);
         return !decision || decision.outcome !== "SUPPORTED" || !hasSupportingPassage || !contradictionReconciled;
       });
       if (unresolved.length) return json({ error: "claims_unresolved", unresolvedCount: unresolved.length, note: "Every recorded material claim needs an editor decision of SUPPORTED and at least one extracted evidence passage. Contradicted or incomplete claims block clearance." }, 409);
