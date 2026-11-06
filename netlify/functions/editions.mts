@@ -9,7 +9,7 @@
 import { isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { evaluateEdition, suggestEditions, membersKey, STRUCTURE_LABEL, type Structure, type Dev } from "../lib/editions.mts";
-import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
+import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -194,6 +194,8 @@ async function decide(b: any) {
     const memberDecs = await latestDecisions(ids);
     const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(memberDecs.get(i)?.decision ?? ""));
     if (blocked.length) return json({ error: "member_blocked", detail: "A development in this edition was rejected or sent back for research. Remove it or re-approve it first.", blocked }, 409);
+    const clearance = await editionClaimClearance(ids);
+    if (!clearance.ready) return json({ error: "verification_blocked", detail: "Every story in an edition must have a complete claim register, checked supporting passages and current supported editor decisions before edition approval.", blockedClaims: clearance.blocked }, 409);
   }
   try {
     await db("edition_decisions", { method: "POST", prefer: "return=minimal", body: { edition_id: id, decision, decided_by: "editor", notes: notes || null } });
