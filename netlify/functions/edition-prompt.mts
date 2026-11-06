@@ -4,7 +4,7 @@
 //   GET  ?history=1       saved edition prompts (no text) with validity
 //   GET  ?id=ID           one saved prompt; the text is withheld if it is no longer valid (history is kept)
 // Gates: this function checks approval, member list, member decisions; the database trigger checks them again at insert time.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { buildEditionPrompt, EditionPromptTooLarge, MAX_EDITION_PROMPT_CHARS } from "../lib/edition-prompt.mts";
 import { buildTextEditionPrompt } from "../lib/text-edition-prompt.mts";
@@ -48,6 +48,7 @@ async function approvedRules(): Promise<{ rules: StyleRuleIn[]; installed: boole
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     const u = new URL(req.url);
     if (req.method === "GET") {
