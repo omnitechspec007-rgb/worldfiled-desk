@@ -193,6 +193,16 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
   const updateCard = (id: string, key: "headline" | "summary", value: string) => {
     setCards((current) => current.map((c) => c.id === id ? { ...c, [key]: value } : c));
   };
+  const moveCard = (index: number, direction: -1 | 1) => {
+    setCards((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+  const removeCard = (id: string) => setCards((current) => current.filter((card) => card.id !== id));
 
   const downloadPoster = () => {
     const canvas = canvasRef.current;
@@ -299,10 +309,17 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
 
       <div className="panel">
         <h3>Story cards ({cards.length})</h3>
-        <p className="meta">Edit every headline and supporting line. Keep each one factual and short; the preview will show the actual final layout. Source names are included where available.</p>
+        <p className="meta">Edit, reorder or remove stories. Keep each one factual and short; the preview shows the actual final layout. Source names are included where available. A shorter edition is acceptable when fewer stories merit inclusion.</p>
         {cards.map((card, index) => (
           <div className="roundup-card-editor" key={card.id}>
-            <p className="rank">STORY {String(index + 1).padStart(2, "0")} {card.location ? "· " + card.location : ""}</p>
+            <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
+              <p className="rank">STORY {String(index + 1).padStart(2, "0")} {card.location ? "· " + card.location : ""}</p>
+              <div className="actions">
+                <button type="button" disabled={index === 0} onClick={() => moveCard(index, -1)} aria-label={`Move story ${index + 1} up`}>↑</button>
+                <button type="button" disabled={index === cards.length - 1} onClick={() => moveCard(index, 1)} aria-label={`Move story ${index + 1} down`}>↓</button>
+                <button type="button" onClick={() => removeCard(card.id)} aria-label={`Remove story ${index + 1}`}>Remove</button>
+              </div>
+            </div>
             <label>Headline<input value={card.headline} maxLength={150} onChange={(e) => updateCard(card.id, "headline", e.target.value)} /></label>
             <label>Supporting text<textarea value={card.summary} maxLength={190} rows={2} onChange={(e) => updateCard(card.id, "summary", e.target.value)} /></label>
             <p className="meta">{card.source ? "Source: " + card.source : "No source label available; verify the evidence in the edition before export."}</p>
