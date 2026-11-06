@@ -16,7 +16,7 @@ alter table edition_prompts add constraint edition_prompts_edition_kind_check ch
 alter table edition_developments drop constraint if exists edition_developments_position_check;
 alter table edition_developments add constraint edition_developments_position_check check (position between 1 and 18);
 
-do $
+do $migration$
 declare c record;
 begin
   for c in
@@ -27,7 +27,7 @@ begin
   loop
     execute format('alter table edition_prompts drop constraint %I', c.conname);
   end loop;
-end $;
+end $migration$;
 alter table edition_prompts add constraint edition_prompts_members_limit_check
   check (jsonb_typeof(members) = 'array' and jsonb_array_length(members) between 1 and 18);
 
