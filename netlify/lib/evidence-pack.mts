@@ -64,6 +64,7 @@ export const CLASS_MEANING: Record<ClaimClass, string> = {
 
 export const EVIDENCE_LIMITS =
   "Only headlines and short feed snippets (at most 400 characters) were retrieved; full articles were NOT read. " +
+  "Publisher labels are not an ownership or editorial-independence map; shared ownership, syndication, wire services and original reporting chains are not fully traced. " +
   "The app does not extract individual claims, trace original sources or detect conflicts automatically. " +
   "Classes below apply to what the headline and snippet state, not to the full reporting.";
 
