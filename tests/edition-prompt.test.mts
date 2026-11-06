@@ -40,6 +40,16 @@ check("every development headline is attributed in the evidence section", devs.e
 check("connection presented as inferred, not verified; no coordination claim", /not verified/.test(p) && /coordinated/.test(p) && /EDITORIAL INTERPRETATION/.test(p));
 check("hypothesis label on the curiosity mechanism", /EDITORIAL HYPOTHESIS/.test(p) && /never overrides the evidence/.test(p));
 check("shared-origin rule included (outlets repeating one report are not independent)", /NOT independent confirmation/.test(p));
+const multiOutletPack = buildEvidencePack({ headline: "A regional development changes cross-border transport rules", category: "Public policy", sources: [
+  { outlet: "Northstar News", region: "Europe", tier: "reporting", url: "https://northstar.example/a", title: "Regional transport authority changes cross-border permit rules", summary: "Officials say new permit requirements will begin next month for freight operators." , publishedAt: ago(2), retrievedAt: ago(1) },
+  { outlet: "Continental Ledger", region: "Europe", tier: "reporting", url: "https://ledger.example/a", title: "Freight operators face revised border documentation", summary: "A separate report says carriers must submit updated documents under the regional transport policy.", publishedAt: ago(2), retrievedAt: ago(1) }
+] });
+check("multiple publisher labels are never automatically called independently corroborated", multiOutletPack.claim_classes.some((x) => x.class === "MULTI_OUTLET_REPORTED" && /NOT a finding of independent reporting/.test(x.basis)) && !multiOutletPack.claim_classes.some((x) => (x.class as string) === "INDEPENDENTLY_CORROBORATED"));
+const samePublisherPack = buildEvidencePack({ headline: "One publisher has two regional feed entries", category: "Public policy", sources: [
+  { outlet: "BBC News", region: "Europe", tier: "reporting", url: "https://bbc.example/a", title: "Regional authority changes transport rules", summary: "New permit rules apply to freight operators.", publishedAt: ago(2), retrievedAt: ago(1) },
+  { outlet: "bbc news ", region: "Africa", tier: "reporting", url: "https://bbc.example/b", title: "Transport authority updates border permits", summary: "Carriers will need new documents under the revised rules.", publishedAt: ago(2), retrievedAt: ago(1) }
+] });
+check("publisher labels differing only by case or whitespace count as one outlet", samePublisherPack.claim_classes.some((x) => x.class === "SINGLE_SOURCE" && /reported only by BBC News/.test(x.statement)));
 check("all evidence classes defined, FUTURE POSSIBILITY separated", /OFFICIALLY_DOCUMENTED/.test(p) && /FUTURE POSSIBILITY/.test(p));
 check("roles chosen for this edition, fact-checker last word", out.roles.length >= 4 && out.roles.length <= 8 && /fact-checker has the last word/.test(p) && out.roles.some((r) => /international/.test(r.role)));
 check("roles are selected, not a fixed list (single country differs)", pickRoles(members().slice(0, 1), evaluateEdition([devs[0]], { now: NOW }), "script_storyboard").some((r) => /Senior news correspondent/.test(r.role)));
