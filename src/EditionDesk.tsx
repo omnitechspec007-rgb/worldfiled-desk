@@ -442,11 +442,12 @@ export default function EditionDesk() {
             {!canBuild && <p className="meta">Available once the saved edition has a current approval.</p>}
             {canBuild && (
               <>
-                <div className="row">
+                {editionKind === "video" && <div className="row">
                   <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="script_storyboard">Script and storyboard</option><option value="animated_html">Animated HTML</option><option value="narrated_video">Narrated video</option></select></label>
-                  <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={60}>60 seconds</option><option value={90}>90 seconds</option><option value={120}>120 seconds</option></select></label>
-                </div>
-                {cpv && (
+                  <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
+                </div>}
+                {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
+                {editionKind === "video" && cpv && (
                   <div className="panel">
                     <label>Programme format<select value={fmt} onChange={(e) => setFmt(e.target.value)}><option value="">Automatic: {cpv.format.label}</option>{cpv.formats.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select></label>
                     <p className="meta">{cpv.format.label}{cpv.format.overridden ? " (your choice)" : ""}: {cpv.format.why}.</p>
