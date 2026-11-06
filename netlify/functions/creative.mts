@@ -5,7 +5,7 @@
 //   GET  ?id=ID                 one saved prompt; the text is withheld if its approval is no longer current
 // Two independent approval gates: this function checks the newest human decision, and the database
 // trigger on creative_prompts checks it again at insert time.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { buildEvidencePack, classCounts, PackTooLarge, type EvStory } from "../lib/evidence-pack.mts";
 import { recommendTreatment, getTreatment, TREATMENTS } from "../lib/treatments.mts";
@@ -66,6 +66,7 @@ function curiosityOf(scoringInput: StoryInput) {
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     const url = new URL(req.url);
     if (req.method === "GET") {
