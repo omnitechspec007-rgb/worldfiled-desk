@@ -61,8 +61,11 @@ export default async (req: Request) => {
       const claim = await db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id`);
       if (!claim[0]) return json({ error: "claim_not_found" }, 404);
       const evidence = await db<any[]>(`claim_evidence?claim_id=eq.${claimId}&select=id,passage,extraction_status,is_contradiction`);
-      const qualifyingEvidence = evidence.some((e:any) => e.passage && e.extraction_status === "extracted");
-      if (!qualifyingEvidence && outcome === "SUPPORTED") return json({ error: "supported_claim_requires_checked_passage" }, 400);
+      const extracted = evidence.filter((e:any) => e.passage && e.extraction_status === "extracted");
+      const supportingEvidence = extracted.some((e:any) => !e.is_contradiction);
+      const contradictoryEvidence = extracted.some((e:any) => e.is_contradiction);
+      if (!supportingEvidence && outcome === "SUPPORTED") return json({ error: "supported_claim_requires_checked_passage" }, 400);
+      if (contradictoryEvidence && outcome === "SUPPORTED" && notes.length < 40) return json({ error: "contradiction_review_required", detail: "This claim has evidence marked as contradictory. Record at least 40 characters explaining how you reconciled that evidence before marking the claim supported." }, 409);
       const result = await db<any[]>(`verification_results?select=id,claim_id,outcome,determined_by,reviewer_notes,created_at`, { method: "POST", body: { claim_id: claimId, outcome, determined_by: "editor", reviewer_notes: notes || null }, prefer: "return=representation" });
       await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: outcome === "CONTRADICTED" ? "failed" : "in_progress", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
       return json({ result: result[0], note: "Decision recorded in the verification history. Story-level clearance remains a separate step." });
@@ -75,8 +78,11 @@ export default async (req: Request) => {
       const latest = (items: any[]) => [...(items ?? [])].sort((a,b)=>String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))[0];
       const unresolved = claims.filter(c => {
         const decision = latest(c.verification_results ?? []);
-        const hasPassage = (c.claim_evidence ?? []).some((e:any)=>e.passage && e.extraction_status === "extracted");
-        return !decision || decision.outcome !== "SUPPORTED" || !hasPassage;
+        const extracted = (c.claim_evidence ?? []).filter((e:any)=>e.passage && e.extraction_status === "extracted");
+        const hasSupportingPassage = extracted.some((e:any)=>!e.is_contradiction);
+        const hasContradiction = extracted.some((e:any)=>e.is_contradiction);
+        const contradictionReconciled = !hasContradiction || String(decision?.reviewer_notes ?? "").trim().length >= 40;
+        return !decision || decision.outcome !== "SUPPORTED" || !hasSupportingPassage || !contradictionReconciled;
       });
       if (unresolved.length) return json({ error: "claims_unresolved", unresolvedCount: unresolved.length, note: "Every recorded material claim needs an editor decision of SUPPORTED and at least one extracted evidence passage. Contradicted or incomplete claims block clearance." }, 409);
       await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: "verified", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
