@@ -170,6 +170,7 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
   const [imageUrl, setImageUrl] = useState("");
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [rendering, setRendering] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [notice, setNotice] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileUrlRef = useRef<string | null>(null);
@@ -189,6 +190,16 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
   }, [editionTitle, date, cards, image]);
 
   useEffect(() => () => { if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current); }, []);
+
+  const compactLayout = cards.length > 8;
+  const textFitWarnings = cards.flatMap((card, index) => {
+    const headlineLimit = compactLayout ? 64 : 92;
+    const summaryLimit = compactLayout ? 92 : 150;
+    const warnings: string[] = [];
+    if (card.headline.trim().length > headlineLimit) warnings.push(`Story ${index + 1}: headline may be shortened in the poster preview.`);
+    if (card.summary.trim().length > summaryLimit) warnings.push(`Story ${index + 1}: supporting text may be shortened in the poster preview.`);
+    return warnings;
+  });
 
   const updateCard = (id: string, key: "headline" | "summary", value: string) => {
     setCards((current) => current.map((c) => c.id === id ? { ...c, [key]: value } : c));
@@ -232,9 +243,8 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
     let audio: AudioContext | null = null;
     try {
       const videoStream = canvas.captureStream(30);
-      audio = new AudioContext();
-      const destination = audio.createMediaStreamDestination();
-      const tracks = [...videoStream.getVideoTracks(), ...destination.stream.getAudioTracks()];
+      const destination = soundEnabled ? (audio = new AudioContext()).createMediaStreamDestination() : null;
+      const tracks = [...videoStream.getVideoTracks(), ...(destination ? destination.stream.getAudioTracks() : [])];
       const stream = new MediaStream(tracks);
       const chunks: BlobPart[] = [];
       const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 5_000_000, audioBitsPerSecond: 96_000 });
@@ -243,10 +253,10 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
         recorder.onerror = () => reject(new Error("The browser video recorder failed."));
         recorder.onstop = () => resolve(new Blob(chunks, { type: mime }));
       });
-      await audio.resume();
+      if (audio && destination) await audio.resume();
       recorder.start(250);
 
-      // A quiet two-note editorial signature; no music bed or narration.
+      // Optional quiet two-note editorial signature; no music bed or narration.
       const playNote = (frequency: number, start: number, length: number) => {
         const oscillator = audio!.createOscillator();
         const gain = audio!.createGain();
@@ -256,13 +266,16 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
         gain.gain.exponentialRampToValueAtTime(0.012, start + 0.025);
         gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
         oscillator.connect(gain);
+        if (!destination) return;
         gain.connect(destination);
         oscillator.start(start);
         oscillator.stop(start + length + 0.02);
       };
-      const startAt = audio.currentTime + 0.08;
-      playNote(660, startAt, 0.12);
-      playNote(880, startAt + 0.2, 0.16);
+      if (audio && soundEnabled) {
+        const startAt = audio.currentTime + 0.08;
+        playNote(660, startAt, 0.12);
+        playNote(880, startAt + 0.2, 0.16);
+      }
       await new Promise((resolve) => window.setTimeout(resolve, DURATION_MS));
       recorder.stop();
       const blob = await finished;
@@ -272,7 +285,7 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
       a.download = "the-world-filed-six-second-roundup.webm";
       a.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      setNotice("Six-second video exported as WebM with a subtle two-note sound signature. The visual remains still throughout.");
+      setNotice(soundEnabled ? "Six-second video exported as WebM with the subtle two-note sound signature. The visual remains still throughout." : "Six-second silent WebM exported. The visual remains still throughout.");
       tracks.forEach((track) => track.stop());
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not export the video.");
@@ -302,6 +315,8 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
         }} /></label>
       </div>
 
+      <label className="inline"><input type="checkbox" checked={soundEnabled} onChange={(e) => setSoundEnabled(e.target.checked)} /> Include subtle two-note sound effect (no music or narration)</label>
+
       <div className="roundup-preview">
         <div className="roundup-preview-head"><strong>LIVE COMPOSITION PREVIEW</strong><span>9:16 · 1080 × 1920</span></div>
         <canvas ref={canvasRef} aria-label="Static six-second news roundup preview" />
@@ -310,6 +325,7 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
       <div className="panel">
         <h3>Story cards ({cards.length})</h3>
         <p className="meta">Edit, reorder or remove stories. Keep each one factual and short; the preview shows the actual final layout. Source names are included where available. A shorter edition is acceptable when fewer stories merit inclusion.</p>
+        {textFitWarnings.length > 0 && <p className="caution">Review text fit before export: {textFitWarnings.join(" ")}</p>}
         {cards.map((card, index) => (
           <div className="roundup-card-editor" key={card.id}>
             <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
@@ -331,7 +347,7 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
         <button onClick={downloadPoster}>Download static poster (PNG)</button>
         <button className="primary" disabled={rendering || cards.length === 0} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
       </div>
-      <p className="meta">Export currently uses WebM, which is supported by modern Chrome and Edge. MP4 conversion is not performed in this browser-only release. The poster is the same single frame used for all six seconds.</p>
+      <p className="meta">Export currently uses WebM, supported by modern Chrome and Edge. MP4 conversion is not included in this browser-only release. The poster is the same single frame used for all six seconds. Check the exported file before uploading it to a platform.</p>
     </div>
   );
 }
