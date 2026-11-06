@@ -156,7 +156,7 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
     );
   } else if (allReportingOutlets.size === 1) {
     const only = reporting[0];
-    add(`The event described by the headline is reported only by ${[...allReportingOutlets][0]}.`, "SINGLE_SOURCE", "One outlet in the retrieved material. No second outlet retrieved.", only ? [only.ref] : []);
+    add(`The event described by the headline is reported only by ${reporting[0]?.outlet || "Unknown"}.`, "SINGLE_SOURCE", "One outlet in the retrieved material. No second outlet retrieved.", only ? [only.ref] : []);
   }
   for (const r of reporting) {
     add(`${r.outlet} states: "${r.title}"`, "SINGLE_SOURCE", "Details in this headline and snippet are attributed to this outlet alone unless another source below states the same.", [r.ref]);
