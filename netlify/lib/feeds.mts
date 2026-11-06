@@ -94,7 +94,26 @@ export type FeedResult =
   | { status: "degraded"; items: []; error: string; http: number }
   | { status: "failing"; items: []; error: string; http: number };
 
-const stripHtml = (s: string) => s.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+// RSS/Atom feeds are inconsistent: some publishers encode text fields as XML objects
+// rather than plain strings. Normalize them before any string operation so one unusual item
+// cannot crash the entire discovery stage.
+export function feedText(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(feedText).filter(Boolean).join(" ");
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of ["_", "#text", "value", "text", "content", "href", "url"]) {
+      if (record[key] !== undefined && record[key] !== value) {
+        const text = feedText(record[key]);
+        if (text) return text;
+      }
+    }
+  }
+  return "";
+}
+
+export const stripHtml = (value: unknown) =>
+  feedText(value).replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\\s+/g, " ").trim();
 
 export async function fetchFeed(feedUrl: string, windowDays = 3, maxItems = 12, now = Date.now()): Promise<FeedResult> {
   const got = await safeFetch(feedUrl);
@@ -115,7 +134,7 @@ export async function fetchFeed(feedUrl: string, windowDays = 3, maxItems = 12, 
   const items: Item[] = [];
   let skippedOld = 0;
   for (const it of feed.items) {
-    const link = (it.link ?? "").trim();
+    const link = feedText(it.link).trim();
     const title = stripHtml(it.title ?? "").slice(0, 300);
     if (!link || !title) continue;
     let url: string;
@@ -124,13 +143,13 @@ export async function fetchFeed(feedUrl: string, windowDays = 3, maxItems = 12, 
     } catch {
       continue;
     }
-    const t = Date.parse(it.isoDate ?? it.pubDate ?? "");
+    const t = Date.parse(feedText(it.isoDate ?? it.pubDate));
     const publishedAt = Number.isFinite(t) && t <= now + 86_400_000 ? new Date(t).toISOString() : null;
     if (publishedAt && Date.parse(publishedAt) < cutoff) {
       skippedOld++;
       continue;
     }
-    const summary = stripHtml(String(it.contentSnippet ?? it.summary ?? it.content ?? "")).slice(0, 400) || null;
+    const summary = stripHtml(it.contentSnippet ?? it.summary ?? it.content ?? "").slice(0, 400) || null;
     items.push({ url, title, summary, publishedAt });
   }
   items.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));

@@ -95,7 +95,7 @@ export default function PlannerPage() {
       <h1>Planner</h1>
       <p className="meta">Plans which news an edition covers and when the work must be done. It does not research, produce or publish anything. Now: {p.nowLocal}. Coverage time and production time are separate.</p>
       {msg && <p className={`status ${/Could not|Not saved|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
-      {!p.installed && <div className="panel"><p className="status bad">NOT INSTALLED: saving plans needs migration 005, which has not been run yet. You can still adjust the schedule and preview coverage windows.</p></div>}
+      {!p.installed && <div className="panel"><p className="status bad">Planner storage is unavailable to this app session. The required tables may be missing or inaccessible; schedule preview remains available, but nothing can be saved until access is restored.</p></div>}
       {p.installed && p.missedSlots.length > 0 && <div className="panel"><p className="caution">Scheduled editions with no plan since the last published edition: {p.missedSlots.map((m) => `${m.label} (${m.local})`).join("; ")}. The next continuous edition will cover that period, so nothing is lost.</p></div>}
 
       {c ? (

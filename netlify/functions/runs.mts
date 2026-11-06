@@ -11,7 +11,7 @@ const json = (body: unknown, status = 200) =>
   });
 
 const KEY_RE = /^[A-Za-z0-9_-]{8,64}$/;
-const COLS = "id,status,current_stage,error_summary,created_at,completed_at";
+const COLS = "id,status,current_stage,error_summary,created_at,completed_at,config";
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
@@ -28,6 +28,9 @@ export default async (req: Request) => {
     if (typeof body.idempotencyKey !== "string" || !KEY_RE.test(body.idempotencyKey)) {
       return json({ error: "bad_idempotency_key" }, 400);
     }
+    const allowedRegions = ["Africa", "Asia", "Europe", "Latin America", "Middle East", "North America", "Oceania"];
+    const windowDays = [1, 3, 7, 14].includes(Number(body.windowDays)) ? Number(body.windowDays) : 3;
+    const region = body.region === "all" || allowedRegions.includes(body.region) ? body.region : "all";
 
     const same = await db<any[]>(`research_runs?idempotency_key=eq.${body.idempotencyKey}&select=${COLS}`);
     if (same[0]) return json({ run: same[0], resumed: true });
@@ -41,7 +44,7 @@ export default async (req: Request) => {
     await db("research_runs?on_conflict=idempotency_key", {
       method: "POST",
       prefer: "resolution=ignore-duplicates,return=minimal",
-      body: { idempotency_key: body.idempotencyKey, config: { mode: "automatic" } },
+      body: { idempotency_key: body.idempotencyKey, config: { mode: "automatic", windowDays, region } },
     });
     const rows = await db<any[]>(`research_runs?idempotency_key=eq.${body.idempotencyKey}&select=${COLS}`);
     if (!rows[0]) return json({ error: "not_saved" }, 502);

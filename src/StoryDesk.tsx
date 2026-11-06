@@ -56,7 +56,9 @@ export default function StoryDesk() {
         <button className={mode === "shortlist" ? "tab on" : "tab"} onClick={() => setMode("shortlist")}>Shortlist</button>
         <button className={mode === "all" ? "tab on" : "tab"} onClick={() => setMode("all")}>All stories</button>
       </div>
-      {err && <p className="status bad">{err}</p>}
+      {err && <div className="panel state-error" role="alert"><p className="status bad">{err}</p><button onClick={() => window.location.reload()}>Try again</button></div>}
+      {mode === "shortlist" && !picks && !err && <div className="panel state-loading" role="status"><p className="meta">Loading the shortlist…</p></div>}
+      {mode === "all" && !all && !err && <div className="panel state-loading" role="status"><p className="meta">Loading stories…</p></div>}
 
       {mode === "shortlist" && picks && (
         <>

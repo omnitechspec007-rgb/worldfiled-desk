@@ -67,6 +67,15 @@ export const SEED_SOURCES: Seed[] = [
   { name: "RNZ World", publisher: "Radio New Zealand", scope: "Oceania · New Zealand", category: I, feed: "https://www.rnz.co.nz/rss/world.xml", site: "https://www.rnz.co.nz", tier: "reporting" },
   { name: "RNZ Pacific", publisher: "Radio New Zealand", scope: "Oceania · Pacific Islands", category: I, feed: "https://www.rnz.co.nz/rss/pacific.xml", site: "https://www.rnz.co.nz/international/pacific-news", tier: "reporting" },
   { name: "The Conversation (Australia)", publisher: "The Conversation", scope: "Oceania · Australia", category: S, feed: "https://theconversation.com/au/articles.atom", site: "https://theconversation.com/au", tier: "reporting" },
+  // BBC regional editions add geographic coverage. These feeds share one publisher identity,
+  // so they must never be counted as independent outlets from one another.
+  { name: "BBC News Africa", publisher: "BBC News", scope: "Africa · Regional", category: I, feed: "https://feeds.bbci.co.uk/news/world/africa/rss.xml", site: "https://www.bbc.com/news/world/africa", tier: "reporting" },
+  { name: "BBC News Asia", publisher: "BBC News", scope: "Asia · Regional", category: I, feed: "https://feeds.bbci.co.uk/news/world/asia/rss.xml", site: "https://www.bbc.com/news/world/asia", tier: "reporting" },
+  { name: "BBC News Europe", publisher: "BBC News", scope: "Europe · Regional", category: I, feed: "https://feeds.bbci.co.uk/news/world/europe/rss.xml", site: "https://www.bbc.com/news/world/europe", tier: "reporting" },
+  { name: "BBC News Latin America", publisher: "BBC News", scope: "Latin America · Regional", category: I, feed: "https://feeds.bbci.co.uk/news/world/latin_america/rss.xml", site: "https://www.bbc.com/news/world/latin_america", tier: "reporting" },
+  { name: "BBC News Middle East", publisher: "BBC News", scope: "Middle East · Regional", category: I, feed: "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml", site: "https://www.bbc.com/news/world/middle_east", tier: "reporting" },
+  { name: "BBC News North America", publisher: "BBC News", scope: "North America · US and Canada", category: I, feed: "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml", site: "https://www.bbc.com/news/world/us_and_canada", tier: "reporting" },
+  { name: "BBC News Australia", publisher: "BBC News", scope: "Oceania · Australia", category: I, feed: "https://feeds.bbci.co.uk/news/world/australia/rss.xml", site: "https://www.bbc.com/news/world/australia", tier: "reporting" },
   // North America (US and UK entries are intentionally few)
   { name: "CBC Top Stories", publisher: "Canadian Broadcasting Corporation", scope: "North America · Canada", category: G, feed: "https://www.cbc.ca/webfeed/rss/rss-topstories", site: "https://www.cbc.ca/news", tier: "reporting" },
   { name: "NASA News", publisher: "NASA", scope: "North America · United States", category: S, feed: "https://www.nasa.gov/feed/", site: "https://www.nasa.gov/news", tier: "primary" },

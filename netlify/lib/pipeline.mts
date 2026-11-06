@@ -7,7 +7,7 @@
 // required for any stage here.
 import { db } from "./db.mts";
 import { SEED_SOURCES } from "./seed-sources.mts";
-import { fetchFeed, urlHash } from "./feeds.mts";
+import { fetchFeed, feedText, urlHash } from "./feeds.mts";
 import { clusterItems } from "./cluster.mts";
 import { MODEL_VERSION, buildShortlist, scoreStory, type StoryInput } from "./scoring.mts";
 
@@ -16,12 +16,11 @@ export type StageName = (typeof STAGES)[number];
 
 export const BATCH_SIZE = 6;
 const WINDOW_DAYS = 3;
-const OFFICIAL_WINDOW_DAYS = 14;
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
 type StageResult = { done: boolean; detail: Record<string, any> };
 
-type SourceRow = { id: string; name: string; country_scope: string | null; category: string | null; feed_url: string | null; reliability_note?: string | null };
+type SourceRow = { id: string; name: string; country_scope: string | null; category: string | null; feed_url: unknown; reliability_note?: string | null };
 
 export async function stagePrepare(): Promise<StageResult> {
   // Built-in list is the source of truth. Existing rows keep their recorded health, unless the
@@ -54,7 +53,8 @@ export async function stagePrepare(): Promise<StageResult> {
   let changed = 0;
   for (const s of SEED_SOURCES) {
     const e = byName.get(s.name);
-    if (e && e.feed_url !== s.feed) {
+    if (!e) continue;
+    if (e.feed_url !== s.feed) {
       await db(`source_registry?name=eq.${encodeURIComponent(s.name)}`, {
         method: "PATCH",
         prefer: "return=minimal",
@@ -77,26 +77,56 @@ export async function stagePrepare(): Promise<StageResult> {
   return { done: true, detail: { builtIn: SEED_SOURCES.length, added: fresh.length, updated: changed, retired } };
 }
 
-export async function stageDiscover(prev: Record<string, any>): Promise<StageResult> {
+export async function stageDiscover(prev: Record<string, any>, config: { windowDays?: number; region?: string } = {}): Promise<StageResult> {
   const sources = await db<SourceRow[]>(
     "source_registry?select=id,name,country_scope,category,feed_url,reliability_note&feed_url=not.is.null&retrieval_status=neq.disabled&order=name.asc"
   );
+  const scopedSources = config.region && config.region !== "all"
+    ? sources.filter((s) => (s.country_scope ?? "").startsWith(config.region!))
+    : sources;
   const results: Record<string, any> = prev.results ?? {};
-  const pending = sources.filter((s) => !(s.id in results));
+  const pending = scopedSources.filter((s) => !(s.id in results));
   const batch = pending.slice(0, BATCH_SIZE);
 
   await Promise.all(
     batch.map(async (s) => {
       const now = new Date().toISOString();
       // Official/primary sources publish less often, so they get a longer freshness window.
-      const windowDays = /tier:primary/.test(s.reliability_note ?? "") ? OFFICIAL_WINDOW_DAYS : WINDOW_DAYS;
-      const r = await fetchFeed(s.feed_url!, windowDays);
+      const windowDays = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
+      const feedAddress = feedText(s.feed_url).trim();
+      let r: Awaited<ReturnType<typeof fetchFeed>> | { status: "failing"; items: []; error: string; http: number };
+      try {
+        r = feedAddress ? await fetchFeed(feedAddress, windowDays) : { status: "failing", items: [], error: "feed URL is missing or is not a valid text value", http: 0 };
+      } catch (cause: any) {
+        // Isolate unexpected feed/parser errors, but let database write failures fail the stage.
+        // Preserve the source's enabled setting so a transient parser issue can be retried.
+        const error = String(cause?.message ?? cause ?? "unexpected feed error").slice(0, 240);
+        await db(`source_registry?id=eq.${s.id}`, {
+          method: "PATCH",
+          prefer: "return=minimal",
+          body: { retrieval_status: "failing", last_checked_at: now, last_error: error },
+        });
+        results[s.id] = { name: s.name, status: "failing", items: 0, newItems: 0, refreshedItems: 0, error };
+        return;
+      }
       if (r.status === "healthy" && r.items.length > 0) {
+        // Count genuinely new URLs separately from records refreshed on this run.
+        const itemsToSave = [...new Map(r.items.map((it) => [urlHash(it.url), it])).values()];
+        const hashes = itemsToSave.map((it) => urlHash(it.url));
+        const existingRows = await db<{ url_hash: string }[]>(
+          `retrieved_sources?select=url_hash&url_hash=in.(${hashes.join(",")})`
+        );
+        const existingHashes = new Set(existingRows.map((row) => row.url_hash));
+        const refreshedItems = hashes.filter((hash) => existingHashes.has(hash)).length;
+        const newItems = hashes.length - refreshedItems;
         // Save items first; only report success if the write succeeded.
         await db("retrieved_sources?on_conflict=url_hash", {
           method: "POST",
-          prefer: "resolution=ignore-duplicates,return=minimal",
-          body: r.items.map((it) => ({
+          // Refresh previously seen feed items as well as inserting new ones. Ignoring
+          // duplicate URLs left retrieved_at stale, which made repeat runs appear unchanged
+          // and excluded still-current items from the rolling discovery window.
+          prefer: "resolution=merge-duplicates,return=minimal",
+          body: itemsToSave.map((it) => ({
             registry_id: s.id,
             url: it.url,
             url_hash: urlHash(it.url),
@@ -114,7 +144,7 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
           prefer: "return=minimal",
           body: { retrieval_status: "healthy", enabled: true, last_checked_at: now, last_success_at: now, last_error: null },
         });
-        results[s.id] = { name: s.name, status: "healthy", items: r.items.length, skippedOld: r.skippedOld };
+        results[s.id] = { name: s.name, status: "healthy", items: itemsToSave.length, newItems, refreshedItems, skippedOld: r.skippedOld };
       } else {
         const status = r.status === "healthy" ? "degraded" : r.status;
         const error = r.status === "healthy" ? `no items within the freshness window (${r.skippedOld} older items skipped)` : r.error;
@@ -123,12 +153,12 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
           prefer: "return=minimal",
           body: { retrieval_status: status, enabled: false, last_checked_at: now, last_error: error },
         });
-        results[s.id] = { name: s.name, status, items: 0, error };
+        results[s.id] = { name: s.name, status, items: 0, newItems: 0, refreshedItems: 0, error };
       }
     })
   );
 
-  const total = sources.length;
+  const total = scopedSources.length;
   const finished = Object.keys(results).length;
   const done = finished >= total;
   const list = Object.values(results);
@@ -145,16 +175,23 @@ export async function stageDiscover(prev: Record<string, any>): Promise<StageRes
       healthy,
       problems: finished - healthy,
       items: list.reduce((n: number, x: any) => n + (x.items ?? 0), 0),
+      newItems: list.reduce((n: number, x: any) => n + (x.newItems ?? 0), 0),
+      refreshedItems: list.reduce((n: number, x: any) => n + (x.refreshedItems ?? 0), 0),
     },
   };
 }
 
-export async function stageCluster(runId: string): Promise<StageResult> {
-  const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
-  const rows = await db<{ id: string; title: string; registry_id: string | null }[]>(
+export async function stageCluster(runId: string, config: { windowDays?: number } = {}): Promise<StageResult> {
+  const days = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const retrieved = await db<{ id: string; title: string; registry_id: string | null }[]>(
     `retrieved_sources?select=id,title,registry_id&retrieved_at=gte.${since}&order=url_hash.asc&limit=1500`
   );
   const sources = await db<SourceRow[]>("source_registry?select=id,name,country_scope,category,feed_url");
+  const allowedSourceIds = new Set(
+    sources.filter((s) => !config.region || config.region === "all" || (s.country_scope ?? "").startsWith(config.region)).map((s) => s.id)
+  );
+  const rows = retrieved.filter((r) => allowedSourceIds.has(r.registry_id ?? ""));
   const reg = new Map(sources.map((s) => [s.id, s]));
   const clusters = clusterItems(rows.map((r) => ({ id: r.id, title: r.title ?? "" })));
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -225,7 +262,7 @@ export async function stageCluster(runId: string): Promise<StageResult> {
 const SCORE_WINDOW_HOURS = 72;
 const OFFICIAL_SCORE_WINDOW_HOURS = 14 * 24;
 
-export async function stageRank(runId: string): Promise<StageResult> {
+export async function stageRank(runId: string, config: { windowDays?: number; region?: string } = {}): Promise<StageResult> {
   try {
     await db("shortlist?select=id&limit=1");
     await db("story_scores?select=id&limit=1");
@@ -233,7 +270,7 @@ export async function stageRank(runId: string): Promise<StageResult> {
     throw new Error("The scoring tables are not installed. Run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click Resume.");
   }
   const rows = await db<any[]>(
-    "stories?select=id,headline,category,created_at,story_source_links(retrieved_sources(title,published_at,retrieved_at,extract,source_registry(name,country_scope,reliability_note)))&order=created_at.desc&limit=300"
+    "stories?select=id,headline,category,created_at,story_source_links(retrieved_sources(title,published_at,retrieved_at,extract,source_registry(name,publisher,country_scope,reliability_note)))&order=created_at.desc&limit=300"
   );
   const now = Date.now();
   const inputs: StoryInput[] = rows.map((r) => ({
@@ -244,8 +281,9 @@ export async function stageRank(runId: string): Promise<StageResult> {
     sources: (r.story_source_links ?? [])
       .map((l: any) => l.retrieved_sources)
       .filter(Boolean)
+      .filter((s: any) => !config.region || config.region === "all" || (s.source_registry?.country_scope ?? "").startsWith(config.region))
       .map((s: any) => ({
-        outlet: s.source_registry?.name ?? "Unknown",
+        outlet: s.source_registry?.publisher ?? s.source_registry?.name ?? "Unknown",
         region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
         tier: /tier:primary/.test(s.source_registry?.reliability_note ?? "") ? "primary" : "reporting",
         publishedAt: s.published_at,
@@ -259,7 +297,8 @@ export async function stageRank(runId: string): Promise<StageResult> {
     .map((x) => scoreStory(x, now))
     .filter((s) => {
       const ageH = s.newest ? (now - s.newest) / 3_600_000 : Infinity;
-      return ageH <= SCORE_WINDOW_HOURS || (s.hasPrimary && ageH <= OFFICIAL_SCORE_WINDOW_HOURS);
+      const selectedHours = ([1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : 3) * 24;
+      return ageH <= selectedHours;
     });
 
   const scoreRows = scored.flatMap((s) =>

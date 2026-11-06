@@ -1,0 +1,25 @@
+/* Phase 1A: grouped navigation and shared page context */
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group + .nav-group { margin-top: 12px; }
+.nav-group-label { color: rgba(247,244,237,.52); font-size: .68rem; letter-spacing: .12em; font-weight: 700; padding: 8px 12px 4px; }
+.page-toolbar { display: flex; align-items: center; gap: 14px; min-height: 42px; margin: 0 0 22px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.back-button { border: 1px solid var(--line); padding: 6px 11px; font-size: .85rem; }
+.back-button span { margin-right: 5px; }
+.page-context { font-size: .78rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; opacity: .65; }
+@media (min-width: 761px) { .sidebar nav { gap: 8px; } }
+@media (max-width: 760px) {
+  .sidebar { gap: 12px; }
+  .sidebar nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+  .nav-group { min-width: 0; }
+  .nav-group-label { padding-left: 8px; }
+  nav a { padding: 7px 8px; font-size: .82rem; overflow-wrap: anywhere; }
+  .page-toolbar { margin-bottom: 16px; }
+  main { min-width: 0; }
+  .panel { padding: 16px; overflow-wrap: anywhere; }
+  table { display: block; overflow-x: auto; white-space: normal; }
+}
+@media (min-width: 761px) and (max-width: 1050px) {
+  .shell { grid-template-columns: 220px minmax(0, 1fr); }
+  .sidebar { padding: 24px 16px; }
+  main { padding: 28px 24px; }
+}

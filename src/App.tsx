@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import Dashboard from "./Dashboard";
 import StoryDesk from "./StoryDesk";
 import EvidenceRoom from "./EvidenceRoom";
@@ -11,18 +11,19 @@ import EditionDesk from "./EditionDesk";
 import Planner from "./Planner";
 import CreativeSetup from "./CreativeSetup";
 
-const NAV = [
-  { to: "/", label: "Dashboard" },
-  { to: "/stories", label: "Story Desk" },
-  { to: "/evidence", label: "Evidence Room" },
-  { to: "/review", label: "Editorial Review" },
-  { to: "/planner", label: "Planner" },
-  { to: "/editions", label: "Edition Desk" },
-  { to: "/creative", label: "Presenter and Voice" },
-  { to: "/architect", label: "Prompt Architect" },
-  { to: "/reference", label: "Reference Library" },
-  { to: "/history", label: "Prompt History" },
-  { to: "/health", label: "System Health" },
+const NAV_GROUPS = [
+  { label: "RESEARCH", items: [
+    { to: "/", label: "Dashboard" }, { to: "/stories", label: "Story Desk" },
+    { to: "/evidence", label: "Evidence Room" }, { to: "/review", label: "Editorial Review" },
+  ] },
+  { label: "EDITION WORKFLOW", items: [
+    { to: "/planner", label: "Planner" }, { to: "/editions", label: "Edition Desk" },
+    { to: "/creative", label: "Presenter and Voice" }, { to: "/architect", label: "Prompt Architect" },
+  ] },
+  { label: "LIBRARY & SYSTEM", items: [
+    { to: "/reference", label: "Reference Library" }, { to: "/history", label: "Prompt History" },
+    { to: "/health", label: "System Health" },
+  ] },
 ];
 
 type Health =
@@ -203,25 +204,67 @@ export default function App() {
 }
 
 function Desk({ onLogout }: { onLogout: () => void }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const titles: Record<string, string> = {
+    "/": "Dashboard", "/stories": "Story Desk", "/evidence": "Evidence Room",
+    "/review": "Editorial Review", "/planner": "Planner", "/editions": "Edition Desk",
+    "/creative": "Presenter and Voice", "/architect": "Prompt Architect",
+    "/reference": "Reference Library", "/history": "Prompt History", "/health": "System Health",
+  };
+  const parent: Record<string, string> = {
+    "/stories": "/", "/evidence": "/stories", "/review": "/stories", "/planner": "/",
+    "/editions": "/planner", "/creative": "/editions", "/architect": "/editions",
+    "/reference": "/", "/history": "/architect", "/health": "/",
+  };
+  const [editionDirty, setEditionDirty] = useState(false);
+  useEffect(() => {
+    const update = (event: Event) => setEditionDirty(Boolean((event as CustomEvent<{ dirty?: boolean }>).detail?.dirty));
+    window.addEventListener("worldfiled:edition-dirty", update);
+    return () => window.removeEventListener("worldfiled:edition-dirty", update);
+  }, []);
+  const confirmLeave = () => !editionDirty || window.confirm("You have unsaved Edition Desk changes. Your draft is saved in this browser, but your changes are not yet saved to your account. Leave this page?");
+  const from = (location.state as { from?: string } | null)?.from;
+  const backTo = from && from !== location.pathname && titles[from] ? from : parent[location.pathname] ?? "/";
+  const pageTitle = titles[location.pathname] ?? (location.pathname.startsWith("/evidence/") ? "Evidence Room" : "WorldFiled Desk");
   return (
-    <div className="shell">
+    <div className="shell" onClickCapture={(event) => {
+      if (!editionDirty) return;
+      const target = event.target as HTMLElement;
+      const link = target.closest("a[href^='/']") as HTMLAnchorElement | null;
+      if (link && !link.target && !link.hasAttribute("download") && !confirmLeave()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }}>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-name">The World, Filed.</span>
           <span className="brand-tag">What happened. What changed. What matters.</span>
         </div>
-        <nav>
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
-              {n.label}
-            </NavLink>
+        <nav aria-label="Main navigation">
+          {NAV_GROUPS.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <span className="nav-group-label">{group.label}</span>
+              {group.items.map((n) => (
+                <NavLink key={n.to} to={n.to} state={{ from: location.pathname }} end={n.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
+                  {n.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
-        <button className="linklike" onClick={onLogout}>Sign out</button>
+        <button className="linklike" onClick={() => { if (confirmLeave()) onLogout(); }}>Sign out</button>
         <a className="logo-download" href="/brand/TWF_final_logo.svg" download="TWF_final_logo.svg">Download official logo (SVG)</a>
         <span className="desk-label">WorldFiled Desk · v0.1</span>
       </aside>
       <main>
+        <div className="page-toolbar">
+          <button className="back-button" onClick={() => { if (confirmLeave()) navigate(backTo); }} aria-label="Go back to the previous workflow page">
+            <span aria-hidden="true">←</span> Back
+          </button>
+          <span className="page-context">{pageTitle}</span>
+        </div>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/stories" element={<StoryDesk />} />
