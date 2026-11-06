@@ -64,8 +64,8 @@ export default function EvidenceRoom() {
     {story && <>
       <div className="panel"><h2>{story.headline}</h2><p className="meta">{story.category || "Uncategorised"} · {story.regions.join(", ")}</p><p className="caution">Factual verification status: <strong>{story.verificationStatus || "unverified"}</strong>. Editorial approval is separate.</p></div>
       <div className="panel">
-        <h2>Sources ({story.sources.length} items from {story.outlets} outlets)</h2>
-        <p className="caution">The research importer collected headlines and short summaries, not full article text. Open sources yourself and record the relevant passage below. Outlet count is not proof of independent corroboration.</p>
+        <h2>Sources ({story.sources.length} items from {story.outlets} publisher labels)</h2>
+        <p className="caution">The research importer collected headlines and short summaries, not full article text. Open sources yourself and record the relevant passage below. Publisher-label count is not proof of independent corroboration. Shared ownership, syndication and common original reporting are not fully traced.</p>
         {story.sources.map(s=><div className="source" key={s.id}><a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a><p className="meta">{s.outlet} · {s.scope || s.region} · {s.tier === "primary" ? "official or primary source" : "news reporting"}</p><p className="meta">Published: {dateText(s.publishedAt)} · Retrieved: {dateText(s.retrievedAt)} · {s.depth}</p>{s.summary && <p className="summary">{s.summary}</p>}</div>)}
       </div>
       <div className="panel">
