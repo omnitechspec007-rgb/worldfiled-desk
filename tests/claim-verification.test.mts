@@ -31,7 +31,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   }
   const body = JSON.parse(init.body || "{}");
   if (method === "POST") {
-    const row = { id: crypto.randomUUID(), created_at: new Date(++testClock).toISOString(), ...body };
+    const row = { id: crypto.randomUUID(), created_at: new Date(Math.max(++testClock, Date.now())).toISOString(), ...body };
     rows.push(row);
     return response(init.headers?.Prefer?.includes("return=representation") ? [row] : null, 201);
   }
