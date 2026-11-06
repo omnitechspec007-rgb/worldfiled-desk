@@ -4,15 +4,15 @@
 // Evidence classes (what the prompt may assert):
 //   OFFICIALLY_DOCUMENTED        an official source documents this. It establishes what THAT source records or
 //                                announces. It does not by itself verify outcomes, causes or any other claim.
-//   INDEPENDENTLY_CORROBORATED   two or more different outlets report the same event. Independence is judged by
-//                                outlet only: whether they share a wire/original report is NOT established.
+//   MULTI_OUTLET_REPORTED        two or more publisher labels report the event. This is NOT proof of independent
+//                                reporting: ownership, syndication, wire services and shared origins are not fully traced.
 //   SINGLE_SOURCE                one outlet only. Must be framed as "reported by ...".
 //   CONFLICTING                  accounts disagree. Only set when the editor enters a conflict note (the app does
 //                                not detect conflicts automatically).
 //   UNKNOWN                      not supported by the retrieved material. Must not be stated as fact.
 // Separate tag: CREATIVE_INTERPRETATION = presentation choices (metaphor, layout), never a claim.
 
-export type ClaimClass = "OFFICIALLY_DOCUMENTED" | "INDEPENDENTLY_CORROBORATED" | "SINGLE_SOURCE" | "CONFLICTING" | "UNKNOWN";
+export type ClaimClass = "OFFICIALLY_DOCUMENTED" | "MULTI_OUTLET_REPORTED" | "SINGLE_SOURCE" | "CONFLICTING" | "UNKNOWN";
 
 export type EvSource = {
   outlet: string;
@@ -56,7 +56,7 @@ export const MAX_PACK_BYTES = 250_000;
 
 export const CLASS_MEANING: Record<ClaimClass, string> = {
   OFFICIALLY_DOCUMENTED: "an official source documents this. It proves only what that source itself records or announces, not that related claims, outcomes or causes are verified.",
-  INDEPENDENTLY_CORROBORATED: "reported by two or more different outlets. Independence is judged by outlet name only; sharing of a wire or original report is NOT ruled out.",
+  MULTI_OUTLET_REPORTED: "reported under two or more distinct publisher labels. This does NOT establish independent reporting, ownership independence, or separate original sourcing. Do not call it independently corroborated.",
   SINGLE_SOURCE: "reported by one outlet only. State it as 'reported by <outlet>', never as established fact.",
   CONFLICTING: "accounts disagree. Present each account, attributed, and do not choose one.",
   UNKNOWN: "not supported by the retrieved material. Do not state it as fact; leave it out or present it explicitly as a question.",
@@ -91,6 +91,7 @@ const validUrl = (u: string) => {
 const WIRE = /\b(reuters|associated press|afp|xinhua|pti|anadolu|press release|statement issued)\b/i;
 const toks = (t: string) => new Set(t.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3));
 const jac = (a: Set<string>, b: Set<string>) => { let i = 0; for (const x of a) if (b.has(x)) i++; return a.size + b.size - i === 0 ? 0 : i / (a.size + b.size - i); };
+const outletKey = (outlet: string) => cleanField(outlet, 120).toLocaleLowerCase() || "unknown";
 
 export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string | null; decisionNote?: string | null; refPrefix?: string } = {}): EvidencePack {
   const px = opts.refPrefix ?? "";
@@ -105,7 +106,7 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
   const ordered: EvSource[] = [];
   const seen = new Set<string>();
   for (const s of byNew.filter((x) => x.tier === "primary")) { ordered.push(s); seen.add(s.url); }
-  for (const s of byNew) if (!seen.has(s.url) && !ordered.some((o) => o.outlet === s.outlet)) { ordered.push(s); seen.add(s.url); }
+  for (const s of byNew) if (!seen.has(s.url) && !ordered.some((o) => outletKey(o.outlet) === outletKey(s.outlet))) { ordered.push(s); seen.add(s.url); }
   for (const s of byNew) if (!seen.has(s.url)) { ordered.push(s); seen.add(s.url); }
   const chosen = ordered.slice(0, MAX_SOURCES);
   for (const s of ordered.slice(MAX_SOURCES)) omitted.push({ outlet: cleanField(s.outlet, 60) || "Unknown", reason: `beyond the ${MAX_SOURCES}-source limit` });
@@ -123,7 +124,7 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
 
   const primary = sources.filter((s) => s.type === "official or primary source");
   const reporting = sources.filter((s) => s.type === "news reporting");
-  const allReportingOutlets = new Set(all.filter((s) => s.tier === "reporting").map((s) => s.outlet));
+  const allReportingOutlets = new Set(all.filter((s) => s.tier === "reporting").map((s) => outletKey(s.outlet)));
   const claims: ClaimEntry[] = [];
   let n = 0;
   const add = (statement: string, cls: ClaimClass, basis: string, refs: string[]) => claims.push({ id: `${px}C${++n}`, statement, class: cls, basis, refs });
@@ -134,16 +135,16 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
   // Several outlets are NOT independent if they repeat one announcement: near-identical wording or wire/press-release origin.
   const sets = reporting.map((r) => toks(`${r.title} ${r.snippet}`));
   let maxSim = 0;
-  for (let i = 0; i < sets.length; i++) for (let j = i + 1; j < sets.length; j++) if (reporting[i].outlet !== reporting[j].outlet) maxSim = Math.max(maxSim, jac(sets[i], sets[j]));
+  for (let i = 0; i < sets.length; i++) for (let j = i + 1; j < sets.length; j++) if (outletKey(reporting[i].outlet) !== outletKey(reporting[j].outlet)) maxSim = Math.max(maxSim, jac(sets[i], sets[j]));
   const wireHit = reporting.some((r) => WIRE.test(`${r.title} ${r.snippet}`));
   const sharedOrigin = allReportingOutlets.size >= 2 && maxSim >= 0.7;
   if (allReportingOutlets.size >= 2 && !sharedOrigin) {
     add(
       `The event described by the headline ("${cleanField(story.headline, 200)}") is reported by ${allReportingOutlets.size} different outlets.`,
-      "INDEPENDENTLY_CORROBORATED",
-      "Matched by headline similarity. Independence judged by outlet name only; a shared wire or original report is not ruled out." +
-        (wireHit ? " Wire-service or press-release wording was found, so these outlets may share one origin." : "") +
-        " Details beyond the headline are not corroborated by this.",
+      "MULTI_OUTLET_REPORTED",
+      "The event appears under multiple distinct publisher labels. This is NOT a finding of independent reporting: ownership, syndication, wire-service use and shared original sourcing have not been fully traced." +
+        (wireHit ? " Wire-service or press-release wording was found, increasing the possibility of a shared origin." : "") +
+        " Do not describe this as independently corroborated. Details beyond the headline are not corroborated by this.",
       reporting.map((r) => r.ref)
     );
   } else if (sharedOrigin) {
