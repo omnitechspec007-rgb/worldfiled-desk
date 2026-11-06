@@ -98,6 +98,7 @@ export default function EditionDesk() {
   const [sound, setSound] = useState("subtle");
   const [visual, setVisual] = useState("adaptive");
   const [cpv, setCpv] = useState<CreativePreview | null>(null);
+  const [roundupPreflight, setRoundupPreflight] = useState<{ ready: boolean; note: string } | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [res, setRes] = useState<PromptResult | null>(null);
   const [copied, setCopied] = useState(false);
@@ -255,6 +256,22 @@ export default function EditionDesk() {
     } catch { setMsg("That decision was not saved."); }
     setBusy(false);
   };
+  useEffect(() => {
+    if (!editionId || editionKind !== "video" || deliverable !== "static_roundup_6s") { setRoundupPreflight(null); return; }
+    let active = true;
+    setRoundupPreflight(null);
+    fetch(`${api}edition-prompt?editionId=${encodeURIComponent(editionId)}&deliverable=static_roundup_6s`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!active) return;
+        setRoundupPreflight(r.ok && data.exportReady === true
+          ? { ready: true, note: data.note ?? "Server-side factual and editorial clearance confirmed." }
+          : { ready: false, note: data.detail ?? data.note ?? "Export is blocked until this edition passes current approval and factual verification." });
+      })
+      .catch(() => { if (active) setRoundupPreflight({ ready: false, note: "Could not confirm current server-side clearance. Export is disabled until the check succeeds." }); });
+    return () => { active = false; };
+  }, [editionId, editionKind, deliverable, approval?.current, ids.join(",")]);
+
   useEffect(() => {
     if (!editionId || editionKind === "text" || deliverable === "static_roundup_6s") { setCpv(null); return; }
     const q = `editionId=${editionId}&durationSeconds=${duration}&format=${fmt}&sound=${sound}&visual=${visual}`;
@@ -457,7 +474,7 @@ export default function EditionDesk() {
                 </div>}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
-                  <StaticRoundupBuilder title={title} stories={roundupStories} />
+                  <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true} preflightNote={roundupPreflight?.note ?? "Checking current approval and factual clearance…"} />
                 )}
                 {!(editionKind === "video" && deliverable === "static_roundup_6s") && <>
                 {editionKind === "video" && deliverable !== "static_roundup_6s" && cpv && (
