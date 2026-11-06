@@ -41,7 +41,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   }
   return response({},405);
 }) as any;
-const req = (method:string, body?:any, authenticated=true) => new Request("https://desk.example/?storyId="+storyId,{method,headers:{...(authenticated?{cookie}:{}),...(body?{"content-type":"application/json"}:{})},...(body?{body:JSON.stringify(body)}:{})});
+const req = (method:string, body?:any, authenticated=true) => new Request("https://desk.example/?storyId="+storyId,{method,headers:{origin:"https://desk.example",...(authenticated?{cookie}:{}),...(body?{"content-type":"application/json"}:{})},...(body?{body:JSON.stringify(body)}:{})});
 const post = (body:any, auth=true) => handler(req("POST",body,auth));
 const get = (auth=true) => handler(req("GET",undefined,auth));
 const ok = (s:string) => console.log("PASS "+s);
