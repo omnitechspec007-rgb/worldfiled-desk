@@ -78,7 +78,7 @@ const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("h
 const H = 3600_000; const at = (h: number) => new Date(Date.now() - h * H).toISOString();
 const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "" }; T("source_registry").push(r); } return r; };
 function story(headline: string, category: string, srcs: [string, string, string, boolean?][]) {
-  const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending" }; T("stories").push(st);
+  const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending", verification_status: "verified" }; T("stories").push(st);
   srcs.forEach(([outlet, title, extract, official], i) => {
     const rs = { id: crypto.randomUUID(), registry_id: reg(outlet, !!official).id, title, url: `https://${outlet.toLowerCase().replace(/\W/g, "")}.example/${st.id.slice(0, 6)}/${i}`, published_at: at(5), retrieved_at: at(1), extract };
     T("retrieved_sources").push(rs); T("story_source_links").push({ story_id: st.id, source_id: rs.id });
