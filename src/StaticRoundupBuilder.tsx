@@ -8,7 +8,7 @@ type RoundupStory = {
   source?: string;
 };
 
-type Props = { title: string; stories: RoundupStory[] };
+type Props = { title: string; stories: RoundupStory[]; exportReady: boolean; preflightNote: string };
 
 const W = 1080;
 const H = 1920;
@@ -157,7 +157,7 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
   ctx.textAlign = "left";
 }
 
-export default function StaticRoundupBuilder({ title, stories }: Props) {
+export default function StaticRoundupBuilder({ title, stories, exportReady, preflightNote }: Props) {
   const storySignature = JSON.stringify(stories);
   const initial = useMemo(() => stories.slice(0, 10).map((s) => ({
     ...s,
@@ -205,6 +205,7 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
   const removeCard = (id: string) => setCards((current) => current.filter((card) => card.id !== id));
 
   const downloadPoster = () => {
+    if (!exportReady) { setNotice("Export blocked: " + preflightNote); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const a = document.createElement("a");
@@ -218,6 +219,7 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
   };
 
   const exportVideo = async () => {
+    if (!exportReady) { setNotice("Export blocked: " + preflightNote); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     if (!("MediaRecorder" in window) || !canvas.captureStream) {
@@ -327,9 +329,10 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
         ))}
       </div>
       {notice && <p className="status">{notice}</p>}
+      <p className={exportReady ? "status good" : "status bad"}>{exportReady ? "EXPORT CLEARANCE CONFIRMED: " : "EXPORT LOCKED: "}{preflightNote}</p>
       <div className="actions">
-        <button onClick={downloadPoster}>Download static poster (PNG)</button>
-        <button className="primary" disabled={rendering || cards.length === 0} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
+        <button disabled={!exportReady} onClick={downloadPoster}>Download static poster (PNG)</button>
+        <button className="primary" disabled={!exportReady || rendering || cards.length === 0} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
       </div>
       <p className="meta">Export currently uses WebM, which is supported by modern Chrome and Edge. MP4 conversion is not performed in this browser-only release. The poster is the same single frame used for all six seconds.</p>
     </div>
