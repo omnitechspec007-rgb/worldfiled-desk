@@ -23,6 +23,7 @@ export default function EvidenceRoom() {
   const [contradiction, setContradiction] = useState<Record<string,boolean>>({});
   const [outcome, setOutcome] = useState<Record<string,string>>({});
   const [reason, setReason] = useState<Record<string,string>>({});
+  const [contradictionResolution, setContradictionResolution] = useState<Record<string,string>>({});
   const [completeAck, setCompleteAck] = useState(false);
 
   const load = useCallback(async () => {
@@ -75,6 +76,8 @@ export default function EvidenceRoom() {
         <button className="primary" disabled={busy || claimText.trim().length<8} onClick={async()=>{const r=await act({action:"add_claim",claimText,category});if(r)setClaimText("");}}>ADD CLAIM</button>
         {claims.map((c,i)=>{
           const latest=[...(c.verification_results||[])].sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
+          const hasContradiction=(c.claim_evidence||[]).some(ev=>ev.is_contradiction && ev.passage && ev.extraction_status==="extracted");
+          const needsReconciliation=hasContradiction && (outcome[c.id]||"UNVERIFIED")==="SUPPORTED";
           return <div className="panel" key={c.id}>
             <p className="rank">CLAIM {String(i+1).padStart(2,"0")} · {c.category || "factual"} · <strong>{latest?.outcome || "UNVERIFIED"}</strong></p>
             <p>{c.claim_text}</p>
@@ -86,8 +89,9 @@ export default function EvidenceRoom() {
             <label className="inline"><input type="checkbox" checked={Boolean(contradiction[c.id])} onChange={e=>setContradiction(p=>({...p,[c.id]:e.target.checked}))}/> This passage challenges or contradicts the claim</label>
             <button disabled={busy || !sourceChoice[c.id] || !passage[c.id]?.trim()} onClick={()=>void act({action:"add_evidence",claimId:c.id,sourceId:sourceChoice[c.id],passage:passage[c.id]||"",location:location[c.id]||"",isContradiction:Boolean(contradiction[c.id])})}>ADD EVIDENCE</button>
             <label>Editor decision<select value={outcome[c.id]||"UNVERIFIED"} onChange={e=>setOutcome(p=>({...p,[c.id]:e.target.value}))}>{outcomes.map(o=><option key={o} value={o}>{o.replace(/_/g," ")}</option>)}</select></label>
-            <label>Reviewer reasoning<textarea rows={2} maxLength={1500} value={reason[c.id]||""} onChange={e=>setReason(p=>({...p,[c.id]:e.target.value}))} placeholder="What does the evidence establish? What remains uncertain?" /></label>
-            <button className="primary" disabled={busy || (outcome[c.id]||"UNVERIFIED")==="UNVERIFIED"} onClick={()=>void act({action:"decide_claim",claimId:c.id,outcome:outcome[c.id]||"UNVERIFIED",notes:reason[c.id]||""})}>RECORD EDITOR DECISION</button>
+            {needsReconciliation && <label>Specific contradiction reconciliation (required)<textarea rows={3} maxLength={1000} value={contradictionResolution[c.id]||""} onChange={e=>setContradictionResolution(p=>({...p,[c.id]:e.target.value}))} placeholder="Address the conflicting passage directly. Explain what it says, why it conflicts, and what evidence justifies your conclusion." /></label>}
+            <label>General reviewer notes<textarea rows={2} maxLength={400} value={reason[c.id]||""} onChange={e=>setReason(p=>({...p,[c.id]:e.target.value}))} placeholder="What does the evidence establish? What remains uncertain?" /></label>
+            <button className="primary" disabled={busy || (outcome[c.id]||"UNVERIFIED")==="UNVERIFIED" || (needsReconciliation && (contradictionResolution[c.id]||"").trim().length<80)} onClick={()=>void act({action:"decide_claim",claimId:c.id,outcome:outcome[c.id]||"UNVERIFIED",notes:reason[c.id]||"",contradictionResolution:contradictionResolution[c.id]||""})}>RECORD EDITOR DECISION</button>
             {(c.verification_results||[]).length>0 && <details><summary>Decision history</summary>{c.verification_results.map(v=><p className="meta" key={v.id}>{dateText(v.created_at)} · {v.outcome} · {v.determined_by}{v.reviewer_notes ? " — "+v.reviewer_notes : ""}</p>)}</details>}
           </div>;
         })}
