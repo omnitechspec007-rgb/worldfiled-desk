@@ -296,7 +296,7 @@ export default function EditionDesk() {
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
     return d ? { id: d.id, headline: d.headline, summary: d.whatChanged || d.whyInteresting[0] || "Consult the linked source material for the verified details.", location: d.locations.map((x) => x.country).join(", "), source: d.sources[0]?.outlet ?? "" } : null;
-  }).filter((x): x is NonNullable<typeof x> => !!x);
+  }).filter((x) => x !== null);
   return (
     <section>
       <h1>Edition Desk</h1>
