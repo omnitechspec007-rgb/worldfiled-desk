@@ -16,7 +16,7 @@ const audit = (event_type: string, id: string, detail: unknown) =>
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
-  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method === "GET") {
       const videos = await db<any[]>("reference_videos?select=*&order=label.asc");
