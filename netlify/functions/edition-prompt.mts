@@ -92,7 +92,7 @@ async function preview(editionId: string, req: Request) {
   const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now(), structure: r.ed.structure as Structure });
   const members = packsFor(r.ids, r.loaded);
   if (r.ed.edition_kind === "text") return json({ editionId, editionKind: "text", title: r.ed.title, structure: r.ed.structure, structureLabel: STRUCTURE_LABEL[r.ed.structure as Structure], developments: members.map((m, i) => ({ ref: "D" + (i + 1), headline: m.dev.headline, sources: m.pack.sources.length, omitted: m.pack.omitted_sources.count, classes: classCounts(m.pack) })), textBriefing: { targetWords: "1500-2200", targetReadMinutes: "5-8", targetStories: "12-18", note: "Editorial targets, never quotas. Use fewer stories or words when the evidence does not support more." }, deliverables: [{ key: "text_briefing", label: "Written daily news briefing" }], maxPromptChars: MAX_EDITION_PROMPT_CHARS });
-  const u = new URL(req.url); const secs = ([60, 90, 120] as const).includes(Number(u.searchParams.get("durationSeconds")) as any) ? (Number(u.searchParams.get("durationSeconds")) as 60 | 90 | 120) : 90;
+  const u = new URL(req.url); const secs = ([480, 600, 720] as const).includes(Number(u.searchParams.get("durationSeconds")) as any) ? (Number(u.searchParams.get("durationSeconds")) as 480 | 600 | 720) : 600;
   const o = opts({ format: u.searchParams.get("format"), sound: u.searchParams.get("sound"), visual: u.searchParams.get("visual") });
   const cr = await loadCreative(); const format = selectFormat(ev, members, o.format);
   const bp = buildBlueprint({ members, ev, secs, format, voice: cr.settings.voice, lex: cr.lex, toolsConfirmed: cr.settings.toolsConfirmed, sound: o.sound, visualMode: o.visual, deliverable: "script_storyboard", now: Date.now() });
@@ -118,7 +118,7 @@ async function generate(req: Request) {
   const editionId = String(b.editionId ?? "");
   if (!UUID.test(editionId)) return json({ error: "bad_request" }, 400);
   const deliverable = DELIVERABLES.some((d) => d.key === b.deliverable) ? (b.deliverable as Deliverable) : "script_storyboard";
-  const duration = ([60, 90, 120] as const).includes(b.durationSeconds) ? (b.durationSeconds as 60 | 90 | 120) : 90;
+  const duration = ([480, 600, 720] as const).includes(b.durationSeconds) ? (b.durationSeconds as 480 | 600 | 720) : 600;
   const parentId = typeof b.parentId === "string" && UUID.test(b.parentId) ? b.parentId : null;
   const r = await readiness(editionId);
   if ("fail" in r) return r.fail;
