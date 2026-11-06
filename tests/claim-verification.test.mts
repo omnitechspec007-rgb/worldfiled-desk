@@ -56,4 +56,8 @@ assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome
 assert.equal((await post({action:"complete_story",storyId,acknowledged:false})).status,400); assert.equal(stories[0].verification_status,"in_progress"); ok("clearance requires explicit completeness acknowledgement");
 r=await post({action:"complete_story",storyId,acknowledged:true}); assert.equal(r.status,200); assert.equal(stories[0].verification_status,"verified"); ok("story becomes verified only after every recorded claim has a passage and supported editor decision");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"A newly checked passage."})).status,200); assert.equal(stories[0].verification_status,"in_progress"); ok("adding or changing evidence invalidates prior story-level clearance");
-console.log("\nALL CLAIM VERIFICATION API CHECKS PASSED");
+assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"A report gives a conflicting date.",isContradiction:true})).status,200); ok("contradictory evidence is recorded distinctly");
+assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"I checked it."})).status,409); ok("SUPPORTED is blocked when contradictory evidence lacks a documented reconciliation");
+assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"The conflicting report refers to a different agency notice and date; the official notice and its publication record establish the stated date."})).status,200); ok("editor can reconcile conflicting evidence with substantive reasoning");
+assert.equal((await post({action:"complete_story",storyId,acknowledged:true})).status,200); assert.equal(stories[0].verification_status,"verified"); ok("contradictory evidence clearance requires both support and documented reconciliation");
+console.log("\\nALL CLAIM VERIFICATION API CHECKS PASSED");
