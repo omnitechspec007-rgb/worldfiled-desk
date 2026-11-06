@@ -4,6 +4,7 @@ import { BRAND_VERSION, brandBlock, brandChecklist } from "./brand.mts";
 import { CLASS_MEANING, cleanField, classCounts, renderEvidence, type EvidencePack } from "./evidence-pack.mts";
 import { DELIVERABLES, selectTools, type Deliverable, type ToolPlan } from "./production-tools.mts";
 import { TREATMENTS, getTreatment, type Treatment } from "./treatments.mts";
+import { INTEGRITY_POLICY } from "./integrity-policy.mts";
 
 export const MAX_PROMPT_CHARS = 120_000;
 export class PromptTooLarge extends Error {}
@@ -75,6 +76,8 @@ export function buildArchitectPrompt(input: ArchitectInput): ArchitectOutput {
   const prompt = `You are being given a complete production assignment by the editor of ${"THE WORLD, FILED."} (tagline: "What happened. What changed. What matters."). Read every section. The work is for ONE approved story. Do not publish anything; the editor will review your output.
 
 === RULES THAT OVERRIDE EVERYTHING ELSE ===
+${INTEGRITY_POLICY}
+
 - Use ONLY the facts in section B. Never invent numbers, dates, names, places, quotes, dialogue, people or events. If something needed is not in section B, say so and leave it out, or ask me.
 - Every claim has an evidence class in section B. You may not state a claim more strongly than its class allows. Creative treatment (metaphor, visual device, pacing, reconstruction) may never turn a SINGLE_SOURCE, CONFLICTING or UNKNOWN item into an asserted fact.
 - Anything illustrative (a diagram, a reconstruction, a symbolic image) must be visibly or verbally framed as illustrative, never presented as real footage or evidence.
