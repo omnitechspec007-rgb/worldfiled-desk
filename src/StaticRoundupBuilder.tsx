@@ -266,6 +266,7 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
         gain.gain.exponentialRampToValueAtTime(0.012, start + 0.025);
         gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
         oscillator.connect(gain);
+        if (!destination) return;
         gain.connect(destination);
         oscillator.start(start);
         oscillator.stop(start + length + 0.02);
