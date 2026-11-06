@@ -1,6 +1,6 @@
 // Story list and story detail (evidence trail). Read-only.
 // The list order is PROVISIONAL (outlet count, then recency). It is not a quality score.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { MODEL_VERSION } from "../lib/scoring.mts";
 
@@ -97,6 +97,7 @@ async function shortlistView() {
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
   try {
     const url = new URL(req.url);
