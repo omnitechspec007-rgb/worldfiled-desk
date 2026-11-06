@@ -1,7 +1,6 @@
 // Evidence-bounded prompt builder for the daily written news edition.
 import { brandBlock, brandChecklist, BRAND_VERSION } from "./brand.mts";
 import { CLASS_MEANING, cleanField, classCounts, renderEvidence } from "./evidence-pack.mts";
-import { selectTools } from "./production-tools.mts";
 import { evidenceHash, MAX_EDITION_SNAPSHOT_BYTES, MAX_EDITION_PROMPT_CHARS, EditionPromptTooLarge, type EditionMember } from "./edition-prompt.mts";
 import type { Evaluation } from "./editions.mts";
 import type { StyleRuleIn } from "./prompt-architect.mts";
@@ -113,7 +112,7 @@ export function buildTextEditionPrompt(input: {
       { role: "News correspondent", why: "writes concise, attributed reports from the supplied evidence" },
       { role: "Editorial fact-checker", why: "checks every factual claim against its source ref and has final say" },
     ],
-    tools: selectTools("script_storyboard", false),
+    tools: { deliverable: "text_briefing", needed: [], optional: [], notNeeded: [{ name: "Video rendering", reason: "This is a written news edition; no video file is requested." }, { name: "Voiceover and audio", reason: "The text briefing is not narrated." }], note: "No external production tools are required for this written edition. Verify the facts and source attributions in the supplied evidence before publication." },
     snapshot,
     evidenceHash: evidenceHash(members),
     brandVersion: BRAND_VERSION,
