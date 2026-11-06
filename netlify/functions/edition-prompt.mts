@@ -7,6 +7,7 @@
 import { isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { buildEditionPrompt, EditionPromptTooLarge, MAX_EDITION_PROMPT_CHARS } from "../lib/edition-prompt.mts";
+import { buildTextEditionPrompt } from "../lib/text-edition-prompt.mts";
 import { evaluateEdition, membersKey, STRUCTURE_LABEL, type Structure } from "../lib/editions.mts";
 import { DELIVERABLES, type Deliverable } from "../lib/production-tools.mts";
 import { PackTooLarge, classCounts } from "../lib/evidence-pack.mts";
@@ -68,7 +69,7 @@ export default async (req: Request) => {
 
 /** Everything that must be true before a prompt may be written. Returns a reason string if not. */
 async function readiness(editionId: string) {
-  const rows = await db<any[]>(`editions?id=eq.${editionId}&select=id,title,structure,narrative_angle`);
+  const rows = await db<any[]>(`editions?id=eq.${editionId}&select=id,title,structure,narrative_angle,edition_kind`);
   const ed = rows[0];
   if (!ed) return { fail: json({ error: "not_found" }, 404) };
   const ids = await memberIds(editionId);
@@ -90,6 +91,7 @@ async function preview(editionId: string, req: Request) {
   if ("fail" in r) return r.fail;
   const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now(), structure: r.ed.structure as Structure });
   const members = packsFor(r.ids, r.loaded);
+  if (r.ed.edition_kind === "text") return json({ editionId, editionKind: "text", title: r.ed.title, structure: r.ed.structure, structureLabel: STRUCTURE_LABEL[r.ed.structure as Structure], developments: members.map((m, i) => ({ ref: "D" + (i + 1), headline: m.dev.headline, sources: m.pack.sources.length, omitted: m.pack.omitted_sources.count, classes: classCounts(m.pack) })), textBriefing: { targetWords: "1500-2200", targetReadMinutes: "5-8", targetStories: "12-18", note: "Editorial targets, never quotas. Use fewer stories or words when the evidence does not support more." }, deliverables: [{ key: "text_briefing", label: "Written daily news briefing" }], maxPromptChars: MAX_EDITION_PROMPT_CHARS });
   const u = new URL(req.url); const secs = ([60, 90, 120] as const).includes(Number(u.searchParams.get("durationSeconds")) as any) ? (Number(u.searchParams.get("durationSeconds")) as 60 | 90 | 120) : 90;
   const o = opts({ format: u.searchParams.get("format"), sound: u.searchParams.get("sound"), visual: u.searchParams.get("visual") });
   const cr = await loadCreative(); const format = selectFormat(ev, members, o.format);
@@ -127,19 +129,21 @@ async function generate(req: Request) {
   const ev = evaluation;
   const { rules, installed: rulesInstalled } = await approvedRules();
   const cr = await loadCreative(); const o = opts(b);
-  const out = buildEditionPrompt({
-    title: r.ed.title, members, evaluation, deliverable, durationSeconds: duration,
-    angle: typeof b.angle === "string" && b.angle.trim() ? b.angle : r.ed.narrative_angle ?? "",
-    conflictNotes: notes.filter(Boolean), approvedRules: rules,
-    creative: { voice: cr.settings.voice, toolsConfirmed: cr.settings.toolsConfirmed, lex: cr.lex, format: o.format, sound: o.sound, visual: o.visual },
-  });
+  const out = r.ed.edition_kind === "text"
+    ? buildTextEditionPrompt({ title: r.ed.title, members, evaluation, angle: typeof b.angle === "string" && b.angle.trim() ? b.angle : r.ed.narrative_angle ?? "", conflictNotes: notes.filter(Boolean), approvedRules: rules })
+    : buildEditionPrompt({
+        title: r.ed.title, members, evaluation, deliverable, durationSeconds: duration,
+        angle: typeof b.angle === "string" && b.angle.trim() ? b.angle : r.ed.narrative_angle ?? "",
+        conflictNotes: notes.filter(Boolean), approvedRules: rules,
+        creative: { voice: cr.settings.voice, toolsConfirmed: cr.settings.toolsConfirmed, lex: cr.lex, format: o.format, sound: o.sound, visual: o.visual },
+      });
   const reply = {
     structure: { key: structure, label: STRUCTURE_LABEL[structure] },
     coherence: { verdict: ev.coherence.verdict, score: ev.coherence.score },
     roles: out.roles, rationale: out.rationale, tools: out.tools,
     evidenceClasses: members.map((m, i) => ({ ref: `D${i + 1}`, ...classCounts(m.pack) })),
     brandChecklist: brandChecklist(), brandVersion: BRAND_VERSION, prompt: out.prompt,
-    creative: { format: out.format, runtime: (out.rationale as any).creative.runtime, voiceApproval: approvalState(cr.settings.voice), pronunciationCheckRequired: (out.rationale as any).creative.pronunciation_check_required, voiceConfigured: cr.configured },
+    creative: r.ed.edition_kind === "text" ? null : { format: (out as any).format, runtime: (out.rationale as any).creative.runtime, voiceApproval: approvalState(cr.settings.voice), pronunciationCheckRequired: (out.rationale as any).creative.pronunciation_check_required, voiceConfigured: cr.configured },
   };
   let version = 1;
   try {
@@ -154,13 +158,13 @@ async function generate(req: Request) {
     const rows = await db<any[]>("edition_prompts", {
       method: "POST", prefer: "return=representation",
       body: {
-        edition_id: editionId, version, parent_id: parentId, members: r.ids, members_hash: membersKey(r.ids), evidence_hash: out.evidenceHash,
+        edition_id: editionId, edition_kind: r.ed.edition_kind ?? "video", version, parent_id: parentId, members: r.ids, members_hash: membersKey(r.ids), evidence_hash: out.evidenceHash,
         structure, title: r.ed.title, deliverable, roles: out.roles, rationale: out.rationale, coherence: { score: ev.coherence.score, verdict: ev.coherence.verdict, components: ev.coherence.components },
         tools: out.tools, evidence_snapshot: out.snapshot, style_rule_ids: [], brand_spec_version: BRAND_VERSION, prompt_text: out.prompt, created_by: "editor",
       },
     });
     const saved = Array.isArray(rows) ? rows[0] : rows;
-    await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: "edition_prompt_created", entity_type: "edition", entity_id: editionId, actor: "editor", detail: { version, structure, deliverable, developments: r.ids.length, prompt_id: saved?.id ?? null, approved_style_rules: rules.length, rules_installed: rulesInstalled } } });
+    await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: "edition_prompt_created", entity_type: "edition", entity_id: editionId, actor: "editor", detail: { version, edition_kind: r.ed.edition_kind ?? "video", structure, deliverable, developments: r.ids.length, prompt_id: saved?.id ?? null, approved_style_rules: rules.length, rules_installed: rulesInstalled } } });
     return json({ ...reply, saved: true, id: saved?.id ?? null, version });
   } catch (e) {
     if (e instanceof DbError && e.upstream === 400) return json({ error: "refused_by_database", detail: "The database refused this record (an approval is no longer current, the members changed, or a size limit was exceeded). Nothing was saved." }, 409);
@@ -172,7 +176,7 @@ async function generate(req: Request) {
 async function history() {
   let rows: any[];
   try {
-    rows = await db<any[]>("edition_prompts?select=id,edition_id,version,structure,title,deliverable,members,members_hash,approval_decision_id,rationale,created_at&order=created_at.desc&limit=40");
+    rows = await db<any[]>("edition_prompts?select=id,edition_id,edition_kind,version,structure,title,deliverable,members,members_hash,approval_decision_id,rationale,created_at&order=created_at.desc&limit=40");
   } catch (e) {
     if (e instanceof DbError && e.upstream === 404) return json({ notInstalled: true, prompts: [] });
     throw e;
@@ -182,7 +186,7 @@ async function history() {
     const v = await promptValidity(r, Date.now(), false);
     // history list checks approval, members and member decisions only (cheap); the full evidence check runs when a prompt is opened
     const stale = await creativeStale(r);
-    out.push({ id: r.id, editionId: r.edition_id, title: r.title, version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.approvalCurrent && v.membersCurrent && v.storiesOk && !stale, reasons: stale ? [...v.reasons, stale] : v.reasons });
+    out.push({ id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.approvalCurrent && v.membersCurrent && v.storiesOk && !stale, reasons: stale ? [...v.reasons, stale] : v.reasons });
   }
   return json({ prompts: out });
 }
@@ -196,7 +200,7 @@ async function one(id: string) {
   const stale = await creativeStale(r);
   const v = stale ? { ...v0, current: false, reasons: [...v0.reasons, stale] } : v0;
   return json({
-    id: r.id, editionId: r.edition_id, title: r.title, version: r.version, structure: r.structure, deliverable: r.deliverable, createdAt: r.created_at, brandVersion: r.brand_spec_version,
+    id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, createdAt: r.created_at, brandVersion: r.brand_spec_version,
     developments: (r.members ?? []).length, coherence: r.coherence, roles: r.roles, rationale: r.rationale, tools: r.tools,
     valid: v.current, validity: { approvalCurrent: v.approvalCurrent, membersCurrent: v.membersCurrent, storiesOk: v.storiesOk, evidenceCurrent: v.evidenceCurrent }, reasons: v.reasons,
     prompt: v.current ? r.prompt_text : null,
