@@ -6,7 +6,7 @@
 //   POST {action:"decide", id, decision, notes?, acknowledged}    human decision (approval needs acknowledged:true)
 //   POST {action:"archive", id}
 // Nothing is ever silently removed from a selection: the evaluation reports weak members; only the editor removes them.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { evaluateEdition, suggestEditions, membersKey, STRUCTURE_LABEL, type Structure, type Dev } from "../lib/editions.mts";
 import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
@@ -30,6 +30,7 @@ const evalSummary = (e: ReturnType<typeof evaluateEdition>) => ({ ...e, pairs: e
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method === "GET") {
       const u = new URL(req.url);
