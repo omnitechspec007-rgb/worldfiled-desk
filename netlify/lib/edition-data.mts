@@ -90,6 +90,37 @@ export function packsFor(ids: string[], loaded: Map<string, Loaded>, conflictNot
   });
 }
 
+
+export type ClaimClearance = { ready: boolean; blocked: { storyId: string; claimId?: string; reason: string }[] };
+/** A publishable edition requires a complete claim register for every member story. */
+export function assessClaimClearance(rows: any[], storyIds: string[]): ClaimClearance {
+  const blocked: ClaimClearance["blocked"] = [];
+  const byStory = new Map<string, any[]>();
+  for (const row of rows) byStory.set(row.story_id, [...(byStory.get(row.story_id) ?? []), row]);
+  for (const storyId of storyIds) {
+    const claims = byStory.get(storyId) ?? [];
+    if (!claims.length) { blocked.push({ storyId, reason: "No material claims have been recorded." }); continue; }
+    for (const claim of claims) {
+      const latest = [...(claim.verification_results ?? [])].sort((a,b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? "")))[0];
+      const evidence = claim.claim_evidence ?? [];
+      const extracted = evidence.filter((e:any) => e.passage && e.extraction_status === "extracted");
+      const support = extracted.some((e:any) => !e.is_contradiction);
+      const contradiction = extracted.some((e:any) => e.is_contradiction);
+      if (!latest) blocked.push({ storyId, claimId: claim.id, reason: "No editor decision recorded." });
+      else if (latest.outcome !== "SUPPORTED") blocked.push({ storyId, claimId: claim.id, reason: "Latest decision is " + latest.outcome + "." });
+      else if (!support) blocked.push({ storyId, claimId: claim.id, reason: "No extracted supporting passage." });
+      else if (contradiction && String(latest.reviewer_notes ?? "").trim().length < 40) blocked.push({ storyId, claimId: claim.id, reason: "Contradictory evidence has not been reconciled in the editor's reasoning." });
+    }
+  }
+  return { ready: blocked.length === 0, blocked };
+}
+
+export async function editionClaimClearance(storyIds: string[]): Promise<ClaimClearance> {
+  if (!storyIds.length) return { ready: false, blocked: [{ storyId: "", reason: "The edition has no stories." }] };
+  const rows = await db<any[]>(`claims?story_id=in.(${storyIds.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction),verification_results(id,outcome,reviewer_notes,created_at)`);
+  return assessClaimClearance(rows, storyIds);
+}
+
 export type Validity = { current: boolean; reasons: string[]; approvalCurrent: boolean; membersCurrent: boolean; storiesOk: boolean; evidenceCurrent: boolean | null };
 /** Decide whether a saved edition prompt is still valid. Kept history is never deleted; this only controls reuse. */
 export async function promptValidity(p: any, now = Date.now(), checkEvidence = true): Promise<Validity> {
