@@ -54,12 +54,12 @@ export default async (req: Request) => {
 
 async function savedEditions() {
   try {
-    const rows = await db<any[]>("editions?status=eq.draft&select=id,title,theme,structure,coherence,created_at,updated_at&order=updated_at.desc&limit=40");
+    const rows = await db<any[]>("editions?status=eq.draft&select=id,title,theme,structure,edition_kind,coherence,created_at,updated_at&order=updated_at.desc&limit=40");
     const out = [];
     for (const r of rows) {
       const dec = await latestEditionDecision(r.id);
       const ids = await memberIds(r.id);
-      out.push({ id: r.id, title: r.title, theme: r.theme, structure: r.structure, structureLabel: STRUCTURE_LABEL[r.structure as Structure] ?? r.structure, verdict: r.coherence?.verdict ?? null, score: r.coherence?.score ?? null, members: ids.length, updatedAt: r.updated_at, decision: dec?.decision ?? null, approvalCurrent: dec?.decision === "approved" && dec.members_hash === membersKey(ids) });
+      out.push({ id: r.id, title: r.title, theme: r.theme, editionKind: r.edition_kind ?? "video", structure: r.structure, structureLabel: STRUCTURE_LABEL[r.structure as Structure] ?? r.structure, verdict: r.coherence?.verdict ?? null, score: r.coherence?.score ?? null, members: ids.length, updatedAt: r.updated_at, decision: dec?.decision ?? null, approvalCurrent: dec?.decision === "approved" && dec.members_hash === membersKey(ids) });
     }
     return { installed: true, editions: out };
   } catch (e) {
@@ -127,7 +127,7 @@ async function detail(id: string) {
   const memberDecs = await latestDecisions(ids);
   const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(memberDecs.get(i)?.decision ?? ""));
   return json({
-    id, title: e.title, theme: e.theme, structure: e.structure, structureLabel: STRUCTURE_LABEL[e.structure as Structure], angle: e.narrative_angle, status: e.status,
+    id, title: e.title, theme: e.theme, editionKind: e.edition_kind ?? "video", structure: e.structure, structureLabel: STRUCTURE_LABEL[e.structure as Structure], angle: e.narrative_angle, status: e.status,
     ids, membersKey: membersKey(ids), updatedAt: e.updated_at,
     approval: { decision: dec?.decision ?? null, notes: dec?.notes ?? null, decidedAt: dec?.created_at ?? null, current: dec?.decision === "approved" && dec.members_hash === membersKey(ids) && blocked.length === 0, membersChangedSinceApproval: dec?.decision === "approved" && dec.members_hash !== membersKey(ids), blockedMembers: blocked },
     decisions,
@@ -141,7 +141,9 @@ async function detail(id: string) {
 async function save(b: any) {
   const ids = Array.isArray(b.ids) ? parseIds(b.ids.map(String).join(",")) : null;
   const title = typeof b.title === "string" ? b.title.trim().slice(0, 300) : "";
-  if (!ids || !title) return json({ error: "bad_request", detail: "A title and 1 to 12 distinct developments are required." }, 400);
+  const editionKind = b.editionKind === "text" ? "text" : "video";
+  const limit = editionKind === "text" ? 18 : 8;
+  if (!ids || !title || ids.length > limit) return json({ error: "bad_request", detail: "A title and 1 to " + limit + " distinct developments are required for this edition type." }, 400);
   const id = typeof b.id === "string" && UUID.test(b.id) ? b.id : null;
   const angle = typeof b.angle === "string" ? b.angle.trim().slice(0, 1000) : "";
   const r = await evaluateIds(ids, typeof b.structure === "string" ? b.structure : undefined);
@@ -149,7 +151,7 @@ async function save(b: any) {
   const structure = r.out.structure as Structure;
   const coherence = { score: r.ev.coherence.score, verdict: r.ev.coherence.verdict, components: r.ev.coherence.components, structureOverride: !!r.out.structureOverride, suggestedStructure: r.ev.structure, weak: r.ev.check.weaklyConnected, evaluatedAt: new Date().toISOString() };
   const curiosity = { ...r.ev.metrics, theme: r.ev.theme, hypothesis: "Editorial hypothesis, not measured audience behaviour." };
-  const body = { title, theme: r.ev.theme, structure, narrative_angle: angle, coherence, curiosity };
+  const body = { title, theme: r.ev.theme, structure, edition_kind: editionKind, narrative_angle: angle, coherence, curiosity };
   let eid = id;
   try {
     if (eid) {
@@ -168,8 +170,8 @@ async function save(b: any) {
     if (e instanceof DbError && e.upstream === 404) return json({ error: "not_installed", detail: "Editions are not installed yet (migration 004). Nothing was saved." }, 409);
     throw e;
   }
-  await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: id ? "edition_updated" : "edition_created", entity_type: "edition", entity_id: eid, actor: "editor", detail: { members: ids.length, structure, verdict: coherence.verdict, structure_override: coherence.structureOverride } } });
-  return json({ saved: true, id: eid, membersKey: membersKey(ids), verdict: coherence.verdict, note: id && !!(await latestEditionDecision(eid!)) ? "If you changed the developments, any earlier approval no longer applies; approve the edition again." : undefined });
+  await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: id ? "edition_updated" : "edition_created", entity_type: "edition", entity_id: eid, actor: "editor", detail: { edition_kind: editionKind, members: ids.length, structure, verdict: coherence.verdict, structure_override: coherence.structureOverride } } });
+  return json({ saved: true, id: eid, editionKind, membersKey: membersKey(ids), verdict: coherence.verdict, note: id && !!(await latestEditionDecision(eid!)) ? "If you changed the developments, any earlier approval no longer applies; approve the edition again." : undefined });
 }
 
 async function decide(b: any) {
