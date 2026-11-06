@@ -91,7 +91,7 @@ export default function EditionDesk() {
   const [approval, setApproval] = useState<Approval | null>(null);
   const [ack, setAck] = useState(false);
   const [notes, setNotes] = useState("");
-  const [deliverable, setDeliverable] = useState("script_storyboard");
+  const [deliverable, setDeliverable] = useState("static_roundup_6s");
   const [duration, setDuration] = useState(600);
   const [pAngle, setPAngle] = useState("");
   const [fmt, setFmt] = useState("");
@@ -123,7 +123,7 @@ export default function EditionDesk() {
           setAngle(typeof draft.angle === "string" ? draft.angle : "");
           setStructure(typeof draft.structure === "string" ? draft.structure : "");
           setTab(["developments", "suggested", "mine"].includes(draft.tab) ? draft.tab : "developments");
-          setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "script_storyboard");
+          setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "static_roundup_6s");
           setDuration([480, 600, 720].includes(draft.duration) ? draft.duration : 600);
           setPAngle(typeof draft.pAngle === "string" ? draft.pAngle : "");
           setFmt(typeof draft.fmt === "string" ? draft.fmt : "");
@@ -256,10 +256,10 @@ export default function EditionDesk() {
     setBusy(false);
   };
   useEffect(() => {
-    if (!editionId || editionKind === "text") { setCpv(null); return; }
+    if (!editionId || editionKind === "text" || deliverable === "static_roundup_6s") { setCpv(null); return; }
     const q = `editionId=${editionId}&durationSeconds=${duration}&format=${fmt}&sound=${sound}&visual=${visual}`;
     fetch(`${api}edition-prompt?${q}`).then(async (r) => { if (r.ok) setCpv((await r.json()).creative ?? null); else setCpv(null); }).catch(() => setCpv(null));
-  }, [editionId, editionKind, duration, fmt, sound, visual, approval?.current]);
+  }, [editionId, editionKind, deliverable, duration, fmt, sound, visual, approval?.current]);
   const build = async () => {
     if (!editionId) return;
     setBusy(true); setMsg(""); setCopied(false); setRes(null);
@@ -447,7 +447,7 @@ export default function EditionDesk() {
               </div>
             )}
 
-            <h3>4. Build the {editionKind === "text" ? "written briefing" : "video"} production prompt</h3>
+            <h3>4. Create the {editionKind === "text" ? "written briefing" : deliverable === "static_roundup_6s" ? "six-second static roundup" : "video production prompt"}</h3>
             {!canBuild && <p className="meta">Available once the saved edition has a current approval.</p>}
             {canBuild && (
               <>
