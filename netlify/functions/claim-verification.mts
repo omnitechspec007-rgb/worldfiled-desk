@@ -8,7 +8,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OUTCOMES = ["SUPPORTED", "PARTIALLY_SUPPORTED", "CONTRADICTED", "INSUFFICIENT_EVIDENCE", "UNVERIFIED", "NOT_APPLICABLE"];
 const hash = (s: string) => createHash("sha256").update(s.trim().toLowerCase()).digest("hex");
-const clean = (s: unknown, max: number) => typeof s === "string" ? s.trim().slice(0, max) : "";
+const clean = (s: unknown) => typeof s === "string" ? s.trim() : "";
+const exceeds = (s: unknown, max: number) => typeof s === "string" && s.trim().length > max;
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
@@ -32,8 +33,9 @@ export default async (req: Request) => {
     if (!exists[0]) return json({ error: "not_found" }, 404);
 
     if (b.action === "add_claim") {
-      const claimText = clean(b.claimText, 1200);
-      const category = clean(b.category, 80) || "factual";
+      const claimText = clean(b.claimText);
+      const category = clean(b.category) || "factual";
+      if (exceeds(b.claimText, 1200) || exceeds(b.category, 80)) return json({ error: "field_too_long", detail: "Claim text is limited to 1,200 characters and category to 80. Nothing was truncated or saved." }, 400);
       if (claimText.length < 8) return json({ error: "claim_too_short" }, 400);
       const rows = await db<any[]>(`claims?on_conflict=story_id,claim_hash&select=id,claim_text,category,created_at`, { method: "POST", body: { story_id: storyId, claim_text: claimText, claim_hash: hash(claimText), category, extraction_status: "pending" }, prefer: "resolution=merge-duplicates,return=representation" });
       await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: "in_progress", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
@@ -41,9 +43,11 @@ export default async (req: Request) => {
     }
 
     if (b.action === "add_evidence") {
-      const claimId = clean(b.claimId, 36), sourceId = clean(b.sourceId, 36);
-      const passage = clean(b.passage, 4000), location = clean(b.location, 300);
+      const claimId = clean(b.claimId), sourceId = clean(b.sourceId);
+      const passage = clean(b.passage), location = clean(b.location);
       if (!UUID.test(claimId) || !UUID.test(sourceId)) return json({ error: "bad_reference" }, 400);
+      if (exceeds(b.passage, 4000) || exceeds(b.location, 300)) return json({ error: "field_too_long", detail: "Evidence passage is limited to 4,000 characters and location to 300. Nothing was truncated or saved." }, 400);
+      if (b.isContradiction !== undefined && typeof b.isContradiction !== "boolean") return json({ error: "invalid_contradiction_flag", detail: "isContradiction must be a boolean, not a string or inferred value." }, 400);
       const claim = await db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id`);
       if (!claim[0]) return json({ error: "claim_not_found" }, 404);
       const linked = await db<any[]>(`story_source_links?story_id=eq.${storyId}&source_id=eq.${sourceId}&select=source_id`);
@@ -51,14 +55,15 @@ export default async (req: Request) => {
       const source = await db<any[]>(`retrieved_sources?id=eq.${sourceId}&select=id,published_at`);
       if (!source[0]) return json({ error: "source_not_found" }, 404);
       const fingerprint = hash(passage || `source:${sourceId}:no-passage`);
-      const rows = await db<any[]>(`claim_evidence?on_conflict=claim_id,source_id,passage_hash&select=id,claim_id,source_id,passage,passage_location,is_contradiction,extraction_status`, { method: "POST", body: { claim_id: claimId, source_id: sourceId, passage: passage || null, passage_hash: fingerprint, passage_location: location || null, source_published_at: source[0].published_at, created_at: new Date().toISOString(), extraction_status: passage ? "extracted" : "inaccessible", is_contradiction: Boolean(b.isContradiction) }, prefer: "resolution=merge-duplicates,return=representation" });
+      const rows = await db<any[]>(`claim_evidence?on_conflict=claim_id,source_id,passage_hash&select=id,claim_id,source_id,passage,passage_location,is_contradiction,extraction_status`, { method: "POST", body: { claim_id: claimId, source_id: sourceId, passage: passage || null, passage_hash: fingerprint, passage_location: location || null, source_published_at: source[0].published_at, created_at: new Date().toISOString(), extraction_status: passage ? "extracted" : "inaccessible", is_contradiction: b.isContradiction === true }, prefer: "resolution=merge-duplicates,return=representation" });
       await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: "in_progress", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
       return json({ evidence: rows[0], note: passage ? "Evidence passage saved. The editor must assess what it supports." : "Source linked without an extracted passage. This is a lead, not supporting evidence." });
     }
 
     if (b.action === "decide_claim") {
-      const claimId = clean(b.claimId, 36), outcome = clean(b.outcome, 40), notes = clean(b.notes, 400);
-      const contradictionResolution = clean(b.contradictionResolution, 1000);
+      const claimId = clean(b.claimId), outcome = clean(b.outcome), notes = clean(b.notes);
+      const contradictionResolution = clean(b.contradictionResolution);
+      if (exceeds(b.notes, 400) || exceeds(b.contradictionResolution, 1000)) return json({ error: "field_too_long", detail: "Reviewer notes are limited to 400 characters and contradiction rationale to 1,000. Nothing was truncated or saved." }, 400);
       if (!UUID.test(claimId) || !OUTCOMES.includes(outcome)) return json({ error: "bad_decision" }, 400);
       const claim = await db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id`);
       if (!claim[0]) return json({ error: "claim_not_found" }, 404);
