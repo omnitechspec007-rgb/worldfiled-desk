@@ -76,7 +76,7 @@ export default async (req: Request) => {
 
     if (b.action === "complete_story") {
       if (b.acknowledged !== true) return json({ error: "acknowledgement_required" }, 400);
-      const claims = await db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_evidence(id,passage,extraction_status,is_contradiction),verification_results(id,outcome,reviewer_notes,created_at)`);
+      const claims = await db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`);
       if (!claims.length) return json({ error: "no_material_claims_recorded" }, 400);
       const latest = (items: any[]) => [...(items ?? [])].sort((a,b)=>String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? "")))[0];
       const unresolved = claims.filter(c => {
@@ -84,8 +84,11 @@ export default async (req: Request) => {
         const extracted = (c.claim_evidence ?? []).filter((e:any)=>e.passage && e.extraction_status === "extracted");
         const hasSupportingPassage = extracted.some((e:any)=>!e.is_contradiction);
         const hasContradiction = extracted.some((e:any)=>e.is_contradiction);
+        const latestEvidenceAt = Math.max(0, ...(c.claim_evidence ?? []).map((e:any) => Date.parse(e.created_at ?? "") || 0));
+        const decisionAt = Date.parse(decision?.created_at ?? "") || 0;
+        const decisionIsCurrent = decisionAt >= latestEvidenceAt;
         const contradictionReconciled = !hasContradiction || hasContradictionReconciliation(decision?.reviewer_notes);
-        return !decision || decision.outcome !== "SUPPORTED" || !hasSupportingPassage || !contradictionReconciled;
+        return !decision || decision.outcome !== "SUPPORTED" || !hasSupportingPassage || !contradictionReconciled || !decisionIsCurrent;
       });
       if (unresolved.length) return json({ error: "claims_unresolved", unresolvedCount: unresolved.length, note: "Every recorded material claim needs an editor decision of SUPPORTED and at least one extracted evidence passage. Contradicted or incomplete claims block clearance." }, 409);
       await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: "verified", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
