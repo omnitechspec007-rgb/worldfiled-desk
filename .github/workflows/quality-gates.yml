@@ -27,9 +27,11 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Generate Vercel API router
+        run: npm run build:api
       - name: Run complete automated test suite
         run: npm test
       - name: Build production application
         run: npm run build
-      - name: Verify generated API router
-        run: npm run build:api
+      - name: Verify generated API router remains current
+        run: git diff --exit-code -- api/[name].js
