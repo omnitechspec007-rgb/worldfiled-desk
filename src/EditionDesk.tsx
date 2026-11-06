@@ -91,7 +91,7 @@ export default function EditionDesk() {
   const [ack, setAck] = useState(false);
   const [notes, setNotes] = useState("");
   const [deliverable, setDeliverable] = useState("script_storyboard");
-  const [duration, setDuration] = useState(90);
+  const [duration, setDuration] = useState(600);
   const [pAngle, setPAngle] = useState("");
   const [fmt, setFmt] = useState("");
   const [sound, setSound] = useState("subtle");
@@ -123,7 +123,7 @@ export default function EditionDesk() {
           setStructure(typeof draft.structure === "string" ? draft.structure : "");
           setTab(["developments", "suggested", "mine"].includes(draft.tab) ? draft.tab : "developments");
           setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "script_storyboard");
-          setDuration([60, 90, 120].includes(draft.duration) ? draft.duration : 90);
+          setDuration([480, 600, 720].includes(draft.duration) ? draft.duration : 600);
           setPAngle(typeof draft.pAngle === "string" ? draft.pAngle : "");
           setFmt(typeof draft.fmt === "string" ? draft.fmt : "");
           setSound(draft.sound === "minimal" ? "minimal" : "subtle");
@@ -205,7 +205,7 @@ export default function EditionDesk() {
     const kind = s.editionKind ?? editionKind;
     setEditionKind(kind); setSelections((prev) => ({ ...prev, [kind]: s.ids }));
     setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setAck(false); setNotes(""); setMsg("");
-    setSavedSnapshot(JSON.stringify({ ids: s.ids, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
+    setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
     setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
   const openSaved = async (id: string) => {
@@ -367,7 +367,7 @@ export default function EditionDesk() {
             <table>
               <thead><tr><th>Edition</th><th>Profile</th><th>Structure</th><th>Coherence</th><th>Developments</th><th>Approval</th><th></th></tr></thead>
               <tbody>{desk.saved.editions.map((e) => (
-                <tr key={e.id}><td>{{e.title}</td><td>{e.editionKind === "text" ? "Text briefing" : "Video bulletin"}</td><td>{e.structureLabel}</td><td>{e.verdict ?? "—"}{e.score !== null ? ` ${e.score}` : ""}</td><td>{e.members}</td>
+                <tr key={e.id}><td>{e.title}</td><td>{e.editionKind === "text" ? "Text briefing" : "Video bulletin"}</td><td>{e.structureLabel}</td><td>{e.verdict ?? "—"}{e.score !== null ? ` ${e.score}` : ""}</td><td>{e.members}</td>
                   <td className={e.approvalCurrent ? "ok" : "bad"}>{e.approvalCurrent ? "approved (current)" : e.decision ? `${e.decision.replace(/_/g, " ")}${e.decision === "approved" ? " (no longer current)" : ""}` : "not decided"}</td>
                   <td><button onClick={() => void openSaved(e.id)}>Open</button></td></tr>))}</tbody>
             </table>
