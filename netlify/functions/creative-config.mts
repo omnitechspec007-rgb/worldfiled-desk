@@ -5,7 +5,7 @@
 //   POST {action:"save-tools", toolsConfirmed:[keys]}     which free or manual capabilities the editor confirms are available
 //   POST {action:"save-lexicon", entry}          add or replace one pronunciation entry (status rules enforced; nothing is invented)
 // The app never calls a voice engine and never generates audio.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { loadCreative } from "../lib/creative-data.mts";
 import { CAPABILITIES, CONTROLS, LAOMEDEIA_REFERENCE, LEX_STATUSES, LICENCE_STATUSES, PRESENTER, PRESENTER_VERSION, PROFILES, PRONUNCIATION_HANDLING, VOICE_STATUSES, approvalState, lexKey, validateLexEntry, validateVoice, voiceKey } from "../lib/presenter.mts";
@@ -14,6 +14,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method === "GET") return await view();
     if (req.method === "POST") {
