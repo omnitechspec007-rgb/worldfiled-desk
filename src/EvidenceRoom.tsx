@@ -4,7 +4,7 @@ import { Scores, type Score } from "./Scores";
 
 type Source = { id: string; title: string; url: string; outlet: string; scope: string | null; region: string; tier: string; publishedAt: string | null; retrievedAt: string | null; depth: string; summary?: string | null };
 type Claim = { id: string; claim_text: string; category: string | null; claim_evidence: { id: string; passage: string | null; passage_location: string | null; is_contradiction: boolean; extraction_status: string; retrieved_sources?: { title: string; url: string } }[]; verification_results: { id: string; outcome: string; determined_by: string; reviewer_notes: string | null; created_at: string }[] };
-type Story = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; sources: Source[]; scores?: Score[]; decisions?: { decision: string; notes: string | null; created_at: string }[]; verification_status?: string };
+type Story = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; sources: Source[]; scores?: Score[]; decisions?: { decision: string; notes: string | null; created_at: string }[]; verificationStatus?: string };
 const outcomes = ["SUPPORTED", "PARTIALLY_SUPPORTED", "CONTRADICTED", "INSUFFICIENT_EVIDENCE", "UNVERIFIED", "NOT_APPLICABLE"];
 const dateText = (v: string | null) => v ? new Date(v).toLocaleString() : "date not given by source";
 
@@ -61,7 +61,7 @@ export default function EvidenceRoom() {
     {message && <p className="status good" role="status">{message}</p>}
     {!story && !error && <p className="status">Loading story and verification record…</p>}
     {story && <>
-      <div className="panel"><h2>{story.headline}</h2><p className="meta">{story.category || "Uncategorised"} · {story.regions.join(", ")}</p><p className="caution">Factual verification status: <strong>{story.verification_status || "unverified"}</strong>. Editorial approval is separate.</p></div>
+      <div className="panel"><h2>{story.headline}</h2><p className="meta">{story.category || "Uncategorised"} · {story.regions.join(", ")}</p><p className="caution">Factual verification status: <strong>{story.verificationStatus || "unverified"}</strong>. Editorial approval is separate.</p></div>
       <div className="panel">
         <h2>Sources ({story.sources.length} items from {story.outlets} outlets)</h2>
         <p className="caution">The research importer collected headlines and short summaries, not full article text. Open sources yourself and record the relevant passage below. Outlet count is not proof of independent corroboration.</p>
