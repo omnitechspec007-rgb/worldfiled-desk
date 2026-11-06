@@ -159,11 +159,12 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
 }
 
 export default function StaticRoundupBuilder({ title, stories }: Props) {
+  const storySignature = JSON.stringify(stories);
   const initial = useMemo(() => stories.slice(0, 10).map((s) => ({
     ...s,
     headline: s.headline.slice(0, 150),
     summary: (s.summary || s.headline).slice(0, 190),
-  })), [stories]);
+  })), [storySignature]);
   const [cards, setCards] = useState<RoundupStory[]>(initial);
   const [editionTitle, setEditionTitle] = useState(title || "The World You Probably Missed");
   const [date, setDate] = useState(new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }));
@@ -178,6 +179,7 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
   useEffect(() => {
     if (!imageUrl) { setImage(null); return; }
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = () => setImage(img);
     img.onerror = () => { setImage(null); setNotice("That image could not be loaded. Try a direct image URL or upload a local image."); };
     img.src = imageUrl;
@@ -198,8 +200,12 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
     if (!canvas) return;
     const a = document.createElement("a");
     a.download = "the-world-filed-roundup.png";
-    a.href = canvas.toDataURL("image/png");
-    a.click();
+    try {
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    } catch {
+      setNotice("The background image blocks browser export. Upload the image locally or use an image URL that permits cross-origin access.");
+    }
   };
 
   const exportVideo = async () => {
