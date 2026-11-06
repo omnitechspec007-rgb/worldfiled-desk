@@ -104,7 +104,9 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
   const bottom = 1788;
   const gap = cards.length > 8 ? 10 : 13;
   const cardH = (bottom - top - gap * Math.max(0, cards.length - 1)) / Math.max(1, cards.length);
-  const compact = cards.length > 8;
+  // Fit typography to available card height, not just the number of stories.
+  // This keeps seven- and eight-story editions from colliding with source labels.
+  const compact = cardH < 230;
   cards.forEach((story, index) => {
     const y = top + index * (cardH + gap);
     ctx.save();
@@ -126,18 +128,18 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
     const label = story.location ? story.location.toUpperCase().slice(0, 34) : "WORLD UPDATE";
     ctx.fillText(String(index + 1).padStart(2, "0") + "  /  " + label, padX, labelY);
 
-    const headlineSize = compact ? 27 : cards.length > 6 ? 29 : 32;
+    const headlineSize = compact ? 25 : 32;
     ctx.fillStyle = "#0B1F38";
     ctx.font = "700 " + headlineSize + "px Inter, Arial, sans-serif";
-    const headlineY = y + (compact ? 61 : 68);
-    const titleCount = drawText(ctx, story.headline, padX, headlineY, 900, headlineSize * 1.16, compact ? 1 : 2);
+    const headlineY = y + (compact ? 57 : 68);
+    const titleCount = drawText(ctx, story.headline, padX, headlineY, 900, headlineSize * 1.12, compact ? 1 : 2);
 
-    const summarySize = compact ? 21 : 23;
+    const summarySize = compact ? 19 : 23;
     ctx.fillStyle = "#31465B";
     ctx.font = "500 " + summarySize + "px Inter, Arial, sans-serif";
-    const summaryY = headlineY + titleCount * headlineSize * 1.16 + (compact ? 25 : 28);
+    const summaryY = headlineY + titleCount * headlineSize * 1.12 + (compact ? 16 : 22);
     const maxSummaryLines = compact ? 1 : 2;
-    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.25, maxSummaryLines);
+    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.2, maxSummaryLines);
     if (story.source) {
       ctx.fillStyle = "#68798A";
       ctx.font = "500 14px Inter, Arial, sans-serif";
