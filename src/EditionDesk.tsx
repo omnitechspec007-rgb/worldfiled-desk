@@ -71,7 +71,7 @@ export default function EditionDesk() {
   const [inspect, setInspect] = useState<string | null>(null);
   // coverage window (from the Planner): classify developments as new / update / renewed / held over / already published
   type WinCls = { cls: string; candidate: boolean; reason: string };
-  const [win, setWin] = useState("");
+  const [win, setWin] = useState("24");
   const [winInfo, setWinInfo] = useState<{ local: string; hours: number; overlaps: { label: string; minutes: number }[]; map: Record<string, WinCls> } | null>(null);
   const [cycleWin, setCycleWin] = useState<{ start: string; end: string; label: string } | null>(null);
   const [rejectedLinks, setRejectedLinks] = useState<string[]>([]);
@@ -334,9 +334,9 @@ export default function EditionDesk() {
             </div>
             <div className="row">
               <label>Coverage window<select value={win} onChange={(e) => setWin(e.target.value)}>
-                <option value="">Any recent research (default)</option>
+                <option value="">Any recent research</option>
                 {cycleWin && <option value="cycle">This edition's window ({cycleWin.label})</option>}
-                <option value="6">Last 6 hours</option><option value="12">Last 12 hours</option><option value="24">Last 24 hours</option>
+                <option value="6">Last 6 hours</option><option value="12">Last 12 hours</option><option value="24">Last 24 hours (daily edition default)</option>
               </select></label>
               <label>Search<input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="words in the headline" /></label>
               <label>Recommendation<select value={recFilter} onChange={(e) => setRecFilter(e.target.value)}><option value="">All</option>{recs.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
