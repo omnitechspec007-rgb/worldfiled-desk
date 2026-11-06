@@ -300,3 +300,19 @@ textarea { width: 100%; font: inherit; padding: 10px; border: 1px solid var(--na
 }
 label.pick { padding: 6px 0; }
 .picked { background: #fffaf0; }
+
+
+/* Static six-second editorial roundup */
+.roundup-builder { display: grid; gap: 16px; }
+.roundup-preview { background: #0b1f38; padding: 12px; border: 1px solid rgba(11,31,56,.2); }
+.roundup-preview-head { display:flex; justify-content:space-between; gap:12px; color:#f7f4ed; font-size:.75rem; letter-spacing:.06em; padding:4px 2px 12px; }
+.roundup-preview canvas { display:block; width:min(100%, 420px); height:auto; margin:0 auto; background:#0b1f38; box-shadow:0 10px 30px rgba(0,0,0,.28); }
+.roundup-card-editor { border-top:1px solid var(--line); padding:12px 0; }
+.roundup-card-editor label { display:block; margin:8px 0; }
+.roundup-card-editor input, .roundup-card-editor textarea { width:100%; }
+.roundup-builder .confirm { margin:0; }
+@media (max-width:760px) {
+  .roundup-preview { padding:8px; }
+  .roundup-preview-head { font-size:.66rem; }
+  .roundup-preview canvas { width:100%; }
+}
