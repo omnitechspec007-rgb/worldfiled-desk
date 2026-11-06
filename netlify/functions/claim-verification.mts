@@ -1,6 +1,6 @@
 // Human claim verification API. All writes require the signed editor session.
 import { createHash } from "node:crypto";
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { formatReviewerNotes, hasContradictionReconciliation } from "../lib/claim-clearance.mts";
 
@@ -13,6 +13,7 @@ const exceeds = (s: unknown, max: number) => typeof s === "string" && s.trim().l
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method !== "GET" && req.method !== "HEAD" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method === "GET") {
       const u = new URL(req.url);
