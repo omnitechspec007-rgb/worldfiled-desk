@@ -51,6 +51,7 @@ export default async (req: Request) => {
       if (!source[0]) return json({ error: "source_not_found" }, 404);
       const fingerprint = hash(passage || `source:${sourceId}:no-passage`);
       const rows = await db<any[]>(`claim_evidence?on_conflict=claim_id,source_id,passage_hash&select=id,claim_id,source_id,passage,passage_location,is_contradiction,extraction_status`, { method: "POST", body: { claim_id: claimId, source_id: sourceId, passage: passage || null, passage_hash: fingerprint, passage_location: location || null, source_published_at: source[0].published_at, extraction_status: passage ? "extracted" : "inaccessible", is_contradiction: Boolean(b.isContradiction) }, prefer: "resolution=merge-duplicates,return=representation" });
+      await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: "in_progress", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
       return json({ evidence: rows[0], note: passage ? "Evidence passage saved. The editor must assess what it supports." : "Source linked without an extracted passage. This is a lead, not supporting evidence." });
     }
 
@@ -60,7 +61,8 @@ export default async (req: Request) => {
       const claim = await db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id`);
       if (!claim[0]) return json({ error: "claim_not_found" }, 404);
       const evidence = await db<any[]>(`claim_evidence?claim_id=eq.${claimId}&select=id,passage,extraction_status,is_contradiction`);
-      if (!evidence.length && outcome === "SUPPORTED") return json({ error: "supported_claim_requires_evidence" }, 400);
+      const qualifyingEvidence = evidence.some((e:any) => e.passage && e.extraction_status === "extracted");
+      if (!qualifyingEvidence && outcome === "SUPPORTED") return json({ error: "supported_claim_requires_checked_passage" }, 400);
       const result = await db<any[]>(`verification_results?select=id,claim_id,outcome,determined_by,reviewer_notes,created_at`, { method: "POST", body: { claim_id: claimId, outcome, determined_by: "editor", reviewer_notes: notes || null }, prefer: "return=representation" });
       await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: outcome === "CONTRADICTED" ? "failed" : "in_progress", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
       return json({ result: result[0], note: "Decision recorded in the verification history. Story-level clearance remains a separate step." });
