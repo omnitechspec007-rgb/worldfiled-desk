@@ -9,5 +9,7 @@ const rationale="The conflicting passage describes a separate agency announcemen
 const resolved={...base,verification_results:[{...base.verification_results[0],reviewer_notes:formatReviewerNotes(rationale,"Reviewed the source in context.")}]};
 assert.equal(hasContradictionReconciliation(resolved.verification_results[0].reviewer_notes),true);
 assert.equal(assessClaimClearance([resolved],[storyId]).ready,true);
+const newerEvidence={...resolved,claim_evidence:[...resolved.claim_evidence,{passage:"Newly added supporting detail",extraction_status:"extracted",is_contradiction:false,created_at:"2026-11-06T10:01:00Z"}]};
+assert.equal(assessClaimClearance([newerEvidence],[storyId]).ready,false);
 assert.equal(assessClaimClearance([], [storyId]).ready,false);
 console.log("ALL CLAIM CLEARANCE CHECKS PASSED");
