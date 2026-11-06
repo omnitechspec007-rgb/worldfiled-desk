@@ -89,6 +89,7 @@ check("every source URL, outlet and date is in the prompt", multi.pack.sources.e
 check("rule: creative treatment may not promote unsupported claims", /may never turn a SINGLE_SOURCE, CONFLICTING or UNKNOWN item into an asserted fact/.test(sp.out.prompt));
 check("rule: illustrative elements must be labelled", /framed as illustrative/.test(sp.out.prompt));
 check("prompt requires a claim-to-source table with classes", /claim-to-source table/.test(sp.out.prompt) && /evidence class/.test(sp.out.prompt));
+check("single-story prompt includes strict anti-hallucination and anti-manipulation policy", /AI-SLOP \/ LOW-QUALITY OUTPUT DEFENCE/.test(sp.out.prompt) && /MANIPULATION, PROPAGANDA/.test(sp.out.prompt) && /When uncertain, abstain/.test(sp.out.prompt));
 
 // ---------- size and copyright-aware limits (never silent) ----------
 const many = story("Big story", Array.from({ length: 20 }, (_, i) => src({ outlet: `Outlet${i}`, summary: "x".repeat(900) })));
