@@ -37,6 +37,13 @@ function postgrest(url: URL, init: any) {
     const ord = p.get("order"); if (ord) { const [c, d] = ord.split(",")[0].split("."); out = [...out].sort((a, b) => (typeof a[c] === "number" ? a[c] - b[c] : String(a[c] ?? "").localeCompare(String(b[c] ?? ""))) * (d === "desc" ? -1 : 1)); }
     const lim = Number(p.get("limit") ?? 0); if (lim) out = out.slice(0, lim);
     if (table === "stories") out = out.map((st) => ({ ...st, story_source_links: T("story_source_links").filter((l) => l.story_id === st.id).map((l) => { const rs = T("retrieved_sources").find((r) => r.id === l.source_id); return { retrieved_sources: rs ? { ...rs, source_registry: T("source_registry").find((g) => g.id === rs.registry_id) } : null }; }) }));
+    // Synthetic, current claim registers keep this edition workflow test focused on editions.
+    // Claim-level edge cases are covered by claim-clearance and claim-verification tests.
+    if (table === "claims") out = T("stories").filter((st) => matches({ story_id: st.id }, p)).map((st) => ({
+      id: "claim-" + st.id, story_id: st.id,
+      claim_evidence: [{ id: "evidence-" + st.id, passage: "Checked synthetic supporting passage for edition workflow test.", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60000).toISOString() }],
+      verification_results: [{ id: "decision-" + st.id, outcome: "SUPPORTED", reviewer_notes: "Synthetic editor decision for edition workflow test.", created_at: new Date().toISOString() }]
+    }));
     return new Response(JSON.stringify(out), { status: 200 });
   }
   if (m === "POST") {
