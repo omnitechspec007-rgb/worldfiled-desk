@@ -107,9 +107,12 @@ export function assessClaimClearance(rows: any[], storyIds: string[]): ClaimClea
       const extracted = evidence.filter((e:any) => e.passage && e.extraction_status === "extracted");
       const support = extracted.some((e:any) => !e.is_contradiction);
       const contradiction = extracted.some((e:any) => e.is_contradiction);
+      const latestEvidenceAt = Math.max(0, ...evidence.map((e:any) => Date.parse(e.created_at ?? "") || 0));
+      const decisionAt = Date.parse(latest?.created_at ?? "") || 0;
       if (!latest) blocked.push({ storyId, claimId: claim.id, reason: "No editor decision recorded." });
       else if (latest.outcome !== "SUPPORTED") blocked.push({ storyId, claimId: claim.id, reason: "Latest decision is " + latest.outcome + "." });
       else if (!support) blocked.push({ storyId, claimId: claim.id, reason: "No extracted supporting passage." });
+      else if (decisionAt < latestEvidenceAt) blocked.push({ storyId, claimId: claim.id, reason: "Evidence was added or changed after the latest editor decision; review this claim again." });
       else if (contradiction && !hasContradictionReconciliation(latest.reviewer_notes)) blocked.push({ storyId, claimId: claim.id, reason: "Contradictory evidence needs a specific editor reconciliation rationale, not a general note." });
     }
   }
@@ -118,7 +121,7 @@ export function assessClaimClearance(rows: any[], storyIds: string[]): ClaimClea
 
 export async function editionClaimClearance(storyIds: string[]): Promise<ClaimClearance> {
   if (!storyIds.length) return { ready: false, blocked: [{ storyId: "", reason: "The edition has no stories." }] };
-  const rows = await db<any[]>(`claims?story_id=in.(${storyIds.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction),verification_results(id,outcome,reviewer_notes,created_at)`);
+  const rows = await db<any[]>(`claims?story_id=in.(${storyIds.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`);
   return assessClaimClearance(rows, storyIds);
 }
 
