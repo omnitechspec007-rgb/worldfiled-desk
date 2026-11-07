@@ -187,6 +187,9 @@ export default function ProvenanceDesk() {
         <h2>Provenance schema not installed</h2>
         <p>{data.detail}</p>
         <p className="muted">This page does not apply migrations or change the database. The migration files remain review-only until separately approved.</p>
+      {reviewMessage && <div className={reviewUncertain ? "panel state-warning" : "panel state-message"} role={reviewUncertain ? "status" : "alert"}>
+        <p>{reviewMessage}</p>
+        {reviewUncertain && reviewPending && <button className="primary" disabled={reviewBusy} onClick={() => void submitReview(reviewPending)}>{reviewBusy ? "RETRYING…" : "RETRY SAME REVIEW"}</button>}
       </div>}
 
       {data?.installed && (
@@ -226,6 +229,8 @@ export default function ProvenanceDesk() {
           </div>
 
           {tab === "publishers" && (
+            <>
+            <p className="provenance-policy-warning">Content-access policy is recorded separately from reliability. The policy register is not yet enforced by the retrieval pipeline; do not treat an “extraction allowed” entry as technical or legal authorization.</p>
             <div className="provenance-list">
               {sources.length === 0 && <div className="panel">No publishers match these filters.</div>}
               {sources.map((source) => <article className="panel provenance-card" key={source.id}>
@@ -243,6 +248,7 @@ export default function ProvenanceDesk() {
                 {source.contentPolicy.evidence_url && <a href={source.contentPolicy.evidence_url} target="_blank" rel="noreferrer">View policy evidence</a>}
               </article>)}
             </div>
+            </>
           )}
 
           {tab === "relationships" && (
@@ -296,6 +302,7 @@ export default function ProvenanceDesk() {
                 <p className="meta">{label(edge.relationship_type)} · Last reviewed {date(edge.reviewed_at)}</p>
                 {edge.review_notes && <p>{edge.review_notes}</p>}
                 {edge.evidence_url && <a href={edge.evidence_url} target="_blank" rel="noreferrer">Open review evidence</a>}
+                <RelationshipReviewForm edge={edge} onSave={beginReview} disabled={reviewBusy || reviewUncertain || Boolean(reviewPending)} />
               </article>)}
               </div>
             </>
@@ -313,6 +320,7 @@ export default function ProvenanceDesk() {
                 {edge.review_notes && <p className="meta">Review note: {edge.review_notes}</p>}
                 {edge.evidence_url && <a href={edge.evidence_url} target="_blank" rel="noreferrer">Open review evidence</a>}
                 {edge.article?.url && <p><a href={edge.article.url} target="_blank" rel="noreferrer">Open retrieved article</a></p>}
+                <LineageReviewForm edge={edge} sources={data.sources} onSave={beginReview} disabled={reviewBusy || reviewUncertain || Boolean(reviewPending)} />
               </article>)}
             </div>
           )}
