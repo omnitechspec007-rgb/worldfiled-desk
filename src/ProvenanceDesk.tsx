@@ -52,12 +52,14 @@ export default function ProvenanceDesk() {
       (status === "all" || (status === "metadata_only" ? source.contentPolicy.policy === "metadata_only" : source.retrieval_status === status));
   }), [data, query, status]);
 
-  const relationships = useMemo(() => (data?.relationships ?? []).filter((edge) =>
-    status === "all" || edge.review_status === status
-  ), [data, status]);
-  const lineage = useMemo(() => (data?.lineage ?? []).filter((edge) =>
-    status === "all" || edge.review_status === status
-  ), [data, status]);
+  const relationships = useMemo(() => (data?.relationships ?? []).filter((edge) => {
+    const haystack = [edge.relationship_type, edge.source?.name, edge.source?.publisher, edge.relatedSource?.name, edge.relatedSource?.publisher].join(" ").toLowerCase();
+    return (!query || haystack.includes(query.toLowerCase())) && (status === "all" || edge.review_status === status);
+  }), [data, query, status]);
+  const lineage = useMemo(() => (data?.lineage ?? []).filter((edge) => {
+    const haystack = [edge.origin_type, edge.article?.title, edge.article?.publisher, edge.upstreamArticle?.title, edge.upstreamPublisher?.name].join(" ").toLowerCase();
+    return (!query || haystack.includes(query.toLowerCase())) && (status === "all" || edge.review_status === status);
+  }), [data, query, status]);
 
   return (
     <section className="provenance-page">
