@@ -1,4 +1,4 @@
-// Real-Postgres test for migration 008. Not part of npm test; requires embedded-postgres and pg.
+// Real-Postgres tests for migrations 008 and 009. CI supplies PostgreSQL 16; local runs may use embedded-postgres.
 import pg from "pg";
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
