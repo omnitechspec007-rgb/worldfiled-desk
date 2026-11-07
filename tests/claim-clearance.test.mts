@@ -4,6 +4,10 @@ import { formatReviewerNotes, hasContradictionReconciliation } from "../netlify/
 const storyId="11111111-1111-4111-8111-111111111111";
 const base={id:"claim-1",story_id:storyId,claim_evidence:[{passage:"A checked supporting passage",extraction_status:"extracted",is_contradiction:false},{passage:"A checked conflicting passage",extraction_status:"extracted",is_contradiction:true}],verification_results:[{id:"decision-1",outcome:"SUPPORTED",created_at:"2026-11-06T10:00:00Z",reviewer_notes:"A long but generic reviewer note that does not explain the conflicting passage in any specific way."}]};
 assert.equal(hasContradictionReconciliation(base.verification_results[0].reviewer_notes),false);
+const encoded = formatReviewerNotes("A sufficiently specific reconciliation explaining the conflicting evidence and why it does not overturn this claim.", "Reviewed independently.");
+assert.ok(encoded.startsWith("CONTRADICTION RECONCILIATION:\\n"), "reconciliation uses a real newline delimiter");
+assert.ok(encoded.includes("\\n\\nEDITOR NOTES:\\n"), "general notes are separated by real newline delimiters");
+assert.equal(hasContradictionReconciliation(encoded), true);
 assert.equal(assessClaimClearance([base],[storyId]).ready,false);
 const rationale="The conflicting passage describes a separate agency announcement on a different date. The primary notice and its publication record independently establish the date stated in this claim.";
 const resolved={...base,verification_results:[{...base.verification_results[0],reviewer_notes:formatReviewerNotes(rationale,"Reviewed the source in context.")}]};
