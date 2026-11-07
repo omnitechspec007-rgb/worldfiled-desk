@@ -6,6 +6,7 @@ type RoundupStory = {
   summary: string;
   location?: string;
   source?: string;
+  publishedAt?: string | null;
 };
 
 type Props = { title: string; stories: RoundupStory[]; exportReady: boolean; preflightNote: string };
@@ -144,7 +145,13 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
 
     ctx.fillStyle = "#68798A";
     ctx.font = "600 13px Inter, Arial, sans-serif";
-    const sourceLabel = story.source ? "SOURCE: " + story.source.toUpperCase().slice(0, 58) : "SOURCE DETAILS: OPEN LINKED STORY";
+    const dateMatch = story.publishedAt ? /^(\\d{4})-(\\d{2})-(\\d{2})/.exec(story.publishedAt) : null;
+    const dateLabel = dateMatch
+      ? new Date(Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).toUpperCase()
+      : "DATE UNKNOWN";
+    const sourceLabel = story.source
+      ? "SOURCE: " + story.source.toUpperCase().slice(0, 42) + "  ·  " + dateLabel
+      : "SOURCE NOT PROVIDED  ·  " + dateLabel + "  ·  CHECK BEFORE SHARING";
     ctx.fillText(sourceLabel, padX, y + cardH - 13);
   });
 
