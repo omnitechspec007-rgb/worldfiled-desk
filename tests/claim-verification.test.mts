@@ -6,6 +6,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
 const root = new URL("../netlify/", import.meta.url).pathname;
 const { makeSessionCookie } = await import(root + "lib/session.mts");
 const handler = (await import(root + "functions/claim-verification.mts")).default;
+const { hasContradictionReconciliation } = await import(root + "lib/claim-clearance.mts");
 const cookie = makeSessionCookie().split(";")[0];
 const storyId = "11111111-1111-4111-8111-111111111111";
 const sourceId = "22222222-2222-4222-8222-222222222222";
@@ -22,7 +23,8 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   const u = new URL(String(input)), table = u.pathname.split("/rest/v1/")[1], method = init.method || "GET", p = u.searchParams;
   if (table === "rpc/record_claim_verification_decision" && method === "POST") {
     const b = JSON.parse(init.body || "{}");
-    const old = idempotency.get(b.p_idempotency_key);
+    const mapKey = "claim:" + b.p_idempotency_key;
+    const old = idempotency.get(mapKey);
     if (old) {
       if (old.hash !== b.p_request_hash) return response({status:409,body:{error:"idempotency_key_reused"}});
       return response({status:old.status,body:old.body,replayed:true});
@@ -41,7 +43,33 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
     stories.find(x=>x.id===b.p_story_id).verification_status=b.p_outcome==="CONTRADICTED"?"failed":"in_progress";
     auditEvents.push({event_type:"claim_verification_"+b.p_outcome.toLowerCase(),entity_id:b.p_claim_id,detail:{idempotency_key:b.p_idempotency_key}});
     const body={result,note:"Decision recorded atomically. Story-level clearance remains a separate step."};
-    idempotency.set(b.p_idempotency_key,{hash:b.p_request_hash,status:200,body});
+    idempotency.set(mapKey,{hash:b.p_request_hash,status:200,body});
+    return response({status:200,body,replayed:false});
+  }
+  if (table === "rpc/complete_story_verification" && method === "POST") {
+    const b = JSON.parse(init.body || "{}");
+    const mapKey = "clearance:" + b.p_idempotency_key;
+    const old = idempotency.get(mapKey);
+    if (old) {
+      if (old.hash !== b.p_request_hash) return response({status:409,body:{error:"idempotency_key_reused"}});
+      return response({status:old.status,body:old.body,replayed:true});
+    }
+    const story = stories.find(x=>x.id===b.p_story_id);
+    if (!story) return response({status:404,body:{error:"not_found"}});
+    const storyClaims = claims.filter(x=>x.story_id===b.p_story_id);
+    if (!storyClaims.length) return response({status:400,body:{error:"no_material_claims_recorded"}});
+    const unresolved = storyClaims.filter(claim=>{
+      const latest = [...decisions.filter(d=>d.claim_id===claim.id)].sort((a,b)=>b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id))[0];
+      const rows = evidence.filter(e=>e.claim_id===claim.id && e.passage && e.extraction_status==="extracted");
+      const support = rows.some(e=>!e.is_contradiction), contra = rows.some(e=>e.is_contradiction);
+      const latestEvidenceAt = Math.max(0,...evidence.filter(e=>e.claim_id===claim.id).map(e=>Date.parse(e.created_at||"")||0));
+      return !latest || latest.outcome!=="SUPPORTED" || !support || (contra && !hasContradictionReconciliation(latest.reviewer_notes)) || Date.parse(latest.created_at||"")<latestEvidenceAt;
+    });
+    if (unresolved.length) return response({status:409,body:{error:"claims_unresolved",unresolvedCount:unresolved.length}});
+    story.verification_status="verified";
+    auditEvents.push({event_type:"story_verification_verified",entity_id:b.p_story_id,detail:{idempotency_key:b.p_idempotency_key}});
+    const body={verificationStatus:"verified",note:"Story marked verified for the claims recorded. The editor confirmed the material-claim list is complete."};
+    idempotency.set(mapKey,{hash:b.p_request_hash,status:200,body});
     return response({status:200,body,replayed:false});
   }
   const tableRows: Record<string,any[]> = { stories, claims, claim_evidence:evidence, verification_results:decisions, story_source_links:links, retrieved_sources:sources };
@@ -68,7 +96,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   return response({},405);
 }) as any;
 const req = (method:string, body?:any, authenticated=true, idem?:string) => new Request("https://desk.example/?storyId="+storyId,{method,headers:{origin:"https://desk.example",...(authenticated?{cookie}:{}),...(body?{"content-type":"application/json"}:{}),...(idem?{"idempotency-key":idem}:{})},...(body?{body:JSON.stringify(body)}:{})});
-const post = (body:any, auth=true, idem?:string) => handler(req("POST",body,auth,idem ?? (body?.action==="decide_claim" ? crypto.randomUUID() : undefined)));
+const post = (body:any, auth=true, idem?:string) => handler(req("POST",body,auth,idem ?? (body?.action==="decide_claim" || body?.action==="complete_story" ? crypto.randomUUID() : undefined)));
 const get = (auth=true) => handler(req("GET",undefined,auth));
 const ok = (s:string) => console.log("PASS "+s);
 
@@ -97,7 +125,7 @@ ok("same claim-decision request key replays without duplicate decision or audit 
 assert.equal((await post({...decisionBody,notes:"Changed payload"},true,replayKey)).status,409);
 ok("reusing a claim-decision key with changed data is rejected");
 assert.equal((await post({action:"complete_story",storyId,acknowledged:false})).status,400); assert.equal(stories[0].verification_status,"in_progress"); ok("clearance requires explicit completeness acknowledgement");
-r=await post({action:"complete_story",storyId,acknowledged:true}); assert.equal(r.status,200); assert.equal(stories[0].verification_status,"verified"); ok("story becomes verified only after every recorded claim has a passage and supported editor decision");
+const clearanceKey=crypto.randomUUID(); r=await post({action:"complete_story",storyId,acknowledged:true},true,clearanceKey); assert.equal(r.status,200); assert.equal(stories[0].verification_status,"verified"); const clearanceReplay=await post({action:"complete_story",storyId,acknowledged:true},true,clearanceKey); assert.equal(clearanceReplay.status,200); assert.equal((await clearanceReplay.json()).replayed,true); ok("story clearance is atomic and replays without duplicate audit events");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"A newly checked passage."})).status,200); assert.equal(stories[0].verification_status,"in_progress"); ok("adding or changing evidence invalidates prior story-level clearance");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"A report gives a conflicting date.",isContradiction:true})).status,200); ok("contradictory evidence is recorded distinctly");
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"I checked it."})).status,409); ok("SUPPORTED is blocked when contradictory evidence has only generic notes");
