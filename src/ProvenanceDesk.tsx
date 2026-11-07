@@ -74,7 +74,7 @@ export default function ProvenanceDesk() {
         method: "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": operation.key },
         body: JSON.stringify({
-          sourceId: operation.sourceId, relatedSourceId: operation.relatedSourceId,
+          action: "create_relationship_candidate", sourceId: operation.sourceId, relatedSourceId: operation.relatedSourceId,
           relationshipType: operation.relationshipType, evidenceUrl: operation.evidenceUrl,
           reviewNotes: operation.reviewNotes,
         }),
