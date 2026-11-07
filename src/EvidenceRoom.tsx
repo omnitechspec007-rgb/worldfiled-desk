@@ -70,7 +70,7 @@ export default function EvidenceRoom() {
       const r = await fetch("/.netlify/functions/claim-verification", {
         method:"POST",
         headers:{"Content-Type":"application/json", ...(operation ? {"Idempotency-Key":operation.key} : {})},
-        body:JSON.stringify({storyId:id,...(operation ? operation.body : body)})
+        body:JSON.stringify({storyId:operation ? operation.storyId : id,...(operation ? operation.body : body)})
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -110,7 +110,7 @@ export default function EvidenceRoom() {
 
   return <section>
     <h1>Evidence Room</h1>
-    {error && <div className={decisionUncertain ? "panel state-warning" : "status bad"} role={decisionUncertain ? "status" : "alert"}><p>{error}</p>{decisionUncertain && pendingDecision && <button className="primary" disabled={busy} onClick={()=>void act(pendingDecision.body,pendingDecision)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button>}</div>}
+    {error && <div className={decisionUncertain ? "panel state-warning" : "status bad"} role={decisionUncertain ? "status" : "alert"}><p>{error}</p>{decisionUncertain && pendingDecision && (pendingDecision.storyId === id ? <button className="primary" disabled={busy} onClick={()=>void act(pendingDecision.body,pendingDecision)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button> : <p><Link to={"/evidence/"+pendingDecision.storyId}>Return to the story with the pending decision to retry it safely.</Link></p>)}</div>}
     {message && <p className="status good" role="status">{message}</p>}
     {!story && !error && <p className="status">Loading story and verification record…</p>}
     {story && <>
