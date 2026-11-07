@@ -4,6 +4,7 @@ import { Scores, type Score } from "./Scores";
 
 type Source = { id: string; title: string; url: string; outlet: string; scope: string | null; region: string; tier: string; publishedAt: string | null; retrievedAt: string | null; depth: string; summary?: string | null };
 type Claim = { id: string; claim_text: string; category: string | null; claim_evidence: { id: string; passage: string | null; passage_location: string | null; is_contradiction: boolean; extraction_status: string; retrieved_sources?: { title: string; url: string } }[]; verification_results: { id: string; outcome: string; determined_by: string; reviewer_notes: string | null; created_at: string }[] };
+type PendingClaimDecision = { storyId: string; body: Record<string,unknown>; key: string };
 type Story = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; sources: Source[]; scores?: Score[]; decisions?: { decision: string; notes: string | null; created_at: string }[]; verificationStatus?: string };
 const outcomes = ["SUPPORTED", "PARTIALLY_SUPPORTED", "CONTRADICTED", "INSUFFICIENT_EVIDENCE", "UNVERIFIED", "NOT_APPLICABLE"];
 const dateText = (v: string | null) => v ? new Date(v).toLocaleString() : "date not given by source";
@@ -25,6 +26,14 @@ export default function EvidenceRoom() {
   const [reason, setReason] = useState<Record<string,string>>({});
   const [contradictionResolution, setContradictionResolution] = useState<Record<string,string>>({});
   const [completeAck, setCompleteAck] = useState(false);
+  const [pendingDecision, setPendingDecision] = useState<PendingClaimDecision | null>(() => {
+    try {
+      const raw = sessionStorage.getItem("wf:pending-claim-decision");
+      const value = raw ? JSON.parse(raw) as PendingClaimDecision : null;
+      return value && value.storyId === id && value.body?.action === "decide_claim" && typeof value.key === "string" ? value : null;
+    } catch { return null; }
+  });
+  const [decisionUncertain, setDecisionUncertain] = useState(() => Boolean(pendingDecision));
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -42,23 +51,66 @@ export default function EvidenceRoom() {
   }, [id]);
   useEffect(() => { void load(); }, [load]);
 
-  const act = async (body: Record<string,unknown>) => {
+  const act = async (body: Record<string,unknown>, retryOperation?: PendingClaimDecision) => {
     if (!id) return null;
+    const isDecision = body.action === "decide_claim";
+    if (decisionUncertain && !retryOperation) {
+      setError("A previous claim decision has an uncertain result. Retry that exact decision before starting another action.");
+      return null;
+    }
+    const operation: PendingClaimDecision | null = isDecision
+      ? retryOperation ?? { storyId: id, body: { ...body }, key: crypto.randomUUID() }
+      : null;
     setBusy(true); setError(""); setMessage("");
+    if (operation) {
+      setPendingDecision(operation);
+      try { sessionStorage.setItem("wf:pending-claim-decision", JSON.stringify(operation)); } catch { /* in-memory retry remains available */ }
+    }
     try {
-      const r = await fetch("/.netlify/functions/claim-verification", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({storyId:id,...body}) });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.note || data.detail || data.error || "Could not save.");
-      setMessage(data.note || "Saved."); await load(); return data;
-    } catch(e) { setError(e instanceof Error ? e.message : "Could not save."); return null; }
-    finally { setBusy(false); }
+      const r = await fetch("/.netlify/functions/claim-verification", {
+        method:"POST",
+        headers:{"Content-Type":"application/json", ...(operation ? {"Idempotency-Key":operation.key} : {})},
+        body:JSON.stringify({storyId:id,...(operation ? operation.body : body)})
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (operation && (data.outcome === "unknown" || r.status >= 500)) {
+          setDecisionUncertain(true);
+          setError("We couldn't confirm whether this decision was saved. Your work is preserved. Retry the same decision safely.");
+        } else {
+          if (operation) {
+            setPendingDecision(null);
+            setDecisionUncertain(false);
+            try { sessionStorage.removeItem("wf:pending-claim-decision"); } catch { /* ignore unavailable storage */ }
+          }
+          setError(data.note || data.detail || data.error || "Could not save.");
+        }
+        return null;
+      }
+      if (operation) {
+        setPendingDecision(null);
+        setDecisionUncertain(false);
+        try { sessionStorage.removeItem("wf:pending-claim-decision"); } catch { /* ignore unavailable storage */ }
+      }
+      setMessage(data.replayed ? "Already saved. No duplicate decision was created." : data.note || "Saved.");
+      await load();
+      return data;
+    } catch(e) {
+      if (operation) {
+        setDecisionUncertain(true);
+        setError("Connection interrupted. We couldn't confirm whether this decision was saved. Your work is preserved; retry safely using the same request.");
+      } else {
+        setError(e instanceof Error ? e.message : "Could not save.");
+      }
+      return null;
+    } finally { setBusy(false); }
   };
 
   if (!id) return <section><h1>Evidence Room</h1><div className="panel"><p>Pick a story in the <Link to="/stories">Story Desk</Link> to inspect its sources.</p></div></section>;
 
   return <section>
     <h1>Evidence Room</h1>
-    {error && <p className="status bad" role="alert">{error}</p>}
+    {error && <div className={decisionUncertain ? "panel state-warning" : "status bad"} role={decisionUncertain ? "status" : "alert"}><p>{error}</p>{decisionUncertain && pendingDecision && <button className="primary" disabled={busy} onClick={()=>void act(pendingDecision.body,pendingDecision)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button>}</div>}
     {message && <p className="status good" role="status">{message}</p>}
     {!story && !error && <p className="status">Loading story and verification record…</p>}
     {story && <>
@@ -91,7 +143,7 @@ export default function EvidenceRoom() {
             <label>Editor decision<select value={outcome[c.id]||"UNVERIFIED"} onChange={e=>setOutcome(p=>({...p,[c.id]:e.target.value}))}>{outcomes.map(o=><option key={o} value={o}>{o.replace(/_/g," ")}</option>)}</select></label>
             {needsReconciliation && <label>Specific contradiction reconciliation (required)<textarea rows={3} maxLength={1000} value={contradictionResolution[c.id]||""} onChange={e=>setContradictionResolution(p=>({...p,[c.id]:e.target.value}))} placeholder="Address the conflicting passage directly. Explain what it says, why it conflicts, and what evidence justifies your conclusion." /></label>}
             <label>General reviewer notes<textarea rows={2} maxLength={400} value={reason[c.id]||""} onChange={e=>setReason(p=>({...p,[c.id]:e.target.value}))} placeholder="What does the evidence establish? What remains uncertain?" /></label>
-            <button className="primary" disabled={busy || (outcome[c.id]||"UNVERIFIED")==="UNVERIFIED" || (needsReconciliation && (contradictionResolution[c.id]||"").trim().length<80)} onClick={()=>void act({action:"decide_claim",claimId:c.id,outcome:outcome[c.id]||"UNVERIFIED",notes:reason[c.id]||"",contradictionResolution:contradictionResolution[c.id]||""})}>RECORD EDITOR DECISION</button>
+            <button className="primary" disabled={busy || decisionUncertain || (outcome[c.id]||"UNVERIFIED")==="UNVERIFIED" || (needsReconciliation && (contradictionResolution[c.id]||"").trim().length<80)} onClick={()=>void act({action:"decide_claim",claimId:c.id,outcome:outcome[c.id]||"UNVERIFIED",notes:reason[c.id]||"",contradictionResolution:contradictionResolution[c.id]||""})}>RECORD EDITOR DECISION</button>
             {(c.verification_results||[]).length>0 && <details><summary>Decision history</summary>{c.verification_results.map(v=><p className="meta" key={v.id}>{dateText(v.created_at)} · {v.outcome} · {v.determined_by}{v.reviewer_notes ? " — "+v.reviewer_notes : ""}</p>)}</details>}
           </div>;
         })}
