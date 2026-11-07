@@ -149,9 +149,8 @@ export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
     const relationVerified = !!source.sourceRegistryId && relationshipMembers.has(source.sourceRegistryId);
     const registryVerified = owner?.ownership_status === "verified" && !!owner?.publisher_group_key;
     source.ownershipStatus = registryVerified || relationVerified ? "verified" : "unverified";
-    source.publisherGroupKey = source.sourceRegistryId
-      ? (relationVerified ? "verified-relationship:" + find(source.sourceRegistryId)
-        : registryVerified ? owner.publisher_group_key : null)
+    source.publisherGroupKey = source.sourceRegistryId && (relationVerified || registryVerified)
+      ? "verified-publisher:" + find(source.sourceRegistryId)
       : null;
     source.originType = origin?.origin_type ?? null;
     source.originStatus = origin?.review_status ?? null;
@@ -163,9 +162,8 @@ export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
     const upstreamRelationVerified = !!upstreamId && relationshipMembers.has(upstreamId);
     const upstreamRegistryVerified = upstreamOwner?.ownership_status === "verified" && !!upstreamOwner?.publisher_group_key;
     source.upstreamOwnershipStatus = upstreamRelationVerified || upstreamRegistryVerified ? "verified" : "unverified";
-    source.upstreamPublisherGroupKey = upstreamId
-      ? (upstreamRelationVerified ? "verified-relationship:" + find(upstreamId)
-        : upstreamRegistryVerified ? upstreamOwner.publisher_group_key : null)
+    source.upstreamPublisherGroupKey = upstreamId && (upstreamRelationVerified || upstreamRegistryVerified)
+      ? "verified-publisher:" + find(upstreamId)
       : null;
   }
 }
