@@ -82,6 +82,7 @@ export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
 
   const registry = new Map<string, any>();
   const lineage = new Map<string, any>();
+  let relationships: any[] = [];
   try {
     for (const part of chunk(registryIds, 50)) {
       const rows = await db<any[]>(`source_registry?id=in.(${part.join(",")})&select=id,ownership_status,publisher_group_key`);
@@ -98,22 +99,51 @@ export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
   } catch (e) {
     if (!(e instanceof DbError) || (e.upstream !== 400 && e.upstream !== 404)) throw e;
   }
+  try {
+    relationships = await db<any[]>("publication_relationships?review_status=eq.verified&select=source_id,related_source_id,relationship_type&limit=1000");
+  } catch (e) {
+    if (!(e instanceof DbError) || (e.upstream !== 400 && e.upstream !== 404)) throw e;
+  }
 
-  const upstreamRegistryIds = [...new Set([...lineage.values()].map((row) => row.upstream_source_registry_id).filter((id): id is string => !!id))];
-  for (const part of chunk(upstreamRegistryIds, 50)) {
-    try {
-      const rows = await db<any[]>(`source_registry?id=in.(${part.join(",")})&select=id,ownership_status,publisher_group_key`);
-      for (const row of rows) registry.set(row.id, row);
-    } catch (e) {
-      if (!(e instanceof DbError) || (e.upstream !== 400 && e.upstream !== 404)) throw e;
-    }
+  // Verified same-owner / parent-subsidiary relationships form one publisher group.
+  // Partner, syndication and aggregation edges are deliberately not ownership edges.
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    const p = parent.get(id);
+    if (!p) { parent.set(id, id); return id; }
+    if (p === id) return id;
+    const root = find(p); parent.set(id, root); return root;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra < rb ? rb : ra, ra < rb ? ra : rb);
+  };
+  const ownershipTypes = new Set(["same_owner", "owned_by", "subsidiary_of"]);
+  const relationshipMembers = new Set<string>();
+  for (const edge of relationships) {
+    if (!ownershipTypes.has(edge.relationship_type) || !edge.source_id || !edge.related_source_id) continue;
+    relationshipMembers.add(edge.source_id);
+    relationshipMembers.add(edge.related_source_id);
+    union(edge.source_id, edge.related_source_id);
+  }
+  const firstByGroup = new Map<string, string>();
+  for (const row of registry.values()) {
+    if (row.ownership_status !== "verified" || !row.publisher_group_key) continue;
+    const first = firstByGroup.get(row.publisher_group_key);
+    if (first) union(first, row.id);
+    else firstByGroup.set(row.publisher_group_key, row.id);
   }
 
   for (const source of sources) {
     const owner = source.sourceRegistryId ? registry.get(source.sourceRegistryId) : null;
     const origin = source.retrievedSourceId ? lineage.get(source.retrievedSourceId) : null;
-    source.ownershipStatus = owner?.ownership_status ?? null;
-    source.publisherGroupKey = owner?.publisher_group_key ?? null;
+    const relationVerified = !!source.sourceRegistryId && relationshipMembers.has(source.sourceRegistryId);
+    const registryVerified = owner?.ownership_status === "verified" && !!owner?.publisher_group_key;
+    source.ownershipStatus = registryVerified || relationVerified ? "verified" : "unverified";
+    source.publisherGroupKey = source.sourceRegistryId
+      ? (relationVerified ? "verified-relationship:" + find(source.sourceRegistryId)
+        : registryVerified ? "verified-publisher:" + owner.publisher_group_key : null)
+      : null;
     source.originType = origin?.origin_type ?? null;
     source.originStatus = origin?.review_status ?? null;
     source.upstreamRetrievedSourceId = origin?.upstream_retrieved_source_id ?? null;
