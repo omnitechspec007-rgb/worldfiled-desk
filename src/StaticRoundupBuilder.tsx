@@ -127,24 +127,25 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
 
     const padX = 82;
     ctx.fillStyle = "#52677D";
-    ctx.font = "700 16px Inter, Arial, sans-serif";
+    ctx.font = "700 18px Inter, Arial, sans-serif";
     const label = story.location ? story.location.toUpperCase().slice(0, 38) : "WORLD UPDATE";
     ctx.fillText(String(index + 1).padStart(2, "0") + "  /  " + label, padX, y + 29);
 
-    const headlineSize = compact ? 25 : 30;
+    const dense = cards.length >= 6;
+    const headlineSize = cards.length >= 7 ? 30 : cards.length === 6 ? 34 : 38;
     ctx.fillStyle = "#0B1F38";
     ctx.font = "700 " + headlineSize + "px Inter, Arial, sans-serif";
     const headlineY = y + 65;
     const titleCount = drawText(ctx, story.headline, padX, headlineY, 900, headlineSize * 1.12, 2);
 
-    const summarySize = compact ? 18 : 21;
+    const summarySize = cards.length >= 7 ? 20 : cards.length === 6 ? 22 : 25;
     ctx.fillStyle = "#31465B";
     ctx.font = "500 " + summarySize + "px Inter, Arial, sans-serif";
-    const summaryY = headlineY + titleCount * headlineSize * 1.12 + (compact ? 10 : 14);
-    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.18, compact ? 1 : 2);
+    const summaryY = headlineY + titleCount * headlineSize * 1.12 + (dense ? 9 : 14);
+    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.18, dense ? 1 : 2);
 
     ctx.fillStyle = "#68798A";
-    ctx.font = "600 13px Inter, Arial, sans-serif";
+    ctx.font = "600 20px Inter, Arial, sans-serif";
     const dateMatch = story.publishedAt ? /^(\d{4})-(\d{2})-(\d{2})/.exec(story.publishedAt) : null;
     const dateLabel = dateMatch
       ? new Date(Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).toUpperCase()
@@ -152,7 +153,7 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
     const sourceLabel = story.source
       ? "SOURCE: " + story.source.toUpperCase().slice(0, 42) + "  ·  " + dateLabel
       : "SOURCE NOT PROVIDED  ·  " + dateLabel + "  ·  CHECK BEFORE SHARING";
-    ctx.fillText(sourceLabel, padX, y + cardH - 13);
+    ctx.fillText(sourceLabel, padX, y + cardH - 8);
   });
 
   // Branded close / follow prompt.
