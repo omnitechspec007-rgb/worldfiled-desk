@@ -83,6 +83,8 @@ export default async (req: Request) => {
       if (exceeds(b.passage, 4000) || exceeds(b.location, 300)) return json({ error: "field_too_long", detail: "Evidence passage is limited to 4,000 characters and location to 300. Nothing was truncated or saved." }, 400);
       if (b.isContradiction !== undefined && typeof b.isContradiction !== "boolean") return json({ error: "invalid_contradiction_flag", detail: "isContradiction must be a boolean, not a string or inferred value." }, 400);
 
+      const linked = await db<any[]>(`story_source_links?story_id=eq.${storyId}&source_id=eq.${sourceId}&select=source_id&limit=1`);
+      if (!linked[0]) return json({ error: "source_not_linked_to_story" }, 400);
       const retrieved = await db<any[]>(`retrieved_sources?id=eq.${sourceId}&select=id,registry_id&limit=1`);
       if (!retrieved[0]) return json({ error: "source_not_found" }, 404);
       const policies = await loadContentPolicies();
