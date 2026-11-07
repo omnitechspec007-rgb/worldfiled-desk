@@ -166,7 +166,7 @@ ok("same claim fingerprint does not create a duplicate or overwrite");
 assert.equal((await post({...claimAddBody,claimText:"THE AGENCY ANNOUNCED THE POLICY ON 5 NOVEMBER."})).status,409);
 ok("claim fingerprint cannot silently merge different displayed wording");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId:"33333333-3333-4333-8333-333333333333",passage:"Official text"})).status,400); ok("evidence from a source not linked to the story is rejected");
-assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED"})).status,400); ok("SUPPORTED is refused without an extracted passage");
+r=await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED"}); assert.equal(r.status,409); assert.equal((await r.json()).error,"no_accessible_supporting_evidence"); ok("SUPPORTED is refused without an accessible extracted supporting passage");
 assert.equal((await post({action:"complete_story",storyId,acknowledged:true})).status,409); ok("story clearance is refused while claims remain unresolved");
 policies[0].policy = "metadata_only";
 r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"Metadata-only passage"});
