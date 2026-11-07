@@ -272,7 +272,7 @@ begin
           or left(d.reviewer_notes, char_length(prefix)) <> prefix
           or char_length(btrim(split_part(
             substring(d.reviewer_notes from char_length(prefix) + 1),
-            E'\n\nEDITOR NOTES:\n',
+            chr(10) || chr(10) || 'EDITOR NOTES:' || chr(10),
             1
           ))) < 80
         )
