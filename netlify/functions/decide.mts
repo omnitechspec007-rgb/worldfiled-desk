@@ -1,6 +1,7 @@
 // Editor decision on a story: approve, reject or request more research.
 // Approval requires a deliberate acknowledgement. Every decision is saved with the editor's notes
 // and an audit event. Nothing is ever approved automatically.
+import { createHash } from "node:crypto";
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 
@@ -26,31 +27,30 @@ export default async (req: Request) => {
   if (body.decision === "approved" && body.acknowledged !== true) return json({ error: "acknowledgement_required" }, 400);
   if (body.notes !== undefined && body.notes !== null && typeof body.notes !== "string") return json({ error: "bad_notes" }, 400);
   if (typeof body.notes === "string" && body.notes.trim().length > 1000) return json({ error: "field_too_long", detail: "Editor notes are limited to 1,000 characters. Nothing was truncated or saved." }, 400);
-  const notes = typeof body.notes === "string" ? body.notes.trim() : "";
+  const notes = typeof body.note  const key = req.headers.get("idempotency-key") ?? "";
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same operation with the same key." }, 400);
+  const canonical = JSON.stringify({ storyId: body.storyId, decision: body.decision, notes, acknowledged: body.acknowledged === true });
+  const requestHash = createHash("sha256").update(canonical).digest("hex");
 
   try {
-    const found = await db<any[]>(`stories?id=eq.${body.storyId}&select=id,editorial_status`);
-    if (!found[0]) return json({ error: "not_found" }, 404);
-    await db("editorial_decisions", {
+    const result: any = await db<any>("rpc/record_story_editorial_decision", {
       method: "POST",
-      prefer: "return=minimal",
-      body: { story_id: body.storyId, decision: body.decision, decided_by: "editor", notes: notes || null },
-    });
-    await db(`stories?id=eq.${body.storyId}`, { method: "PATCH", prefer: "return=minimal", body: { editorial_status: STATUS[body.decision] } });
-    await db("audit_events", {
-      method: "POST",
-      prefer: "return=minimal",
       body: {
-        event_type: `story_${body.decision}`,
-        entity_type: "story",
-        entity_id: body.storyId,
-        actor: "editor",
-        detail: { previous: found[0].editorial_status, notes: notes || null, acknowledged: body.acknowledged === true },
+        p_idempotency_key: key,
+        p_request_hash: requestHash,
+        p_story_id: body.storyId,
+        p_decision: body.decision,
+        p_notes: notes,
+        p_acknowledged: body.acknowledged === true,
       },
     });
-    return json({ ok: true, status: STATUS[body.decision] });
+    const status = Number(result?.status ?? 500);
+    const responseBody = result?.body ?? { error: "invalid_rpc_response" };
+    return json({ ...responseBody, replayed: result?.replayed === true }, status);
   } catch (e) {
-    if (e instanceof DbError) return json({ error: "database", detail: e.message }, e.status);
-    return json({ error: "server_error" }, 500);
+    if (e instanceof DbError) return json({ error: "database", detail: e.message, outcome: "unknown", retryWithSameKey: true }, e.status);
+    return json({ error: "server_error", outcome: "unknown", retryWithSameKey: true }, 500);
+  } json({ error: "server_error" }, 500);
   }
 };
