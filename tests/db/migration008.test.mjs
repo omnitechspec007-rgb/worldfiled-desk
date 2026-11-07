@@ -175,7 +175,7 @@ try {
   // Evidence intake RPC: source ownership, exact fingerprint, story invalidation and audit are atomic.
   const story6=(await admin.query("insert into stories(headline,cluster_key) values('Evidence intake test','test-evidence-intake') returning id")).rows[0].id;
   const source6=(await admin.query("insert into retrieved_sources(url,url_hash,title,publisher) values($1,$2,'Evidence source','Test publisher') returning id",["https://example.org/evidence-intake",hash("https://example.org/evidence-intake")])).rows[0].id;
-  await admin.query("insert into story_source_links(story_id,source_id,role) values($1,$2,'primary')",[story6,source6]);
+  await admin.query("insert into story_source_links(story_id,source_id,role) values($1,$2,'original')",[story6,source6]);
   const claim6=(await admin.query("insert into claims(story_id,claim_text,claim_hash) values($1,'The commission issued a statement on 7 November.',$2) returning id",[story6,hash("The commission issued a statement on 7 November.")])).rows[0].id;
   await admin.query("update stories set verification_status='verified' where id=$1",[story6]);
   await admin.query("set role service_role");
@@ -206,7 +206,7 @@ try {
   // Evidence audit failure must roll back both the passage and story-clearance invalidation.
   const story7=(await admin.query("insert into stories(headline,cluster_key) values('Evidence rollback test','test-evidence-rollback') returning id")).rows[0].id;
   const source7=(await admin.query("insert into retrieved_sources(url,url_hash,title) values($1,$2,'Rollback source') returning id",["https://example.org/evidence-rollback",hash("https://example.org/evidence-rollback")])).rows[0].id;
-  await admin.query("insert into story_source_links(story_id,source_id,role) values($1,$2,'primary')",[story7,source7]);
+  await admin.query("insert into story_source_links(story_id,source_id,role) values($1,$2,'original')",[story7,source7]);
   const claim7=(await admin.query("insert into claims(story_id,claim_text,claim_hash) values($1,'The ministry issued a notice on 7 November.',$2) returning id",[story7,hash("The ministry issued a notice on 7 November.")])).rows[0].id;
   await admin.query("update stories set verification_status='verified' where id=$1",[story7]);
   await admin.query(`create function public.test_fail_evidence_audit() returns trigger language plpgsql as $test$ begin if new.event_type='claim_evidence_added' then raise exception 'injected evidence audit failure'; end if; return new; end $test$;`);
