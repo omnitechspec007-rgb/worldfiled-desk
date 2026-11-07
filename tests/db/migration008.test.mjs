@@ -187,7 +187,7 @@ try {
   const claimAddCall=(client,key=claimKey8,digest=claimRequestHash8,textValue=claimText8,category="date",fingerprint=claimHash8)=>
     client.query("select public.add_material_claim($1,$2,$3,$4,$5,$6) as result",[key,digest,story8,textValue,fingerprint,category]);
   const claimAddFirst=(await claimAddCall(admin)).rows[0].result;
-  ok("material claim intake inserts claim and invalidates prior story clearance",claimAddFirst.status===200 && claimAddFirst.body.claim.extraction_status===undefined && (await admin.query("select verification_status from stories where id=$1",[story8])).rows[0].verification_status==="in_progress");
+  ok("material claim intake inserts claim and invalidates prior story clearance",claimAddFirst.status===200 && claimAddFirst.body.claim.claim_text===claimText8 && (await admin.query("select verification_status from stories where id=$1",[story8])).rows[0].verification_status==="in_progress");
   const claimAddReplay=(await claimAddCall(admin)).rows[0].result;
   ok("material claim intake replays the original result",claimAddReplay.status===200 && claimAddReplay.replayed===true && claimAddReplay.body.claim.id===claimAddFirst.body.claim.id);
   const claimAddMismatch=(await claimAddCall(admin,claimKey8,hash("changed claim"),claimText8,"other")).rows[0].result;
