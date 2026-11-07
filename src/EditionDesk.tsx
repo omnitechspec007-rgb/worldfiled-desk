@@ -2,13 +2,23 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import StaticRoundupBuilder from "./StaticRoundupBuilder";
 
 type Loc = { country: string; basis: string };
+type SourceIndependence = {
+  namedOutlets: number; confirmedIndependentOrigins: number; confirmedSharedOrigins: number;
+  status: "confirmed_independent" | "known_shared_origin" | "partially_verified" | "unknown";
+  explanation: string;
+};
 type Dev = {
   id: string; headline: string; decision: string | null; type: string; recommendation: string; recommendationWhy: string; curiosityScore: number;
   evidenceStrength: { label: string; why: string }; corroborated: boolean; whatChanged: string; whyInteresting: string[]; audienceQuestion: string;
   surprisingElement: string | null; humanConsequences: string | null; possibleImplications: string | null; missingEvidence: string[]; sensationalismFlags: string[];
   hypothesisNote: string; themes: string[]; locations: Loc[]; geographicInterest: string; outlets: number;
   fresh: boolean; notFreshWhy: string | null; ageHours: number | null;
-  sources: { outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string }[];
+  sourceIndependence: SourceIndependence;
+  sources: {
+    outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string;
+    sourceRegistryId: string | null; retrievedSourceId: string | null; ownershipStatus: string; publisherGroupKey: string | null;
+    originType: string; originStatus: string; upstreamSourceRegistryId: string | null; upstreamRetrievedSourceId: string | null; upstreamUrl: string | null;
+  }[];
 };
 type Comp = { name: string; points: number; max: number; why: string };
 type Evaluation = {
@@ -44,18 +54,24 @@ function buildAutomaticPicks(stories: Dev[]): { picks: AutoPick[]; held: { story
   const held: { story: Dev; reason: string }[] = [];
   for (const story of stories) {
     const outlets = new Set(story.sources.map((source) => source.outlet.trim().toLowerCase()).filter(Boolean));
+    const independence = story.sourceIndependence ?? {
+      namedOutlets: outlets.size, confirmedIndependentOrigins: 0, confirmedSharedOrigins: 0, status: "unknown" as const,
+      explanation: "Publisher ownership and article origin are not verified. Distinct outlet names are not proof of independent reporting."
+    };
     const reasons: string[] = [];
     if (!story.fresh) reasons.push(story.notFreshWhy || 'Outside the current freshness window.');
     if (story.decision === 'rejected') reasons.push('Previously rejected by an editor.');
     if (!["HIGH-POTENTIAL STORY", "STRONG EDITION CANDIDATE"].includes(story.recommendation)) reasons.push('Curiosity assessment is not strong enough for automatic shortlisting.');
     if (story.evidenceStrength.label !== 'MODERATE') reasons.push('Evidence screen is below the current shortlist threshold.');
     if (outlets.size < 2) reasons.push('Fewer than two distinct named outlets were retrieved.');
+    if (independence.status === "known_shared_origin") reasons.push(independence.explanation);
     if (story.sensationalismFlags.length) reasons.push('Sensational or vague-attribution wording needs review.');
     if (reasons.length) { held.push({ story, reason: reasons.join(' ') }); continue; }
-    const score = story.curiosityScore * 0.55 + Math.min(outlets.size, 4) * 5 + Math.max(0, 24 - (story.ageHours ?? 24)) * 0.35;
+    const score = story.curiosityScore * 0.55 + Math.min(independence.confirmedIndependentOrigins, 4) * 5 + Math.max(0, 24 - (story.ageHours ?? 24)) * 0.35;
     eligible.push({ story, score, reasons: [
       'Curiosity rules: ' + story.curiosityScore + '/100 (editorial hypothesis, not measured audience behaviour).',
       'Evidence screen: ' + story.evidenceStrength.label + '; ' + outlets.size + ' distinct outlet names.',
+      independence.explanation,
       story.ageHours === null ? 'Publication age unknown.' : 'Newest report approximately ' + Math.round(story.ageHours) + ' hours old.'
     ] });
   }
@@ -87,6 +103,8 @@ function DevDetail({ d }: { d: Dev }) {
     <div>
       <h3>Sources</h3>
       <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <h3>Source independence assessment</h3>
+      <p className={d.sourceIndependence?.status === "confirmed_independent" ? "ok" : "caution"}>{d.sourceIndependence?.explanation ?? "Independence unknown; outlet names are not proof of separate reporting."}</p>
       <h3>Editorial reasoning</h3>
       <p className="why"><strong>What changed:</strong> {d.whatChanged}</p>
       <p className="why"><strong>Why it may be interesting:</strong> {d.whyInteresting.join("; ") || "nothing specific found"}</p>
@@ -374,7 +392,7 @@ export default function EditionDesk() {
       {desk && tab === "automatic" && (
         <div className="panel">
           <h2>Automatic editorial shortlist</h2>
-          <p className="meta">The engine screens fresh, high-curiosity candidates with a moderate evidence screen, at least two distinct named outlets and no detected sensational wording. It then prefers a mix of development types and places. This is a shortlist for your review, not an automatic fact-check or a prediction of views.</p>
+          <p className="meta">The engine screens fresh, high-curiosity candidates with a moderate evidence screen, at least two distinct named outlets and no detected sensational wording. It checks reviewed publisher ownership and article lineage before counting independent origins. Unknown provenance is never treated as independence; known shared-origin stories are held back. This is a shortlist for your review, not an automatic fact-check or a prediction of views.</p>
           <div className="confirm">
             <strong>{automatic.picks.length} eligible stories · maximum 7</strong>
             <p className="meta">A quiet news cycle may produce fewer than five. The system will not fill the edition with weaker stories just to reach a target.</p>
@@ -388,7 +406,7 @@ export default function EditionDesk() {
           {automatic.picks.map((p, i) => <div className="roundup-card-editor" key={p.story.id}>
             <p className="rank">AUTO PICK {String(i + 1).padStart(2, "0")} · INTERNAL RANK {Math.round(p.score)}</p>
             <h3>{p.story.headline}</h3>
-            <p className="meta">{p.story.recommendation} · curiosity {p.story.curiosityScore}/100 · evidence {p.story.evidenceStrength.label} · {p.story.sources.length} source records · {p.story.ageHours === null ? "age unknown" : Math.round(p.story.ageHours) + "h old"}</p>
+            <p className="meta">{p.story.recommendation} · curiosity {p.story.curiosityScore}/100 · evidence {p.story.evidenceStrength.label} · {p.story.sourceIndependence?.confirmedIndependentOrigins ?? 0} confirmed independent origin(s) · {p.story.sources.length} source records · {p.story.ageHours === null ? "age unknown" : Math.round(p.story.ageHours) + "h old"}</p>
             <ul className="comps">{p.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
             <button onClick={() => setInspect(inspect === "auto-" + p.story.id ? null : "auto-" + p.story.id)}>{inspect === "auto-" + p.story.id ? "Hide sources" : "Inspect sources and reasoning"}</button>
             {inspect === "auto-" + p.story.id && <DevDetail d={p.story} />}
