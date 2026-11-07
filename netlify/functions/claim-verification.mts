@@ -27,8 +27,13 @@ export default async (req: Request) => {
     }
     if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
     let b: any;
-    try { b = await req.json(); } catch { return json({ error: "bad_json" }, 400); }
-    const storyId = clean(b.storyId, 36);
+    try {
+      const raw = await req.text();
+      if (raw.length > 12000) return json({ error: "too_large", detail: "Verification requests are limited to 12 KB. Nothing was saved." }, 413);
+      b = JSON.parse(raw);
+    } catch { return json({ error: "bad_json" }, 400); }
+    if (!b || typeof b !== "object" || Array.isArray(b)) return json({ error: "bad_request" }, 400);
+    const storyId = clean(b.storyId);
     if (!UUID.test(storyId)) return json({ error: "bad_story_id" }, 400);
     const exists = await db<any[]>(`stories?id=eq.${storyId}&select=id`);
     if (!exists[0]) return json({ error: "not_found" }, 404);
