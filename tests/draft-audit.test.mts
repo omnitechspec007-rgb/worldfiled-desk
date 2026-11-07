@@ -12,6 +12,8 @@ assert(findings.some((x) => x.ruleId === "generic-importance"));
 assert(findings.some((x) => x.ruleId === "vague-attribution" && x.severity === "review"));
 assert(findings.some((x) => x.ruleId === "empty-superlative"));
 assert(findings.some((x) => x.ruleId === "duplicate-sentence"));
+const repeatedOpening = findings.find((x) => x.ruleId === "repeated-paragraph-opening");
+if (repeatedOpening) assert.equal(draft.slice(repeatedOpening.start, repeatedOpening.end), repeatedOpening.excerpt);
 for (const item of findings) {
   assert(item.start >= 0 && item.end > item.start);
   assert.equal(draft.slice(item.start, item.end), item.excerpt);
