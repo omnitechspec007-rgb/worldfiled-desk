@@ -38,6 +38,8 @@ check("roundup source stamps render a publication date or explicitly say DATE UN
 check("missing source metadata is disclosed instead of implying a linked source is present", /SOURCE NOT PROVIDED/.test(roundup) && !/SOURCE DETAILS: OPEN LINKED STORY/.test(roundup));
 check("roundup fallback text uses a retrieved source snippet rather than an unverified curiosity inference", /d\.whatChanged \|\| attributedSource\?\.snippet/.test(editionDesk) && !/d\.whyInteresting\[0\]/.test(editionDesk));
 check("static roundup export is blocked if any selected story lacks a named, dated source", /missingAttribution/.test(editionPromptApi) && /source\.outlet\.trim\(\)\.length > 0/.test(editionPromptApi) && /source\.publishedAt/.test(editionPromptApi) && /exportReady: r\.ed\.edition_kind !== "text" && attributionReady/.test(editionPromptApi));
+check("roundup typography scales with story count and keeps source/date labels visible", /const headlineSize = cards\.length >= 7 \? 30 : cards\.length === 6 \? 34 : 38/.test(roundup) && /const summarySize = cards\.length >= 7 \? 20 : cards\.length === 6 \? 22 : 25/.test(roundup) && /ctx\.font = "600 20px Inter, Arial, sans-serif"/.test(roundup));
+check("roundup explains that five or six stories provide the clearest mobile reading while seven remain supported", /5–6 stories give the clearest mobile reading; 7 are supported/.test(roundup));
 
 
 console.log(`\n${fail ? "FAILURES: " + fail : "ALL " + pass + " BRAND CHECKS PASSED"}`);
