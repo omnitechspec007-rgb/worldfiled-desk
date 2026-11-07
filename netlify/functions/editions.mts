@@ -26,6 +26,7 @@ const devSummary = (d: Dev, decision: string | null, flag?: { fresh: boolean; wh
     originType: x.originType ?? "unknown", originStatus: x.originStatus ?? "unverified",
     upstreamSourceRegistryId: x.upstreamSourceRegistryId ?? null,
     upstreamRetrievedSourceId: x.upstreamRetrievedSourceId ?? null, upstreamUrl: x.upstreamUrl ?? null,
+    upstreamOwnershipStatus: x.upstreamOwnershipStatus ?? null, upstreamPublisherGroupKey: x.upstreamPublisherGroupKey ?? null,
   })),
   sourceIndependence: summarizeSourceIndependence(d.sources),
   id: d.id, headline: d.headline, category: d.category, decision,
