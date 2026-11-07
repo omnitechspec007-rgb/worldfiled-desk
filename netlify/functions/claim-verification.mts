@@ -66,18 +66,33 @@ export default async (req: Request) => {
       const contradictionResolution = clean(b.contradictionResolution);
       if (exceeds(b.notes, 400) || exceeds(b.contradictionResolution, 1000)) return json({ error: "field_too_long", detail: "Reviewer notes are limited to 400 characters and contradiction rationale to 1,000. Nothing was truncated or saved." }, 400);
       if (!UUID.test(claimId) || !OUTCOMES.includes(outcome)) return json({ error: "bad_decision" }, 400);
-      const claim = await db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id`);
-      if (!claim[0]) return json({ error: "claim_not_found" }, 404);
-      const evidence = await db<any[]>(`claim_evidence?claim_id=eq.${claimId}&select=id,passage,extraction_status,is_contradiction`);
-      const extracted = evidence.filter((e:any) => e.passage && e.extraction_status === "extracted");
-      const supportingEvidence = extracted.some((e:any) => !e.is_contradiction);
-      const contradictoryEvidence = extracted.some((e:any) => e.is_contradiction);
-      if (!supportingEvidence && outcome === "SUPPORTED") return json({ error: "supported_claim_requires_checked_passage" }, 400);
-      if (contradictoryEvidence && outcome === "SUPPORTED" && contradictionResolution.length < 80) return json({ error: "contradiction_review_required", detail: "This claim has contradictory evidence. Explain specifically why the supporting evidence is still persuasive, or why the conflicting passage does not overturn the claim (at least 80 characters)." }, 409);
-      const reviewerNotes = contradictoryEvidence && outcome === "SUPPORTED" ? formatReviewerNotes(contradictionResolution, notes) : notes || null;
-      const result = await db<any[]>(`verification_results?select=id,claim_id,outcome,determined_by,reviewer_notes,created_at`, { method: "POST", body: { claim_id: claimId, outcome, determined_by: "editor", reviewer_notes: reviewerNotes }, prefer: "return=representation" });
-      await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: outcome === "CONTRADICTED" ? "failed" : "in_progress", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
-      return json({ result: result[0], note: "Decision recorded in the verification history. Story-level clearance remains a separate step." });
+
+      const key = req.headers.get("idempotency-key") ?? "";
+      if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same decision using the same key." }, 400);
+      const canonical = JSON.stringify({
+        storyId,
+        claimId,
+        outcome,
+        notes,
+        contradictionResolution,
+      });
+      const requestHash = createHash("sha256").update(canonical).digest("hex");
+
+      const result: any = await db<any>("rpc/record_claim_verification_decision", {
+        method: "POST",
+        body: {
+          p_idempotency_key: key,
+          p_request_hash: requestHash,
+          p_story_id: storyId,
+          p_claim_id: claimId,
+          p_outcome: outcome,
+          p_reviewer_notes: notes,
+          p_contradiction_resolution: contradictionResolution,
+        },
+      });
+      const status = Number(result?.status ?? 500);
+      const responseBody = result?.body ?? { error: "invalid_rpc_response" };
+      return json({ ...responseBody, replayed: result?.replayed === true }, status);
     }
 
     if (b.action === "complete_story") {
