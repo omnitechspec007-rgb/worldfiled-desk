@@ -60,6 +60,9 @@ export function summarizeSourceIndependence(sources: IndependenceSource[]): Inde
   } else if (confirmedIndependentOrigins === 1 && (unknown > 0 || confirmedSharedOrigins > 0)) {
     status = "partially_verified";
     explanation = "At least one independent reporting origin is verified, but the remaining sources are unknown or trace to shared origins. Do not describe this as multi-outlet independent corroboration.";
+  } else if (confirmedIndependentOrigins === 1 && unknown === 0) {
+    status = "known_shared_origin";
+    explanation = "The reviewed reports resolve to one verified publisher group. Different outlet names must not be treated as independent publisher corroboration.";
   } else if (confirmedIndependentOrigins === 0 && confirmedSharedOrigins > 0 && unknown === 0) {
     status = "known_shared_origin";
     explanation = "The reviewed article lineage traces these reports to upstream sources; outlet count must not be treated as independent corroboration.";
