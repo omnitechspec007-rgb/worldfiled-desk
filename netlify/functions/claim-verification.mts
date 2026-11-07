@@ -49,16 +49,30 @@ export default async (req: Request) => {
       if (!UUID.test(claimId) || !UUID.test(sourceId)) return json({ error: "bad_reference" }, 400);
       if (exceeds(b.passage, 4000) || exceeds(b.location, 300)) return json({ error: "field_too_long", detail: "Evidence passage is limited to 4,000 characters and location to 300. Nothing was truncated or saved." }, 400);
       if (b.isContradiction !== undefined && typeof b.isContradiction !== "boolean") return json({ error: "invalid_contradiction_flag", detail: "isContradiction must be a boolean, not a string or inferred value." }, 400);
-      const claim = await db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id`);
-      if (!claim[0]) return json({ error: "claim_not_found" }, 404);
-      const linked = await db<any[]>(`story_source_links?story_id=eq.${storyId}&source_id=eq.${sourceId}&select=source_id`);
-      if (!linked[0]) return json({ error: "source_not_linked_to_story" }, 400);
-      const source = await db<any[]>(`retrieved_sources?id=eq.${sourceId}&select=id,published_at`);
-      if (!source[0]) return json({ error: "source_not_found" }, 404);
-      const fingerprint = hash(passage || `source:${sourceId}:no-passage`);
-      const rows = await db<any[]>(`claim_evidence?on_conflict=claim_id,source_id,passage_hash&select=id,claim_id,source_id,passage,passage_location,is_contradiction,extraction_status`, { method: "POST", body: { claim_id: claimId, source_id: sourceId, passage: passage || null, passage_hash: fingerprint, passage_location: location || null, source_published_at: source[0].published_at, created_at: new Date().toISOString(), extraction_status: passage ? "extracted" : "inaccessible", is_contradiction: b.isContradiction === true }, prefer: "resolution=merge-duplicates,return=representation" });
-      await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: "in_progress", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
-      return json({ evidence: rows[0], note: passage ? "Evidence passage saved. The editor must assess what it supports." : "Source linked without an extracted passage. This is a lead, not supporting evidence." });
+
+      const key = req.headers.get("idempotency-key") ?? "";
+      if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same evidence operation with the same key." }, 400);
+      const isContradiction = b.isContradiction === true;
+      const canonical = JSON.stringify({ storyId, claimId, sourceId, passage, location, isContradiction });
+      const requestHash = createHash("sha256").update(canonical).digest("hex");
+      const passageHash = hash(passage || `source:${sourceId}:no-passage`);
+      const result: any = await db<any>("rpc/add_claim_evidence", {
+        method: "POST",
+        body: {
+          p_idempotency_key: key,
+          p_request_hash: requestHash,
+          p_story_id: storyId,
+          p_claim_id: claimId,
+          p_source_id: sourceId,
+          p_passage: passage || null,
+          p_passage_hash: passageHash,
+          p_passage_location: location || null,
+          p_is_contradiction: isContradiction,
+        },
+      });
+      const status = Number(result?.status ?? 500);
+      const responseBody = result?.body ?? { error: "invalid_rpc_response" };
+      return json({ ...responseBody, replayed: result?.replayed === true }, status);
     }
 
     if (b.action === "decide_claim") {
