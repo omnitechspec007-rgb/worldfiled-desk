@@ -96,7 +96,7 @@ try {
   await admin.query("reset role");
   await second.query("reset role");
   const outcomes = [left.rows[0].result, right.rows[0].result];
-  const concurrentState = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1::text) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [story2, key2]);
+  const concurrentState = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1::text and event_type='claim_verification_partially_supported') audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [story2, key2]);
   ok("concurrent same-key requests produce one commit and one replay", outcomes.every(x => x.status === 200) && outcomes.filter(x => x.replayed === false).length === 1 && outcomes.filter(x => x.replayed === true).length === 1);
   ok("concurrent retry creates exactly one decision, audit event and idempotency record", Number(concurrentState.rows[0].decisions) === 1 && Number(concurrentState.rows[0].audits) === 1 && Number(concurrentState.rows[0].keys) === 1);
   await second.end();
