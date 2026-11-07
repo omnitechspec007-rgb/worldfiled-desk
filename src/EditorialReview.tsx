@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Scores, type Score } from "./Scores";
 
 type Pick = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; hasPrimary: boolean; rank: number; reason: string; flags: string[]; scores: Score[]; editorialStatus?: string };
+type PendingDecision = { storyId: string; decision: "approved" | "rejected" | "needs_research"; notes: string; acknowledged: boolean; key: string };
 
 const STATUS: Record<string, string> = { in_review: "Awaiting your decision", approved: "Approved", rejected: "Rejected", needs_research: "Needs more research", pending: "Not reviewed" };
 
@@ -14,6 +15,8 @@ export default function EditorialReview() {
   const [notes, setNotes] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<PendingDecision | null>(null);
+  const [uncertain, setUncertain] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -31,32 +34,59 @@ export default function EditorialReview() {
     void load();
   }, [load]);
 
-  const decide = async (id: string, decision: "approved" | "rejected" | "needs_research") => {
+  const submitDecision = async (operation: PendingDecision) => {
     setBusy(true);
     setMsg("");
+    setPending(operation);
     try {
       const res = await fetch("/.netlify/functions/decide", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storyId: id, decision, notes, acknowledged: ack }),
+        headers: { "Content-Type": "application/json", "Idempotency-Key": operation.key },
+        body: JSON.stringify({ storyId: operation.storyId, decision: operation.decision, notes: operation.notes, acknowledged: operation.acknowledged }),
       });
-      if (!res.ok) throw new Error();
-      setMsg(decision === "approved" ? "Approved. It is now available in the Prompt Architect." : decision === "rejected" ? "Rejected." : "Marked as needing more research.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.outcome === "unknown" || res.status >= 500) {
+          setUncertain(true);
+          setMsg("We couldn't confirm whether this decision was saved. Your work is preserved. Retry safely using the same request.");
+        } else {
+          setPending(null);
+          setUncertain(false);
+          setMsg(data.detail || data.error || "The decision was not saved. Review the message and try again.");
+        }
+        setBusy(false);
+        return;
+      }
+      setPending(null);
+      setUncertain(false);
       setOpen(null);
       setAck(false);
       setNotes("");
+      setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Approved. It is now available in the Prompt Architect." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
       await load();
     } catch {
-      setMsg("The decision was NOT saved. Try again, or check System Health.");
+      setUncertain(true);
+      setMsg("Connection interrupted. We couldn't confirm whether this decision was saved. Your work is preserved; retry safely using the same request.");
     }
     setBusy(false);
+  };
+
+  const decide = (id: string, decision: "approved" | "rejected" | "needs_research") => {
+    const operation: PendingDecision = {
+      storyId: id,
+      decision,
+      notes: decision === "approved" ? notes : "",
+      acknowledged: decision === "approved" && ack,
+      key: crypto.randomUUID(),
+    };
+    void submitDecision(operation);
   };
 
   return (
     <section>
       <h1>Editorial Review</h1>
       <p className="status">Nothing moves forward without your decision. Approval means "cleared for drafting", not "verified": claims have not been checked yet.</p>
-      {msg && <div className="panel state-error" role="alert"><p className="status bad">{msg}</p><button onClick={() => void load()}>Try again</button></div>}
+      {msg && <div className={uncertain ? "panel state-warning" : "panel state-error"} role={uncertain ? "status" : "alert"}><p className={uncertain ? "status" : "status bad"}>{msg}</p>{uncertain && pending ? <div className="actions"><button className="primary" disabled={busy} onClick={() => void submitDecision(pending)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button><button disabled={busy} onClick={() => void load()}>Refresh shortlist</button></div> : <button onClick={() => void load()}>Refresh shortlist</button>}</div>}
       {!picks && !msg && <div className="panel state-loading" role="status"><p className="meta">Loading stories for review…</p></div>}
       {notInstalled && <div className="panel"><p className="caution">One-time setup needed: run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click RUN RESEARCH.</p></div>}
       {picks && picks.length === 0 && !notInstalled && <div className="panel"><p>Nothing to review yet. Click RUN RESEARCH on the Dashboard.</p></div>}
@@ -76,14 +106,14 @@ export default function EditorialReview() {
               </label>
               <label>Notes (optional)<input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} /></label>
               <div className="actions">
-                <button className="primary" disabled={!ack || busy} onClick={() => void decide(s.id, "approved")}>CONFIRM APPROVAL</button>
+                <button className="primary" disabled={!ack || busy} onClick={() => decide(s.id, "approved")}>{busy ? "SAVING…" : "CONFIRM APPROVAL"}</button>
                 <button onClick={() => { setOpen(null); setAck(false); }}>Cancel</button>
               </div>
             </div>
           ) : (
             <div className="actions">
               <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved"}>Approve…</button>
-              <button onClick={() => void decide(s.id, "rejected")} disabled={busy}>Reject</button>
+              <button onClick={() => decide(s.id, "rejected")} disabled={busy}>Reject</button>
               <button onClick={() => void decide(s.id, "needs_research")} disabled={busy}>Needs more research</button>
               <Link to={`/evidence/${s.id}`}>Open sources</Link>
             </div>
