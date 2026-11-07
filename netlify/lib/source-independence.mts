@@ -9,6 +9,8 @@ export type IndependenceSource = {
   upstreamSourceRegistryId?: string | null;
   upstreamRetrievedSourceId?: string | null;
   upstreamUrl?: string | null;
+  upstreamOwnershipStatus?: string | null;
+  upstreamPublisherGroupKey?: string | null;
 };
 
 export type IndependenceSummary = {
@@ -40,14 +42,16 @@ export function summarizeSourceIndependence(sources: IndependenceSource[]): Inde
       continue;
     }
     if (source.originType === "original_reporting") {
-      independent.add(source.publisherGroupKey!.trim());
+      independent.add("publisher:" + source.publisherGroupKey!.trim());
       continue;
     }
     const upstream = source.upstreamSourceRegistryId?.trim()
       || source.upstreamRetrievedSourceId?.trim()
       || source.upstreamUrl?.trim();
-    if (upstream) shared.add(upstream);
-    else unknown++;
+    if (upstream) {
+      const upstreamGroup = source.upstreamOwnershipStatus === "verified" && source.upstreamPublisherGroupKey?.trim();
+      shared.add(upstreamGroup ? "publisher:" + source.upstreamPublisherGroupKey!.trim() : upstream);
+    } else unknown++;
   }
 
   const confirmedIndependentOrigins = independent.size;
@@ -57,12 +61,12 @@ export function summarizeSourceIndependence(sources: IndependenceSource[]): Inde
   if (confirmedIndependentOrigins >= 2) {
     status = "confirmed_independent";
     explanation = confirmedIndependentOrigins + " verified publisher groups have verified original-reporting lineage. This supports independent reporting, but does not by itself prove every claim.";
+  } else if (confirmedIndependentOrigins === 1 && new Set([...independent, ...shared]).size === 1 && unknown === 0) {
+    status = "known_shared_origin";
+    explanation = "The reviewed reports resolve to one verified publisher group or upstream origin. Different outlet names must not be treated as independent corroboration.";
   } else if (confirmedIndependentOrigins === 1 && (unknown > 0 || confirmedSharedOrigins > 0)) {
     status = "partially_verified";
-    explanation = "At least one independent reporting origin is verified, but the remaining sources are unknown or trace to shared origins. Do not describe this as multi-outlet independent corroboration.";
-  } else if (confirmedIndependentOrigins === 1 && unknown === 0) {
-    status = "known_shared_origin";
-    explanation = "The reviewed reports resolve to one verified publisher group. Different outlet names must not be treated as independent publisher corroboration.";
+    explanation = "At least one independent reporting origin is verified, but the remaining sources are unknown or trace to other shared origins. Do not describe this as multi-outlet independent corroboration.";
   } else if (confirmedIndependentOrigins === 0 && confirmedSharedOrigins > 0 && unknown === 0) {
     status = "known_shared_origin";
     explanation = "The reviewed article lineage traces these reports to upstream sources; outlet count must not be treated as independent corroboration.";
