@@ -105,17 +105,6 @@ export default async (req: Request) => {
           p_upstream_source_registry_id: body.upstreamSourceRegistryId || null,
           p_upstream_url: upstreamUrl, p_evidence_url: evidenceUrl, p_review_notes: reviewNotes,
         };
-      } else if (body.action === "review_source_policy") {
-        const allowed = new Set(["action","sourceId","policy","evidenceUrl","policyReason"]);
-        if (Object.keys(body).some((field) => !allowed.has(field))) return json({ error: "unexpected_field" }, 400);
-        if (!requiredUuid("sourceId") || typeof body.policy !== "string" || !policySet.has(body.policy)) return json({ error: "invalid_source_content_policy" }, 400);
-        const evidenceUrl = optionalText("evidenceUrl", 2000);
-        const policyReason = optionalText("policyReason", 1200);
-        if (!validateEvidence(evidenceUrl)) return json({ error: "invalid_evidence_url" }, 400);
-        if (!evidenceUrl && !policyReason) return json({ error: "evidence_or_rationale_required" }, 400);
-        canonical = { action: body.action, sourceId: body.sourceId, policy: body.policy, evidenceUrl, policyReason };
-        rpc = "review_source_content_policy";
-        params = { p_source_id: body.sourceId, p_policy: body.policy, p_evidence_url: evidenceUrl, p_policy_reason: policyReason };
       } else {
         return json({ error: "unknown_provenance_action" }, 400);
       }
