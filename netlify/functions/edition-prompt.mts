@@ -100,6 +100,7 @@ async function preview(editionId: string, req: Request) {
       const sources = r.loaded.get(id)?.dev.sources ?? [];
       return !sources.some((source: any) =>
         typeof source.outlet === "string" && source.outlet.trim().length > 0 &&
+        typeof source.url === "string" && /^https?:\/\//i.test(source.url) &&
         typeof source.publishedAt === "string" && /^\d{4}-\d{2}-\d{2}/.test(source.publishedAt) &&
         Number.isFinite(Date.parse(source.publishedAt))
       );
@@ -114,8 +115,8 @@ async function preview(editionId: string, req: Request) {
       factualClearance: { ready: true, stories: r.ids.length },
       attribution: { ready: attributionReady, missingStories: missingAttribution },
       note: !attributionReady
-        ? `Export blocked: ${missingAttribution.length} selected story or stories lack a named source with a publication date. Resolve the missing attribution in the story evidence records, then check again.`
-        : "Server-side preflight passed: this exact saved edition has current human approval, factual clearance and named source/date attribution for every story. This is an export preflight, not a public publishing action."
+        ? `Export blocked: ${missingAttribution.length} selected story or stories lack a named source, publication date or source link. Resolve the missing attribution in the story evidence records, then check again.`
+        : "Server-side preflight passed: this exact saved edition has current human approval, factual clearance and named source, publication date and source link for every story. This is an export preflight, not a public publishing action."
     });
   }
   const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now(), structure: r.ed.structure as Structure });
