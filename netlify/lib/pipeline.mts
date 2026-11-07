@@ -6,6 +6,7 @@
 // An AI provider, when added, plugs in behind the interfaces in ai-provider.mts and is never
 // required for any stage here.
 import { db } from "./db.mts";
+import { canRetrieveMetadata, loadContentPolicies, policyForSource, retrievalContentStatus } from "./source-policy.mts";
 import { SEED_SOURCES } from "./seed-sources.mts";
 import { fetchFeed, feedText, urlHash } from "./feeds.mts";
 import { clusterItems } from "./cluster.mts";
@@ -78,9 +79,12 @@ export async function stagePrepare(): Promise<StageResult> {
 }
 
 export async function stageDiscover(prev: Record<string, any>, config: { windowDays?: number; region?: string } = {}): Promise<StageResult> {
-  const sources = await db<SourceRow[]>(
-    "source_registry?select=id,name,country_scope,category,feed_url,reliability_note&feed_url=not.is.null&retrieval_status=neq.disabled&order=name.asc"
-  );
+  const [sources, policies] = await Promise.all([
+    db<SourceRow[]>(
+      "source_registry?select=id,name,country_scope,category,feed_url,reliability_note&feed_url=not.is.null&retrieval_status=neq.disabled&order=name.asc"
+    ),
+    loadContentPolicies(),
+  ]);
   const scopedSources = config.region && config.region !== "all"
     ? sources.filter((s) => (s.country_scope ?? "").startsWith(config.region!))
     : sources;
@@ -91,6 +95,11 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
   await Promise.all(
     batch.map(async (s) => {
       const now = new Date().toISOString();
+      const policy = policyForSource(policies, s.id);
+      if (!canRetrieveMetadata(policy)) {
+        results[s.id] = { name: s.name, status: "blocked", policy, items: 0, newItems: 0, refreshedItems: 0, error: "Skipped by the reviewed source content policy; no feed request was made." };
+        return;
+      }
       // Official/primary sources publish less often, so they get a longer freshness window.
       const windowDays = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
       const feedAddress = feedText(s.feed_url).trim();
@@ -135,7 +144,7 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
             published_at: it.publishedAt,
             retrieved_at: now,
             http_status: r.http,
-            content_status: "metadata_only", // headline and short summary only; article text NOT retrieved
+            content_status: retrievalContentStatus(policy), // even extraction_allowed is not a full-text fetch instruction in this stage
             extract: it.summary,
           })),
         });
@@ -144,7 +153,7 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
           prefer: "return=minimal",
           body: { retrieval_status: "healthy", enabled: true, last_checked_at: now, last_success_at: now, last_error: null },
         });
-        results[s.id] = { name: s.name, status: "healthy", items: itemsToSave.length, newItems, refreshedItems, skippedOld: r.skippedOld };
+        results[s.id] = { name: s.name, status: "healthy", policy, items: itemsToSave.length, newItems, refreshedItems, skippedOld: r.skippedOld };
       } else {
         const status = r.status === "healthy" ? "degraded" : r.status;
         const error = r.status === "healthy" ? `no items within the freshness window (${r.skippedOld} older items skipped)` : r.error;
@@ -153,7 +162,7 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
           prefer: "return=minimal",
           body: { retrieval_status: status, enabled: false, last_checked_at: now, last_error: error },
         });
-        results[s.id] = { name: s.name, status, items: 0, newItems: 0, refreshedItems: 0, error };
+        results[s.id] = { name: s.name, status, policy, items: 0, newItems: 0, refreshedItems: 0, error };
       }
     })
   );
@@ -163,7 +172,9 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
   const done = finished >= total;
   const list = Object.values(results);
   const healthy = list.filter((x: any) => x.status === "healthy").length;
-  if (done && healthy === 0) {
+  const blocked = list.filter((x: any) => x.status === "blocked").length;
+  const eligible = total - scopedSources.filter((s) => !canRetrieveMetadata(policyForSource(policies, s.id))).length;
+  if (done && healthy === 0 && eligible > 0) {
     throw new Error("No source could be reached. Nothing was discovered. This does not mean nothing happened.");
   }
   return {
@@ -173,7 +184,10 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
       total,
       finished,
       healthy,
-      problems: finished - healthy,
+      problems: finished - healthy - blocked,
+      blocked,
+      metadataOnly: scopedSources.filter((s) => policyForSource(policies, s.id) === "metadata_only").length,
+      extractionAllowed: scopedSources.filter((s) => policyForSource(policies, s.id) === "extraction_allowed").length,
       items: list.reduce((n: number, x: any) => n + (x.items ?? 0), 0),
       newItems: list.reduce((n: number, x: any) => n + (x.newItems ?? 0), 0),
       refreshedItems: list.reduce((n: number, x: any) => n + (x.refreshedItems ?? 0), 0),
@@ -181,15 +195,18 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
   };
 }
 
-export async function stageCluster(runId: string, config: { windowDays?: number } = {}): Promise<StageResult> {
+export async function stageCluster(runId: string, config: { windowDays?: number; region?: string } = {}): Promise<StageResult> {
   const days = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
-  const retrieved = await db<{ id: string; title: string; registry_id: string | null }[]>(
-    `retrieved_sources?select=id,title,registry_id&retrieved_at=gte.${since}&order=url_hash.asc&limit=1500`
-  );
-  const sources = await db<SourceRow[]>("source_registry?select=id,name,country_scope,category,feed_url");
+  const [retrieved, sources, policies] = await Promise.all([
+    db<{ id: string; title: string; registry_id: string | null }[]>(
+      `retrieved_sources?select=id,title,registry_id&retrieved_at=gte.${since}&order=url_hash.asc&limit=1500`
+    ),
+    db<SourceRow[]>("source_registry?select=id,name,country_scope,category,feed_url"),
+    loadContentPolicies(),
+  ]);
   const allowedSourceIds = new Set(
-    sources.filter((s) => !config.region || config.region === "all" || (s.country_scope ?? "").startsWith(config.region)).map((s) => s.id)
+    sources.filter((s) => canRetrieveMetadata(policyForSource(policies, s.id)) && (!config.region || config.region === "all" || (s.country_scope ?? "").startsWith(config.region))).map((s) => s.id)
   );
   const rows = retrieved.filter((r) => allowedSourceIds.has(r.registry_id ?? ""));
   const reg = new Map(sources.map((s) => [s.id, s]));
@@ -269,9 +286,12 @@ export async function stageRank(runId: string, config: { windowDays?: number; re
   } catch {
     throw new Error("The scoring tables are not installed. Run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click Resume.");
   }
-  const rows = await db<any[]>(
-    "stories?select=id,headline,category,created_at,story_source_links(retrieved_sources(title,published_at,retrieved_at,extract,source_registry(name,publisher,country_scope,reliability_note)))&order=created_at.desc&limit=300"
-  );
+  const [rows, policies] = await Promise.all([
+    db<any[]>(
+      "stories?select=id,headline,category,created_at,story_source_links(retrieved_sources(title,published_at,retrieved_at,extract,source_registry(id,name,publisher,country_scope,reliability_note)))&order=created_at.desc&limit=300"
+    ),
+    loadContentPolicies(),
+  ]);
   const now = Date.now();
   const inputs: StoryInput[] = rows.map((r) => ({
     id: r.id,
@@ -281,6 +301,7 @@ export async function stageRank(runId: string, config: { windowDays?: number; re
     sources: (r.story_source_links ?? [])
       .map((l: any) => l.retrieved_sources)
       .filter(Boolean)
+      .filter((s: any) => typeof s.source_registry?.id === "string" && canRetrieveMetadata(policyForSource(policies, s.source_registry.id)))
       .filter((s: any) => !config.region || config.region === "all" || (s.source_registry?.country_scope ?? "").startsWith(config.region))
       .map((s: any) => ({
         outlet: s.source_registry?.publisher ?? s.source_registry?.name ?? "Unknown",

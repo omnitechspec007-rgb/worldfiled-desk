@@ -45,6 +45,52 @@ try {
   await admin.query(migration13);
   await admin.query(migration13);
   ok("migration 013 applies twice without duplicating or failing", true);
+  const migration14 = fs.readFileSync(root + "migrations/014_publication_relationship_candidates.sql", "utf8");
+  await admin.query(migration14);
+  await admin.query(migration14);
+  ok("migration 014 applies twice without duplicating or failing", true);
+
+  const publisherA = (await admin.query("insert into source_registry(name,publisher,source_type) values('Candidate test publisher A','Candidate Media A','feed') returning id")).rows[0].id;
+  const publisherB = (await admin.query("insert into source_registry(name,publisher,source_type) values('Candidate test publisher B','Candidate Media B','feed') returning id")).rows[0].id;
+  await admin.query("grant usage on schema public to service_role");
+  await admin.query("set role service_role");
+  const candidatePayload = JSON.stringify({ sourceId: publisherA, relatedSourceId: publisherB, relationshipType: "same_owner", evidenceUrl: "https://example.org/corporate-ownership", reviewNotes: "Publisher disclosure lists the same parent company." });
+  const candidateHash = hash(candidatePayload);
+  const candidateKey = randomUUID();
+  const createCandidate = (key, digest, left = publisherA, right = publisherB, type = "same_owner", evidence = "https://example.org/corporate-ownership", notes = "Publisher disclosure lists the same parent company.") =>
+    admin.query("select public.create_publication_relationship_candidate($1,$2,$3,$4,$5,$6,$7) as result", [key,digest,left,right,type,evidence,notes]);
+  const candidate = (await createCandidate(candidateKey,candidateHash)).rows[0].result;
+  ok("first publisher relationship candidate is created as unverified", candidate.status===201 && candidate.body.reviewStatus==="unverified" && candidate.replayed===false);
+  const candidateReplay = (await createCandidate(candidateKey,candidateHash)).rows[0].result;
+  ok("same candidate key and payload replays the original result", candidateReplay.status===201 && candidateReplay.replayed===true && candidateReplay.body.relationshipId===candidate.body.relationshipId);
+  const candidateMismatch = (await createCandidate(candidateKey,hash(candidatePayload+"changed"),publisherA,publisherB,"partner","https://example.org/partner","Changed payload")).rows[0].result;
+  ok("candidate key reuse with a changed payload is rejected",candidateMismatch.status===409 && candidateMismatch.body.error==="idempotency_key_reused");
+  const duplicateCandidate = (await createCandidate(randomUUID(),hash("reverse same owner"),publisherB,publisherA)).rows[0].result;
+  ok("symmetric same-owner candidate is canonicalized and reverse duplicate is rejected",duplicateCandidate.status===409 && duplicateCandidate.body.error==="relationship_already_exists");
+  const invalidCandidate = (await createCandidate(randomUUID(),hash("no basis"),publisherA,publisherB,"partner","","")).rows[0].result;
+  ok("candidate without evidence URL or written rationale is refused",invalidCandidate.status===400);
+  const missingPublisher = (await createCandidate(randomUUID(),hash("missing source"),publisherA,randomUUID())).rows[0].result;
+  ok("candidate referencing a missing publisher is refused",missingPublisher.status===404);
+  await admin.query("reset role");
+  const candidateState = await admin.query("select (select count(*)::int from publication_relationships where relationship_type='same_owner') relationships,(select count(*)::int from publication_relationship_review_events) review_events,(select count(*)::int from audit_events where event_type='publication_relationship_candidate_created') audits,(select revision from source_provenance_state where singleton) revision,(select count(*)::int from idempotency_records where endpoint_key='publication_relationship_candidate') keys");
+  ok("candidate, audit and provenance revision are written exactly once",candidateState.rows[0].relationships===1 && candidateState.rows[0].review_events===0 && candidateState.rows[0].audits===1 && Number(candidateState.rows[0].revision)===1 && candidateState.rows[0].keys===2);
+  const canonicalEdge = await admin.query("select source_id,related_source_id,review_status from publication_relationships where relationship_type='same_owner'");
+  ok("same-owner relationship is stored in canonical UUID order and remains unverified",canonicalEdge.rows[0].source_id<canonicalEdge.rows[0].related_source_id && canonicalEdge.rows[0].review_status==="unverified");
+
+  await admin.query("create function public.test_fail_candidate_audit() returns trigger language plpgsql as $candidate$ begin if new.event_type='publication_relationship_candidate_created' then raise exception 'injected candidate audit failure'; end if; return new; end $candidate$");
+  await admin.query("create trigger test_fail_candidate_audit before insert on audit_events for each row execute function public.test_fail_candidate_audit()");
+  await admin.query("set role service_role");
+  const rollbackCandidateKey=randomUUID();
+  let candidateRolledBack=false;
+  try { await createCandidate(rollbackCandidateKey,hash("candidate rollback"),publisherA,publisherB,"partner","https://example.org/partner","Evidence-backed partnership candidate"); } catch { candidateRolledBack=true; }
+  ok("candidate audit failure propagates instead of reporting success",candidateRolledBack);
+  await admin.query("reset role");
+  await admin.query("drop trigger test_fail_candidate_audit on audit_events; drop function public.test_fail_candidate_audit()");
+  const candidateRollbackState=await admin.query("select (select count(*)::int from publication_relationships where relationship_type='partner') relationships,(select count(*)::int from idempotency_records where idempotency_key=$1) keys,(select revision from source_provenance_state where singleton) revision",[rollbackCandidateKey]);
+  ok("audit failure rolls back candidate, idempotency record and revision",candidateRollbackState.rows[0].relationships===0 && candidateRollbackState.rows[0].keys===0 && Number(candidateRollbackState.rows[0].revision)===1);
+
+  const candidateGrants=await admin.query("select has_table_privilege('anon','publication_relationships','insert') anon_insert,has_function_privilege('anon','public.create_publication_relationship_candidate(uuid,text,uuid,uuid,text,text,text)','execute') anon_execute,has_function_privilege('authenticated','public.create_publication_relationship_candidate(uuid,text,uuid,uuid,text,text,text)','execute') authenticated_execute,has_function_privilege('service_role','public.create_publication_relationship_candidate(uuid,text,uuid,uuid,text,text,text)','execute') service_execute");
+  ok("candidate writes are server-role only, never available to browser roles",!candidateGrants.rows[0].anon_insert && !candidateGrants.rows[0].anon_execute && !candidateGrants.rows[0].authenticated_execute && candidateGrants.rows[0].service_execute);
 
   const storyId = (await admin.query("insert into stories(headline,cluster_key) values('Test decision','test-decision-1') returning id")).rows[0].id;
   const key = randomUUID();

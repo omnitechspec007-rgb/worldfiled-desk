@@ -33,6 +33,9 @@ export const summarize = (rows: any[]) =>
       multiSource: d.multiSource ?? null,
       shortlisted: d.shortlisted ?? null,
       candidates: d.candidates ?? null,
+      blocked: d.blocked ?? null,
+      metadataOnly: d.metadataOnly ?? null,
+      extractionAllowed: d.extractionAllowed ?? null,
     };
   });
 

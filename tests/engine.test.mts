@@ -13,9 +13,11 @@ const seed = await import(`${root}lib/seed-sources.mts`);
 const runsFn = (await import(`${root}functions/runs.mts`)).default;
 const stepFn = (await import(`${root}functions/run-step.mts`)).default;
 const { clusterItems } = await import(`${root}lib/cluster.mts`);
+const { stageCluster } = await import(`${root}lib/pipeline.mts`);
 const decideFn = (await import(`${root}functions/decide.mts`)).default;
 const creativeFn = (await import(`${root}functions/creative.mts`)).default;
 const referenceFn = (await import(`${root}functions/reference.mts`)).default;
+const storiesFn = (await import(`${root}functions/stories.mts`)).default;
 const cookie = session.makeSessionCookie().split(";")[0];
 
 // ---------- fake PostgREST ----------
@@ -178,6 +180,30 @@ assert.equal(T("stories").length, new Set(T("stories").map((s) => s.cluster_key)
 const unDedup = T("retrieved_sources").find((x) => x.url.includes("/a/0"));
 assert(!T("retrieved_sources").some((x) => /utm_/.test(x.url_hash))); ok("tracking parameters do not create duplicate URLs");
 
+console.log("Source content policy is enforced before retrieval and downstream use");
+reset(); behaviour = {}; shared = {}; fetched.length = 0;
+const blockedSeed = seed.SEED_SOURCES.find((s: any) => s.name === "UN News");
+const extractionSeed = seed.SEED_SOURCES.find((s: any) => s.name === "Dawn");
+r = await start();
+await call(stepFn, { runId: r.run.id }); // complete prepare, then apply reviewed policies before discovery
+const blockedRegistry = T("source_registry").find((s) => s.name === "UN News");
+const extractionRegistry = T("source_registry").find((s) => s.name === "Dawn");
+T("source_content_policies").push(
+  { source_id: blockedRegistry.id, policy: "blocked" },
+  { source_id: extractionRegistry.id, policy: "extraction_allowed" },
+);
+end = await runToEnd(r.run.id);
+assert.equal(end.run.status, "completed");
+assert(!fetched.includes(blockedSeed.feed)); ok("blocked source feed is never requested");
+assert(!T("retrieved_sources").some((x) => x.registry_id === blockedRegistry.id)); ok("blocked source produces no retrieved-source rows");
+assert(T("retrieved_sources").filter((x) => x.registry_id === extractionRegistry.id).every((x) => x.content_status === "metadata_only")); ok("extraction_allowed does not trigger full-text extraction in the metadata-only stage");
+const discoverStage = T("research_run_stages").find((x) => x.run_id === r.run.id && x.stage === "discover");
+assert.equal(discoverStage.detail.blocked, 1); ok("run progress reports blocked-source count");
+const legacyBlocked = { id: crypto.randomUUID(), registry_id: blockedRegistry.id, title: "Legacy blocked source story", url: "https://un.example/legacy", url_hash: "f".repeat(64), retrieved_at: new Date().toISOString(), content_status: "metadata_only" };
+T("retrieved_sources").push(legacyBlocked);
+await stageCluster("policy-filter-test", { windowDays: 3 });
+assert(!T("story_source_links").some((link) => link.source_id === legacyBlocked.id)); ok("previously stored records from a newly blocked source are excluded from clustering");
+
 console.log("Source failures are flagged, never treated as empty");
 reset(); behaviour = { [hostFor("Dawn")]: "malformed", [hostFor("Al Jazeera")]: "timeout", [hostFor("Japan Times")]: "http500", [hostFor("Arab News")]: "unsafe-redirect", [hostFor("CNA")]: "html", [hostFor("Africanews")]: "empty", [hostFor("Euronews")]: "old", [hostFor("France 24")]: "network" };
 shared = {}; fetched.length = 0;
@@ -285,6 +311,13 @@ assert.equal(g2.version, 2); assert.equal(g2.treatment.key, "science_discovery")
 const hist = await (await get(creativeFn, "history=1")).json();
 assert.equal(hist.prompts.length, 2); assert(hist.prompts.every((h: any) => h.approvalCurrent && h.headline)); ok("history lists both versions, approval current");
 const one = await (await get(creativeFn, `id=${g1.id}`)).json(); assert(one.prompt && one.prompt.includes(firstUrl)); ok("a current prompt can be opened and copied");
+const linkedEvidence = T("retrieved_sources").find((row) => T("story_source_links").some((link) => link.story_id === sid && link.source_id === row.id));
+T("source_content_policies").push({ source_id: linkedEvidence.registry_id, policy: "blocked" });
+const storyView = await (await get(storiesFn, `id=${sid}`)).json();
+assert(!storyView.story.sources.some((source: any) => source.url === linkedEvidence.url)); ok("blocked source is removed from the story evidence view");
+const withheldByPolicy = await (await get(creativeFn, `id=${g1.id}`)).json();
+assert.equal(withheldByPolicy.prompt, null); assert.equal(withheldByPolicy.evidenceAccessible, false); ok("saved prompt is withheld when any source in its evidence snapshot becomes blocked");
+T("source_content_policies").length = 0;
 assert.equal((await call(creativeFn, { storyId: "bad" })).status, 400); assert.equal((await get(creativeFn, "id=zzz")).status, 400); ok("bad ids rejected");
 const g3 = await (await call(creativeFn, { storyId: sid, deliverable: "nonsense", durationSeconds: 5000, treatmentKey: "nonsense" })).json(); assert.equal(g3.saved, true); assert(g3.prompt.length > 1000); ok("unknown options fall back to safe defaults");
 const countBefore = T("creative_prompts").length;

@@ -12,13 +12,14 @@ const storyId = "11111111-1111-4111-8111-111111111111";
 const sourceId = "22222222-2222-4222-8222-222222222222";
 const claims: any[] = [], evidence: any[] = [], decisions: any[] = [];
 const stories: any[] = [{ id: storyId, headline: "Test story", verification_status: "unverified", editorial_status: "pending" }];
-const sources: any[] = [{ id: sourceId, title: "Primary source", url: "https://example.org/report", publisher: "Example", published_at: new Date().toISOString() }];
+const sources: any[] = [{ id: sourceId, registry_id: "99999999-9999-4999-8999-999999999999", title: "Primary source", url: "https://example.org/report", publisher: "Example", published_at: new Date().toISOString() }];
+const policies: any[] = [{ source_id: "99999999-9999-4999-8999-999999999999", policy: "extraction_allowed" }];
 const links = [{ story_id: storyId, source_id: sourceId, role: "primary" }];
 const idempotency = new Map<string,any>();
 const auditEvents: any[] = [];
 let testClock = Date.now();
 const response = (x: any, status=200) => new Response(x === null ? null : JSON.stringify(x), { status });
-const filter = (rows: any[], p: URLSearchParams) => rows.filter(row => [...p.entries()].every(([k,v]) => ["select","order","on_conflict"].includes(k) || (v.startsWith("eq.") && String(row[k]) === v.slice(3))));
+const filter = (rows: any[], p: URLSearchParams) => rows.filter(row => [...p.entries()].every(([k,v]) => ["select","order","on_conflict","limit"].includes(k) || (v.startsWith("eq.") && String(row[k]) === v.slice(3)) || (v.startsWith("in.(") && v.slice(4,-1).split(",").includes(String(row[k])))));
 globalThis.fetch = (async (input: any, init: any = {}) => {
   const u = new URL(String(input)), table = u.pathname.split("/rest/v1/")[1], method = init.method || "GET", p = u.searchParams;
   if (table === "rpc/add_material_claim" && method === "POST") {
@@ -127,8 +128,9 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
     if (table === "claims") return response(filter(claims,p).map(c=>({...c,claim_evidence:evidence.filter(e=>e.claim_id===c.id).map(e=>({...e,retrieved_sources:sources.find(s=>s.id===e.source_id)})),verification_results:decisions.filter(d=>d.claim_id===c.id)})));
     if (table === "claim_evidence") return response(filter(evidence,p));
     if (table === "verification_results") return response(filter(decisions,p));
-    if (table === "story_source_links") return response(filter(links,p).map(l=>({...l,retrieved_sources:sources.find(s=>s.id===l.source_id)})));
+    if (table === "story_source_links") return response(filter(links,p).map(l=>{const rs=sources.find(s=>s.id===l.source_id);return {...l,retrieved_sources:rs?{...rs,source_registry:{id:rs.registry_id}}:null};}));
     if (table === "retrieved_sources") return response(filter(sources,p));
+    if (table === "source_content_policies") return response(policies);
     return response([]);
   }
   const body = JSON.parse(init.body || "{}");
@@ -166,6 +168,15 @@ ok("claim fingerprint cannot silently merge different displayed wording");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId:"33333333-3333-4333-8333-333333333333",passage:"Official text"})).status,400); ok("evidence from a source not linked to the story is rejected");
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED"})).status,400); ok("SUPPORTED is refused without an extracted passage");
 assert.equal((await post({action:"complete_story",storyId,acknowledged:true})).status,409); ok("story clearance is refused while claims remain unresolved");
+policies[0].policy = "metadata_only";
+r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"Metadata-only passage"});
+assert.equal(r.status,409); assert.equal((await r.json()).error,"source_not_approved_for_passage_evidence"); ok("metadata-only sources cannot be stored as full-text claim evidence");
+policies[0].policy = "blocked";
+r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"Restricted passage"});
+assert.equal(r.status,409); assert.equal((await r.json()).error,"source_blocked_by_content_policy"); ok("new evidence cannot be attached from a blocked source");
+const blockedView=await (await get()).json();
+assert.equal(blockedView.claims[0].claim_evidence[0].passage,null); assert.equal(blockedView.claims[0].claim_evidence[0].policyBlocked,true); ok("existing evidence passages from a newly blocked source are redacted in the verification view");
+policies.length=0;
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"x".repeat(4001)})).status,400); ok("overlong evidence passages are rejected without truncation");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"Text",isContradiction:"false"})).status,400); ok("string booleans are rejected and cannot silently become contradiction flags");
 r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"}); assert.equal(r.status,200); assert.equal(evidence.length,1); ok("checked passage is attached to a source already linked to the story");
@@ -202,5 +213,9 @@ assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"I reviewed the record.",contradictionResolution:""})).status,409); ok("SUPPORTED requires a separate contradiction reconciliation rationale");
 assert.equal((await post({action:"complete_story",storyId,acknowledged:true})).status,409); ok("story clearance rejects contradictory evidence without a recorded reconciliation");
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"I reviewed the record.",contradictionResolution:"The conflicting report refers to a different agency notice and date. The official notice and its publication record identify the date stated in this claim, while the conflicting passage concerns a separate event."})).status,200); ok("editor can record a specific reconciliation distinct from general reviewer notes");
+policies.push({ source_id: sources[0].registry_id, policy: "blocked" });
+assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"I reviewed the record."})).status,409); ok("a supported decision cannot rely on a source that has since become blocked");
+r=await post({action:"complete_story",storyId,acknowledged:true}); assert.equal(r.status,409); ok("story clearance rejects previously accepted evidence when its source becomes blocked");
+policies.length=0;
 r=await post({action:"complete_story",storyId,acknowledged:true}); assert.equal(r.status,200); assert.equal(stories[0].verification_status,"verified"); ok("contradictory evidence clearance requires both support and documented reconciliation");
 console.log("\\nALL CLAIM VERIFICATION API CHECKS PASSED");

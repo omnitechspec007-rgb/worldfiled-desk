@@ -13,6 +13,7 @@ import { DELIVERABLES, type Deliverable } from "../lib/production-tools.mts";
 import { buildArchitectPrompt, PromptTooLarge, type StyleRuleIn } from "../lib/prompt-architect.mts";
 import { brandChecklist, BRAND_VERSION } from "../lib/brand.mts";
 import { scoreStory, type StoryInput } from "../lib/scoring.mts";
+import { canRetrieveMetadata, loadContentPolicies, policyForSource } from "../lib/source-policy.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -24,14 +25,18 @@ async function latestDecision(storyId: string) {
 }
 
 async function loadStory(storyId: string) {
-  const rows = await db<any[]>(
-    `stories?id=eq.${storyId}&select=id,headline,category,created_at,story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(name,country_scope,reliability_note)))`
-  );
+  const [rows, policies] = await Promise.all([
+    db<any[]>(
+      `stories?id=eq.${storyId}&select=id,headline,category,created_at,story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(id,name,country_scope,reliability_note)))`
+    ),
+    loadContentPolicies(),
+  ]);
   const st = rows[0];
   if (!st) return null;
   const sources = (st.story_source_links ?? [])
     .map((l: any) => l.retrieved_sources)
     .filter(Boolean)
+    .filter((s: any) => typeof s.source_registry?.id === "string" && canRetrieveMetadata(policyForSource(policies, s.source_registry.id)))
     .map((s: any) => ({
       outlet: s.source_registry?.name ?? "Unknown",
       region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
@@ -91,6 +96,7 @@ async function preview(storyId: string) {
   if (dec?.decision !== "approved") return json({ error: "not_approved" }, 409);
   const loaded = await loadStory(storyId);
   if (!loaded) return json({ error: "not_found" }, 404);
+  if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "This story has no sources currently permitted by the content-access policy. Review its source links before creating a production prompt." }, 409);
   const rec = recommendTreatment(loaded.story);
   const pack = buildEvidencePack(loaded.story, { decisionNote: dec.notes });
   return json({
@@ -122,6 +128,7 @@ async function generate(req: Request) {
   if (dec?.decision !== "approved") return json({ error: "not_approved" }, 409);
   const loaded = await loadStory(storyId);
   if (!loaded) return json({ error: "not_found" }, 404);
+  if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "This story has no sources currently permitted by the content-access policy. Review its source links before creating a production prompt." }, 409);
 
   const rec = recommendTreatment(loaded.story);
   const treatment = (typeof b.treatmentKey === "string" && getTreatment(b.treatmentKey)) || rec.treatment;
@@ -227,7 +234,12 @@ async function one(id: string) {
   const r = rows[0];
   if (!r) return json({ error: "not_found" }, 404);
   const dec = await latestDecision(r.story_id);
-  const current = dec?.decision === "approved" && dec.id === r.approval_decision_id;
+  const loaded = await loadStory(r.story_id);
+  const currentUrls = new Set((loaded?.story.sources ?? []).map((source) => source.url));
+  const snapshotUrls = (r.evidence_snapshot?.sources ?? []).map((source: any) => source.url).filter((url: unknown): url is string => typeof url === "string");
+  const evidenceAccessible = Boolean(loaded?.story.sources.length) && snapshotUrls.every((url: string) => currentUrls.has(url));
+  const approvalCurrent = dec?.decision === "approved" && dec.id === r.approval_decision_id;
+  const current = approvalCurrent && evidenceAccessible;
   return json({
     id: r.id,
     storyId: r.story_id,
@@ -235,12 +247,13 @@ async function one(id: string) {
     treatment: r.treatment_key,
     createdAt: r.created_at,
     brandVersion: r.brand_spec_version,
-    approvalCurrent: current,
+    approvalCurrent,
+    evidenceAccessible,
     roles: r.roles,
     rationale: r.rationale,
     tools: r.tools,
     evidenceClasses: classCounts(r.evidence_snapshot),
     prompt: current ? r.prompt_text : null,
-    withheld: current ? undefined : "This story's approval is no longer current (it was rejected, sent back for research, or approved again later). The prompt is kept as history but cannot be copied. Re-approve the story and regenerate.",
+    withheld: current ? undefined : !approvalCurrent ? "This story's approval is no longer current (it was rejected, sent back for research, or approved again later). The prompt is kept as history but cannot be copied. Re-approve the story and regenerate." : "One or more source links in this saved prompt are no longer permitted by the current content-access policy. The prompt is retained as history but cannot be copied; regenerate using currently permitted evidence.",
   });
 }

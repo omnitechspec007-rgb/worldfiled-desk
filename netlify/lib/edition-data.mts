@@ -5,22 +5,24 @@ import { buildDev, membersKey, type Dev } from "./editions.mts";
 import { buildEvidencePack, type EvStory, type EvSource } from "./evidence-pack.mts";
 import { evidenceHash, type EditionMember } from "./edition-prompt.mts";
 import { hasContradictionReconciliation } from "./claim-clearance.mts";
+import { canRetrieveMetadata, canUsePassageEvidence, loadContentPolicies, policyForSource, type ContentPolicyRow } from "./source-policy.mts";
 import type { StoryInput } from "./scoring.mts";
 
 export const UUID = /^[0-9a-f-]{36}$/i;
 export const SCORE_WINDOW_HOURS = 72; // same windows as the research pipeline's rank stage
 export const OFFICIAL_SCORE_WINDOW_HOURS = 14 * 24;
 export const MAX_MEMBERS = 18;
-const EMBED = "story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(name,country_scope,reliability_note)))";
+const EMBED = "story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(id,name,country_scope,reliability_note)))";
 const FIELDS = `id,headline,category,created_at,${EMBED}`;
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
 export type Loaded = { dev: Dev; story: EvStory; hasPrimary: boolean };
 
-function toLoaded(st: any, now: number): Loaded | null {
+function toLoaded(st: any, now: number, policies: ContentPolicyRow[]): Loaded | null {
   const sources: EvSource[] = (st.story_source_links ?? [])
     .map((l: any) => l.retrieved_sources)
     .filter(Boolean)
+    .filter((s: any) => typeof s.source_registry?.id === "string" && canRetrieveMetadata(policyForSource(policies, s.source_registry.id)))
     .map((s: any) => ({
       outlet: s.source_registry?.name ?? "Unknown",
       region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
@@ -38,9 +40,10 @@ function toLoaded(st: any, now: number): Loaded | null {
 
 export async function loadStories(ids: string[], now = Date.now()): Promise<Map<string, Loaded>> {
   const out = new Map<string, Loaded>();
+  const policies = await loadContentPolicies();
   for (const part of chunk(ids, 30)) {
     const rows = await db<any[]>(`stories?id=in.(${part.join(",")})&select=${FIELDS}`);
-    for (const r of rows) { const l = toLoaded(r, now); if (l) out.set(r.id, l); }
+    for (const r of rows) { const l = toLoaded(r, now, policies); if (l) out.set(r.id, l); }
   }
   return out;
 }
@@ -48,8 +51,11 @@ export async function loadStories(ids: string[], now = Date.now()): Promise<Map<
 /** Recent stories. `fresh` = inside the pipeline's freshness window and not rejected: only these feed the SUGGESTIONS.
  *  Older and rejected stories are still returned (flagged) so the editor can browse and select by hand. */
 export async function loadPool(now = Date.now(), limit = 150) {
-  const rows = await db<any[]>(`stories?select=${FIELDS}&order=created_at.desc&limit=${limit}`);
-  const all = rows.map((r) => toLoaded(r, now)).filter(Boolean) as Loaded[];
+  const [rows, policies] = await Promise.all([
+    db<any[]>(`stories?select=${FIELDS}&order=created_at.desc&limit=${limit}`),
+    loadContentPolicies(),
+  ]);
+  const all = rows.map((r) => toLoaded(r, now, policies)).filter(Boolean) as Loaded[];
   const decisions = await latestDecisions(all.map((l) => l.dev.id));
   const pool: Loaded[] = [];
   const skipped: { id: string; headline: string; reason: string }[] = [];
@@ -135,11 +141,19 @@ export function assessStoryVerificationStatus(stories: any[], storyIds: string[]
 
 export async function editionClaimClearance(storyIds: string[]): Promise<ClaimClearance> {
   if (!storyIds.length) return { ready: false, blocked: [{ storyId: "", reason: "The edition has no stories." }] };
-  const [claims, stories] = await Promise.all([
-    db<any[]>(`claims?story_id=in.(${storyIds.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`),
+  const [claims, stories, policies] = await Promise.all([
+    db<any[]>(`claims?story_id=in.(${storyIds.join(",")})&select=id,story_id,claim_evidence(id,source_id,passage,extraction_status,is_contradiction,created_at,retrieved_sources(registry_id)),verification_results(id,outcome,reviewer_notes,created_at)`),
     db<any[]>(`stories?id=in.(${storyIds.join(",")})&select=id,verification_status`),
+    loadContentPolicies(),
   ]);
-  const claimClearance = assessClaimClearance(claims, storyIds);
+  const policyAwareClaims = claims.map((claim) => ({
+    ...claim,
+    claim_evidence: (claim.claim_evidence ?? []).filter((e: any) =>
+      typeof e.retrieved_sources?.registry_id === "string" &&
+      canUsePassageEvidence(policyForSource(policies, e.retrieved_sources.registry_id))
+    ),
+  }));
+  const claimClearance = assessClaimClearance(policyAwareClaims, storyIds);
   const statusClearance = assessStoryVerificationStatus(stories, storyIds);
   const blocked = [...statusClearance.blocked, ...claimClearance.blocked];
   return { ready: blocked.length === 0, blocked };
