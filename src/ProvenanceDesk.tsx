@@ -22,6 +22,8 @@ type Payload = {
 };
 type Tab = "publishers" | "relationships" | "articles";
 type Candidate = { sourceId: string; relatedSourceId: string; relationshipType: string; evidenceUrl: string; reviewNotes: string; key: string };
+type ReviewOperation = { key: string; payload: Record<string, string> };
+type ReviewSubmit = (payload: Record<string, string>) => void;
 const label = (value: string | null | undefined) => value ? value.replace(/_/g, " ") : "Unknown";
 const date = (value: string | null | undefined) => value ? new Date(value).toLocaleDateString() : "Not recorded";
 
@@ -46,6 +48,10 @@ export default function ProvenanceDesk() {
   });
   const [candidateUncertain, setCandidateUncertain] = useState(() => Boolean(candidatePending));
   const [candidateMessage, setCandidateMessage] = useState(() => candidatePending ? "A previous candidate submission may not have received confirmation. Retry the same request safely." : "");
+  const [reviewPending, setReviewPending] = useState<ReviewOperation | null>(() => { try { const raw = sessionStorage.getItem("wf:pending-provenance-review"); return raw ? JSON.parse(raw) as ReviewOperation : null; } catch { return null; } });
+  const [reviewUncertain, setReviewUncertain] = useState(() => Boolean(reviewPending));
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState(() => reviewPending ? "A previous provenance review may not have received confirmation. Retry the exact same decision." : "");
 
   const load = useCallback(async () => {
     setBusy(true); setError("");
@@ -111,6 +117,45 @@ export default function ProvenanceDesk() {
       evidenceUrl: candidateEvidence.trim(), reviewNotes: candidateNotes.trim(), key: crypto.randomUUID(),
     };
     void submitCandidate(operation);
+  };
+
+  const clearPendingReview = () => {
+    setReviewPending(null); setReviewUncertain(false);
+    try { sessionStorage.removeItem("wf:pending-provenance-review"); } catch { /* in-memory state remains */ }
+  };
+
+  const submitReview = async (operation: ReviewOperation) => {
+    setReviewBusy(true); setReviewMessage(""); setReviewPending(operation);
+    try { sessionStorage.setItem("wf:pending-provenance-review", JSON.stringify(operation)); } catch { /* same-page retry remains available */ }
+    try {
+      const response = await fetch("/.netlify/functions/provenance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": operation.key },
+        body: JSON.stringify(operation.payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (result.outcome === "unknown" || response.status >= 500) {
+          setReviewUncertain(true);
+          setReviewMessage("We couldn't confirm whether this review was saved. Your decision is preserved; retry the exact same request.");
+        } else {
+          clearPendingReview();
+          setReviewMessage(result.detail || result.error || "The review was not saved.");
+        }
+        return;
+      }
+      clearPendingReview();
+      setReviewMessage(result.replayed ? "Review was already saved. No duplicate event was created." : "Review saved and added to the permanent review history.");
+      await load();
+    } catch {
+      setReviewUncertain(true);
+      setReviewMessage("Connection interrupted. We couldn't confirm whether this review was saved. Retry the exact same request.");
+    } finally { setReviewBusy(false); }
+  };
+
+  const beginReview: ReviewSubmit = (payload) => {
+    if (reviewPending || reviewUncertain) return;
+    void submitReview({ key: crypto.randomUUID(), payload });
   };
 
   const sources = useMemo(() => (data?.sources ?? []).filter((source) => {
