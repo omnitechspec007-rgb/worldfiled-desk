@@ -33,6 +33,7 @@ begin
      or p_request_hash !~ '^[0-9a-f]{64}$'
      or p_story_id is null
      or p_claim_id is null
+     or p_outcome is null
      or p_outcome not in ('SUPPORTED','PARTIALLY_SUPPORTED','CONTRADICTED','INSUFFICIENT_EVIDENCE','UNVERIFIED','NOT_APPLICABLE')
      or coalesce(char_length(p_reviewer_notes), 0) > 400
      or coalesce(char_length(p_contradiction_resolution), 0) > 1000 then
