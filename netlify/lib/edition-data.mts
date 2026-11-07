@@ -5,7 +5,7 @@ import { buildDev, membersKey, type Dev } from "./editions.mts";
 import { buildEvidencePack, type EvStory, type EvSource } from "./evidence-pack.mts";
 import { evidenceHash, type EditionMember } from "./edition-prompt.mts";
 import { hasContradictionReconciliation } from "./claim-clearance.mts";
-import { canRetrieveMetadata, loadContentPolicies, policyForSource, type ContentPolicyRow } from "./source-policy.mts";
+import { canRetrieveMetadata, canUsePassageEvidence, loadContentPolicies, policyForSource, type ContentPolicyRow } from "./source-policy.mts";
 import type { StoryInput } from "./scoring.mts";
 
 export const UUID = /^[0-9a-f-]{36}$/i;
@@ -150,7 +150,7 @@ export async function editionClaimClearance(storyIds: string[]): Promise<ClaimCl
     ...claim,
     claim_evidence: (claim.claim_evidence ?? []).filter((e: any) =>
       typeof e.retrieved_sources?.registry_id === "string" &&
-      canRetrieveMetadata(policyForSource(policies, e.retrieved_sources.registry_id))
+      canUsePassageEvidence(policyForSource(policies, e.retrieved_sources.registry_id))
     ),
   }));
   const claimClearance = assessClaimClearance(policyAwareClaims, storyIds);
