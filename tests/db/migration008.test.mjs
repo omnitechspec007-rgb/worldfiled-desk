@@ -1,13 +1,19 @@
 // Real-Postgres test for migration 008. Not part of npm test; requires embedded-postgres and pg.
-import EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 
 const root = new URL("../../supabase/", import.meta.url).pathname;
-const server = new EmbeddedPostgres({ databaseDir: "./data8", user: "postgres", password: "pw", port: 54338, persistent: false });
-await server.initialise(); await server.start();
-const admin = new pg.Client({ host: "localhost", port: 54338, user: "postgres", password: "pw", database: "postgres" });
+let server: any = null;
+let admin: pg.Client;
+if (process.env.TEST_DATABASE_URL) {
+  admin = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
+} else {
+  const EmbeddedPostgres = (await import("embedded-postgres")).default;
+  server = new EmbeddedPostgres({ databaseDir: "./data8", user: "postgres", password: "pw", port: 54338, persistent: false });
+  await server.initialise(); await server.start();
+  admin = new pg.Client({ host: "localhost", port: 54338, user: "postgres", password: "pw", database: "postgres" });
+}
 await admin.connect();
 let pass = 0, fail = 0;
 const ok = (label, value) => { console.log((value ? "PASS " : "FAIL ") + label); value ? pass++ : fail++; };
@@ -87,7 +93,7 @@ try {
   ok("concurrent retry creates exactly one decision, audit event and idempotency record", Number(concurrentState.rows[0].decisions) === 1 && Number(concurrentState.rows[0].audits) === 1 && Number(concurrentState.rows[0].keys) === 1);
   await second.end();
 } finally {
-  await admin.end(); await server.stop();
+  await admin.end(); if (server) await server.stop();
 }
 console.log(`\\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
