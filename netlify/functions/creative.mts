@@ -13,6 +13,7 @@ import { DELIVERABLES, type Deliverable } from "../lib/production-tools.mts";
 import { buildArchitectPrompt, PromptTooLarge, type StyleRuleIn } from "../lib/prompt-architect.mts";
 import { brandChecklist, BRAND_VERSION } from "../lib/brand.mts";
 import { scoreStory, type StoryInput } from "../lib/scoring.mts";
+import { canRetrieveMetadata, loadContentPolicies, policyForSource } from "../lib/source-policy.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -24,14 +25,18 @@ async function latestDecision(storyId: string) {
 }
 
 async function loadStory(storyId: string) {
-  const rows = await db<any[]>(
-    `stories?id=eq.${storyId}&select=id,headline,category,created_at,story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(name,country_scope,reliability_note)))`
-  );
+  const [rows, policies] = await Promise.all([
+    db<any[]>(
+      `stories?id=eq.${storyId}&select=id,headline,category,created_at,story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(id,name,country_scope,reliability_note)))`
+    ),
+    loadContentPolicies(),
+  ]);
   const st = rows[0];
   if (!st) return null;
   const sources = (st.story_source_links ?? [])
     .map((l: any) => l.retrieved_sources)
     .filter(Boolean)
+    .filter((s: any) => canRetrieveMetadata(policyForSource(policies, s.source_registry?.id ?? "")))
     .map((s: any) => ({
       outlet: s.source_registry?.name ?? "Unknown",
       region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
