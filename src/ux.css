@@ -61,3 +61,34 @@
   .audit-boundary-grid { grid-template-columns: 1fr; gap: 4px; }
   .finding-position { margin-left: 0; }
 }
+
+
+/* Source Provenance Desk */
+.provenance-stats { margin-bottom: 16px; }
+.provenance-principle { border-left: 4px solid var(--gold); font-size: .88rem; }
+.provenance-tabs { display: flex; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin: 18px 0 12px; }
+.provenance-tabs .tab { border: 0; border-bottom: 3px solid transparent; padding: 10px 12px; }
+.provenance-tabs .tab.on { border-bottom-color: var(--gold); }
+.provenance-filters { align-items: end; }
+.provenance-filters label { min-width: 190px; }
+.provenance-list { display: grid; gap: 12px; }
+.provenance-card { margin: 0; }
+.provenance-card-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.provenance-card-heading h2 { margin: 0 0 4px; }
+.provenance-card-heading .meta { margin: 0; }
+.provenance-tag { display: inline-block; border: 1px solid var(--line); padding: 3px 8px; font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.provenance-tag.neutral { background: rgba(11,31,56,.04); }
+.provenance-tag.warning { color: #8b4b0c; border-color: #b26a22; }
+.provenance-meta-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin: 16px 0 8px; }
+.provenance-meta-grid div { display: flex; flex-direction: column; gap: 3px; }
+.provenance-meta-grid span { color: rgba(11,31,56,.6); font-size: .72rem; }
+.provenance-meta-grid strong { font-size: .82rem; font-weight: 600; }
+.provenance-footnote { color: rgba(11,31,56,.65); font-size: .8rem; margin: 16px 0; }
+@media (max-width: 700px) {
+  .provenance-card-heading { flex-direction: column; }
+  .provenance-meta-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .provenance-tabs { gap: 2px; }
+  .provenance-tabs .tab { padding: 8px; font-size: .78rem; }
+  .provenance-filters { align-items: stretch; }
+  .provenance-filters label { min-width: 0; width: 100%; }
+}
