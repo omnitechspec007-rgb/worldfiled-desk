@@ -55,6 +55,23 @@ begin
 
   -- The claim row lock also prevents concurrent evidence inserts through its FK from
   -- slipping between the evidence check and the decision write.
+  select * into existing
+  from public.idempotency_records
+  where actor_key = 'editor'
+    and endpoint_key = 'claim_verification_decision'
+    and idempotency_key = p_idempotency_key
+  for update;
+
+  if found then
+    if existing.request_hash <> p_request_hash then
+      return jsonb_build_object('status', 409, 'body', jsonb_build_object('error', 'idempotency_key_reused'));
+    end if;
+    if existing.completed_at is null then
+      return jsonb_build_object('status', 409, 'body', jsonb_build_object('error', 'operation_incomplete'));
+    end if;
+    return jsonb_build_object('status', existing.response_status, 'body', existing.response_body, 'replayed', true);
+  end if;
+
   select
     coalesce(bool_or(passage is not null and btrim(passage) <> '' and extraction_status = 'extracted' and not is_contradiction), false),
     coalesce(bool_or(passage is not null and btrim(passage) <> '' and extraction_status = 'extracted' and is_contradiction), false)
@@ -72,23 +89,6 @@ begin
       'error', 'contradiction_review_required',
       'detail', 'A specific reconciliation of at least 80 characters is required for contradictory evidence.'
     ));
-  end if;
-
-  select * into existing
-  from public.idempotency_records
-  where actor_key = 'editor'
-    and endpoint_key = 'claim_verification_decision'
-    and idempotency_key = p_idempotency_key
-  for update;
-
-  if found then
-    if existing.request_hash <> p_request_hash then
-      return jsonb_build_object('status', 409, 'body', jsonb_build_object('error', 'idempotency_key_reused'));
-    end if;
-    if existing.completed_at is null then
-      return jsonb_build_object('status', 409, 'body', jsonb_build_object('error', 'operation_incomplete'));
-    end if;
-    return jsonb_build_object('status', existing.response_status, 'body', existing.response_body, 'replayed', true);
   end if;
 
   insert into public.idempotency_records (actor_key, endpoint_key, idempotency_key, request_hash)
