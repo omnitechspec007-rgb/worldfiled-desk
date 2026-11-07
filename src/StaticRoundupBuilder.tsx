@@ -110,7 +110,6 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
   const bottom = 1744;
   const gap = cards.length >= 7 ? 10 : 14;
   const cardH = (bottom - top - gap * Math.max(0, cards.length - 1)) / Math.max(1, cards.length);
-  const compact = cards.length >= 7;
   cards.forEach((story, index) => {
     const y = top + index * (cardH + gap);
     ctx.save();
