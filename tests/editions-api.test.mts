@@ -41,7 +41,7 @@ function postgrest(url: URL, init: any) {
     // Claim-level edge cases are covered by claim-clearance and claim-verification tests.
     if (table === "claims") out = T("stories").filter((st) => matches({ story_id: st.id }, p)).map((st) => ({
       id: "claim-" + st.id, story_id: st.id,
-      claim_evidence: [{ id: "evidence-" + st.id, passage: "Checked synthetic supporting passage for edition workflow test.", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60000).toISOString() }],
+      claim_evidence: [{ id: "evidence-" + st.id, source_id: "source-" + st.id, passage: "Checked synthetic supporting passage for edition workflow test.", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60000).toISOString(), retrieved_sources: { registry_id: "registry-" + st.id } }],
       verification_results: [{ id: "decision-" + st.id, outcome: "SUPPORTED", reviewer_notes: "Synthetic editor decision for edition workflow test.", created_at: new Date().toISOString() }]
     }));
     return new Response(JSON.stringify(out), { status: 200 });
