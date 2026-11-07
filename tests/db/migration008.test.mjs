@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 
 const root = new URL("../../supabase/", import.meta.url).pathname;
-let server: any = null;
+let server = null;
 let admin;
 if (process.env.TEST_DATABASE_URL) {
   admin = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
