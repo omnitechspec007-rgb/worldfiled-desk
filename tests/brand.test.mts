@@ -29,5 +29,14 @@ const css = readFileSync("src/styles.css", "utf8").toLowerCase();
 for (const hex of ["#0b1f38", "#f7f4ed", "#ffc857", "#4cc9b0"]) check("stylesheet defines " + hex, css.includes(hex));
 check("stylesheet does not use the logo's off-palette navy #07223e", !css.includes("#07223e"));
 
+// Static roundup evidence labels must preserve the source's publication date and disclose gaps.
+const roundup = readFileSync("src/StaticRoundupBuilder.tsx", "utf8");
+const editionDesk = readFileSync("src/EditionDesk.tsx", "utf8");
+check("roundup cards carry publication dates from the selected source record", /publishedAt\?: string \| null/.test(roundup) && /publishedAt: d\.sources\[0\]\?\.publishedAt \?\? null/.test(editionDesk));
+check("roundup source stamps render a publication date or explicitly say DATE UNKNOWN", /DATE UNKNOWN/.test(roundup) && /toLocaleDateString\("en-GB"/.test(roundup));
+check("missing source metadata is disclosed instead of implying a linked source is present", /SOURCE NOT PROVIDED/.test(roundup) && !/SOURCE DETAILS: OPEN LINKED STORY/.test(roundup));
+check("roundup fallback text uses a retrieved source snippet rather than an unverified curiosity inference", /d\.whatChanged \|\| d\.sources\[0\]\?\.snippet/.test(editionDesk) && !/d\.whyInteresting\[0\]/.test(editionDesk));
+
+
 console.log(`\n${fail ? "FAILURES: " + fail : "ALL " + pass + " BRAND CHECKS PASSED"}`);
 process.exit(fail ? 1 : 0);
