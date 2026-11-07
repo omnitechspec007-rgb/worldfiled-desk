@@ -18,11 +18,21 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   requests.push(url);
   const path = new URL(url).pathname;
-  if (path === "/rest/v1/rpc/create_publication_relationship_candidate") {
-    rpcBodies.push(JSON.parse(String(init?.body ?? "{}")));
+  if (path.startsWith("/rest/v1/rpc/")) {
+    const payload = JSON.parse(String(init?.body ?? "{}"));
+    rpcBodies.push({ path, payload });
+    const isCreate = path.endsWith("create_publication_relationship_candidate");
+    const isLineage = path.endsWith("review_article_lineage");
+    const isPolicy = path.endsWith("review_source_content_policy");
     return new Response(JSON.stringify({
-      status: 201,
-      body: { relationshipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", relationshipType: "same_owner", reviewStatus: "unverified", provenanceRevision: 1 },
+      status: isCreate ? 201 : 200,
+      body: isCreate
+        ? { relationshipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", relationshipType: "same_owner", reviewStatus: "unverified", provenanceRevision: 1 }
+        : isLineage
+          ? { lineageId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", originType: payload.p_origin_type, reviewStatus: payload.p_review_status, provenanceRevision: 2 }
+          : isPolicy
+            ? { sourceId: payload.p_source_id, policy: payload.p_policy, provenanceRevision: 3 }
+            : { relationshipId: payload.p_relationship_id, reviewStatus: payload.p_review_status, provenanceRevision: 2 },
       replayed: false,
     }), { status: 200, headers: { "content-type": "application/json" } });
   }
@@ -87,6 +97,45 @@ try {
   assert.equal(rpcBodies[0].p_relationship_type, "same_owner");
   assert.match(rpcBodies[0].p_request_hash, /^[0-9a-f]{64}$/);
 
+
+  const reviewResponse = await provenance(new Request("https://desk.test/.netlify/functions/provenance", {
+    method: "POST",
+    headers: { cookie, origin: "https://desk.test", "content-type": "application/json", "idempotency-key": "ffffffff-ffff-4fff-8fff-ffffffffffff" },
+    body: JSON.stringify({
+      action: "review_relationship", relationshipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      reviewStatus: "verified", evidenceUrl: "https://example.org/ownership-proof", reviewNotes: "Corporate filing identifies the shared parent.",
+    }),
+  }));
+  assert.equal(reviewResponse.status, 200);
+  assert.equal(rpcBodies[1].path, "https://worldfiled-test.supabase.co/rest/v1/rpc/review_publication_relationship");
+  assert.equal(rpcBodies[1].payload.p_review_status, "verified");
+
+  const lineageResponse = await provenance(new Request("https://desk.test/.netlify/functions/provenance", {
+    method: "POST",
+    headers: { cookie, origin: "https://desk.test", "content-type": "application/json", "idempotency-key": "11111111-1111-4111-8111-111111111111" },
+    body: JSON.stringify({
+      action: "review_article_lineage", lineageId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      originType: "syndicated", reviewStatus: "verified", upstreamSourceRegistryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      upstreamUrl: "https://wire.example.org/story", evidenceUrl: "https://example.org/republication", reviewNotes: "The article credits the wire service.",
+    }),
+  }));
+  assert.equal(lineageResponse.status, 200);
+  assert.equal(rpcBodies[2].path, "https://worldfiled-test.supabase.co/rest/v1/rpc/review_article_lineage");
+  assert.equal(rpcBodies[2].payload.p_origin_type, "syndicated");
+  assert.equal(rpcBodies[2].payload.p_upstream_source_registry_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+
+  const policyResponse = await provenance(new Request("https://desk.test/.netlify/functions/provenance", {
+    method: "POST",
+    headers: { cookie, origin: "https://desk.test", "content-type": "application/json", "idempotency-key": "22222222-2222-4222-8222-222222222222" },
+    body: JSON.stringify({
+      action: "review_source_policy", sourceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      policy: "metadata_only", evidenceUrl: "https://example.org/terms", policyReason: "Keep feed ingestion at metadata depth pending rights review.",
+    }),
+  }));
+  assert.equal(policyResponse.status, 200);
+  assert.equal(rpcBodies[3].path, "https://worldfiled-test.supabase.co/rest/v1/rpc/review_source_content_policy");
+  assert.equal(rpcBodies[3].payload.p_policy, "metadata_only");
+
   const noBasis = await provenance(new Request("https://desk.test/.netlify/functions/provenance", {
     method: "POST",
     headers: { cookie, origin: "https://desk.test", "content-type": "application/json", "idempotency-key": candidateKey },
@@ -94,7 +143,7 @@ try {
   }));
   assert.equal(noBasis.status, 400, "candidate requires an evidence URL or written rationale");
 
-  console.log("PASS authenticated provenance read, metadata-only default, no-store and idempotent candidate API");
+  console.log("PASS authenticated provenance read, metadata-only default, no-store, candidate creation and evidence-backed review RPC contracts");
 } finally {
   globalThis.fetch = originalFetch;
 }
