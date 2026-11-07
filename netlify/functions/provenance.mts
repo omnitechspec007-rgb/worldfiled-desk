@@ -1,5 +1,6 @@
 // Read-only source provenance explorer. No inference, backfill or mutation occurs here.
-import { isAuthenticated } from "../lib/session.mts";
+import { createHash } from "node:crypto";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
@@ -16,8 +17,61 @@ const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const chunks = <T,>(values: T[], size: number) =>
   Array.from({ length: Math.ceil(values.length / size) }, (_, i) => values.slice(i * size, (i + 1) * size));
 
+const RELATIONSHIPS = new Set(["same_owner","owned_by","subsidiary_of","syndicates_from","republishes","licensed_from","partner","aggregates","official_source_for","other"]);
+const validUrl = (value: string) => {
+  try { const url = new URL(value); return url.protocol === "https:" && Boolean(url.hostname); }
+  catch { return false; }
+};
+
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
+
+  if (req.method === "POST") {
+    let body: any;
+    try {
+      const raw = await req.text();
+      if (raw.length > 6000) return json({ error: "too_large" }, 413);
+      body = JSON.parse(raw);
+    } catch { return json({ error: "bad_request" }, 400); }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "bad_request" }, 400);
+    const allowed = new Set(["sourceId","relatedSourceId","relationshipType","evidenceUrl","reviewNotes"]);
+    if (Object.keys(body).some((key) => !allowed.has(key))) return json({ error: "unexpected_field" }, 400);
+    if (typeof body.sourceId !== "string" || !UUID.test(body.sourceId) ||
+        typeof body.relatedSourceId !== "string" || !UUID.test(body.relatedSourceId) ||
+        body.sourceId === body.relatedSourceId ||
+        typeof body.relationshipType !== "string" || !RELATIONSHIPS.has(body.relationshipType)) {
+      return json({ error: "invalid_relationship_candidate" }, 400);
+    }
+    if (body.evidenceUrl !== undefined && body.evidenceUrl !== null && typeof body.evidenceUrl !== "string") return json({ error: "invalid_evidence_url" }, 400);
+    if (body.reviewNotes !== undefined && body.reviewNotes !== null && typeof body.reviewNotes !== "string") return json({ error: "invalid_review_notes" }, 400);
+    const evidenceUrl = typeof body.evidenceUrl === "string" ? body.evidenceUrl.trim() : "";
+    const reviewNotes = typeof body.reviewNotes === "string" ? body.reviewNotes.trim() : "";
+    if (evidenceUrl && (!validUrl(evidenceUrl) || evidenceUrl.length > 2000)) return json({ error: "invalid_evidence_url", detail: "Evidence links must be valid HTTPS URLs no longer than 2,000 characters." }, 400);
+    if (reviewNotes.length > 1200) return json({ error: "field_too_long", detail: "Review notes are limited to 1,200 characters. Nothing was truncated or saved." }, 400);
+    if (!evidenceUrl && !reviewNotes) return json({ error: "evidence_or_rationale_required" }, 400);
+
+    const key = req.headers.get("idempotency-key") ?? "";
+    if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same operation with the same key." }, 400);
+    const canonical = JSON.stringify({ sourceId: body.sourceId, relatedSourceId: body.relatedSourceId, relationshipType: body.relationshipType, evidenceUrl, reviewNotes });
+    const requestHash = createHash("sha256").update(canonical).digest("hex");
+    try {
+      const result: any = await db<any>("rpc/create_publication_relationship_candidate", {
+        method: "POST",
+        body: {
+          p_idempotency_key: key, p_request_hash: requestHash,
+          p_source_id: body.sourceId, p_related_source_id: body.relatedSourceId,
+          p_relationship_type: body.relationshipType, p_evidence_url: evidenceUrl, p_review_notes: reviewNotes,
+        },
+      });
+      const status = Number(result?.status ?? 500);
+      const responseBody = result?.body ?? { error: "invalid_rpc_response" };
+      return json({ ...responseBody, replayed: result?.replayed === true }, status);
+    } catch (e) {
+      if (e instanceof DbError) return json({ error: "database", detail: e.message, outcome: "unknown", retryWithSameKey: true }, e.status);
+      return json({ error: "server_error", outcome: "unknown", retryWithSameKey: true }, 500);
+    }
+  }
   if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
   try {
     const sources = await db<Source[]>(
