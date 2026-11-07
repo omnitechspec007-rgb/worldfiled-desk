@@ -33,3 +33,9 @@ export async function loadContentPolicies(): Promise<ContentPolicyRow[]> {
     throw error;
   }
 }
+
+// Full-text passages may be stored as verification evidence only after an explicit
+// extraction_allowed review. Metadata-only sources can still be used as discovery leads.
+export function canUsePassageEvidence(policy: ContentPolicy): boolean {
+  return policy === "extraction_allowed";
+}
