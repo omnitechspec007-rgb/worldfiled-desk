@@ -215,9 +215,9 @@ assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"I reviewed the record.",contradictionResolution:""})).status,409); ok("SUPPORTED requires a separate contradiction reconciliation rationale");
 assert.equal((await post({action:"complete_story",storyId,acknowledged:true})).status,409); ok("story clearance rejects contradictory evidence without a recorded reconciliation");
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"I reviewed the record.",contradictionResolution:"The conflicting report refers to a different agency notice and date. The official notice and its publication record identify the date stated in this claim, while the conflicting passage concerns a separate event."})).status,200); ok("editor can record a specific reconciliation distinct from general reviewer notes");
-policies.push({ source_id: sources[0].registry_id, policy: "blocked" });
+policies[0].policy = "blocked";
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"I reviewed the record."})).status,409); ok("a supported decision cannot rely on a source that has since become blocked");
 r=await post({action:"complete_story",storyId,acknowledged:true}); assert.equal(r.status,409); ok("story clearance rejects previously accepted evidence when its source becomes blocked");
-policies.length=0;
+policies[0].policy = "extraction_allowed";
 r=await post({action:"complete_story",storyId,acknowledged:true}); assert.equal(r.status,200); assert.equal(stories[0].verification_status,"verified"); ok("contradictory evidence clearance requires both support and documented reconciliation");
 console.log("\\nALL CLAIM VERIFICATION API CHECKS PASSED");
