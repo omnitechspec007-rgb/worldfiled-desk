@@ -161,7 +161,7 @@ export default function ProvenanceDesk() {
   const sources = useMemo(() => (data?.sources ?? []).filter((source) => {
     const haystack = [source.name, source.publisher, source.country_scope, source.category].join(" ").toLowerCase();
     return (!query || haystack.includes(query.toLowerCase())) &&
-      (status === "all" || (status === "metadata_only" ? source.contentPolicy.policy === "metadata_only" : source.retrieval_status === status));
+      (status === "all" || (["blocked", "metadata_only", "extraction_allowed"].includes(status) ? source.contentPolicy.policy === status : source.retrieval_status === status));
   }), [data, query, status]);
 
   const relationships = useMemo(() => (data?.relationships ?? []).filter((edge) => {
