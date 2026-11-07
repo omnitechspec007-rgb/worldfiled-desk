@@ -98,6 +98,7 @@ function story(headline: string, category: string, srcs: [string, string, string
 const jp = story("Japan orders new emergency preparedness plan with stockpiles for families", "Government and institutional decisions", [["Tokyo Gazette", "Japan updates national preparedness and stockpile directive", "Government ministry orders households and local councils to stockpile water and food for disasters.", true], ["Tokyo Times", "Tokyo tightens emergency readiness rules", "Families must keep supplies; shelters and early warning expanded in Japan."]]);
 const fi = story("Finland publishes civil defence guide on household resilience and shelters", "Public policy", [["Helsinki Gazette", "Finland issues civil defence guidance for every household", "Agency tells citizens to prepare emergency supplies; shelters and resilience plan updated.", true], ["Helsinki Times", "Finnish residents get preparedness booklet", "Authorities say crisis plan and readiness for disruption has been rewritten in Finland."]]);
 const cl = story("Chile launches earthquake early warning and evacuation programme", "Public policy", [["Santiago Gazette", "Chile expands early warning and evacuation drills nationwide", "The government programme improves disaster readiness and shelters in Chile."], ["Santiago Times", "Chile rolls out emergency alert system", "Authorities in Chile say preparedness for earthquakes and tsunami evacuation will be tested."]]);
+const mx = story("Mixed registry and relationship ownership review fixture", "Public policy", [["Metro Gazette", "Metro Gazette original report", "A reviewed original report."], ["Metro Daily", "Metro Daily original report", "A reviewed original report."]]);
 const rt = story("Central bank in Brazil raises interest rates as inflation climbs", "Business and economic developments", [["Brasilia Gazette", "Brazil raises interest rates to fight inflation", "The central bank decision affects mortgages, prices and wages."], ["Brasilia Times", "Brazilian central bank hikes rate", "Inflation and currency pressure drive the rate rise in Brazil."]]);
 const sp = story("Telescope finds exoplanet atmosphere with water signal, researchers say", "Scientific discoveries", [["Canberra Gazette", "Telescope detects water in exoplanet atmosphere", "Astronomers report a new finding from the space telescope."], ["Canberra Times", "Astronomers find water vapour on distant planet", "Researchers say the telescope study is a breakthrough."]]);
 const old = story("Spain republishes old earthquake preparedness guide", "Public policy", [["Madrid Gazette", "Spain preparedness guide", "Old"]]); T("retrieved_sources").filter((r) => r.title === "Spain preparedness guide").forEach((r) => (r.published_at = at(24 * 40)));
@@ -118,6 +119,13 @@ fiSources.forEach((source) => {
   T("article_lineage").push({ retrieved_source_id: source.id, origin_type: "original_reporting", review_status: "verified", updated_at: new Date().toISOString() });
 });
 T("publication_relationships").push({ source_id: fiSources[0].registry_id, related_source_id: fiSources[1].registry_id, relationship_type: "same_owner", review_status: "verified" });
+const mxSources = sourceLinks(mx);
+const mxOwner = T("source_registry").find((row) => row.id === mxSources[0].registry_id);
+Object.assign(mxOwner, { ownership_status: "verified", publisher_group_key: "mixed-owner-group" });
+const mxOtherOwner = T("source_registry").find((row) => row.id === mxSources[1].registry_id);
+Object.assign(mxOtherOwner, { ownership_status: "unverified", publisher_group_key: null });
+mxSources.forEach((source) => T("article_lineage").push({ retrieved_source_id: source.id, origin_type: "original_reporting", review_status: "verified", updated_at: new Date().toISOString() }));
+T("publication_relationships").push({ source_id: mxSources[0].registry_id, related_source_id: mxSources[1].registry_id, relationship_type: "same_owner", review_status: "verified" });
 const clSources = sourceLinks(cl);
 const wireOwner = reg("Wire Service");
 Object.assign(wireOwner, { ownership_status: "verified", publisher_group_key: "wire-group" });
@@ -134,10 +142,12 @@ assert(d.developments.length >= 5 && d.developments.every((x: any) => x.recommen
 const jpProv = d.developments.find((x: any) => x.id === jp).sourceIndependence;
 const fiProv = d.developments.find((x: any) => x.id === fi).sourceIndependence;
 const clProv = d.developments.find((x: any) => x.id === cl).sourceIndependence;
+const mxProv = d.developments.find((x: any) => x.id === mx).sourceIndependence;
 assert.equal(jpProv.status, "confirmed_independent"); assert.equal(jpProv.confirmedIndependentOrigins, 2);
 assert.equal(fiProv.status, "known_shared_origin"); assert.equal(fiProv.confirmedIndependentOrigins, 1);
 assert.equal(clProv.status, "known_shared_origin"); assert.equal(clProv.confirmedIndependentOrigins, 0);
-ok("desk derives independent origins from verified publisher groups, verified ownership edges and upstream article lineage");
+assert.equal(mxProv.status, "known_shared_origin"); assert.equal(mxProv.confirmedIndependentOrigins, 1);
+ok("desk derives independent origins from verified publisher groups, verified ownership edges and upstream article lineage, including mixed registry/relationship records");
 const prep = d.suggestions.find((s: any) => s.ids.includes(jp) && s.ids.includes(fi)); assert(prep && prep.structure === "multi_country" && prep.coherence.verdict === "COHERENT" && prep.coherence.components.length === 7); ok("a coherent multi-country edition is suggested with transparent coherence components");
 assert(!prep.ids.includes(rt) && !prep.ids.includes(sp)); ok("unrelated stories are not forced into the edition");
 assert(d.ineligible.some((x: any) => x.id === old && /freshness window/.test(x.reason))); ok("stories outside the freshness window are listed as excluded with a reason");
