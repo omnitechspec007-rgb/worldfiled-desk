@@ -94,14 +94,28 @@ async function preview(editionId: string, req: Request) {
   if ("fail" in r) return r.fail;
   const requestUrl = new URL(req.url);
   if (requestUrl.searchParams.get("deliverable") === "static_roundup_6s") {
+    // Every exported story must carry a named source and a usable publication date.
+    // A current edition approval does not by itself establish attribution completeness.
+    const missingAttribution = r.ids.filter((id) => {
+      const sources = r.loaded.get(id)?.dev.sources ?? [];
+      return !sources.some((source: any) =>
+        typeof source.outlet === "string" && source.outlet.trim().length > 0 &&
+        typeof source.publishedAt === "string" && /^\\d{4}-\\d{2}-\\d{2}/.test(source.publishedAt) &&
+        Number.isFinite(Date.parse(source.publishedAt))
+      );
+    }).map((id) => r.loaded.get(id)?.dev.headline ?? id);
+    const attributionReady = missingAttribution.length === 0;
     return json({
       editionId,
       editionKind: r.ed.edition_kind ?? "video",
       deliverable: "static_roundup_6s",
-      exportReady: r.ed.edition_kind !== "text",
+      exportReady: r.ed.edition_kind !== "text" && attributionReady,
       approval: { decision: r.dec.decision, membersHash: r.dec.members_hash, current: true },
       factualClearance: { ready: true, stories: r.ids.length },
-      note: "Server-side preflight passed: this exact saved edition has current human approval and current factual clearance. This is an export preflight, not a public publishing action."
+      attribution: { ready: attributionReady, missingStories: missingAttribution },
+      note: !attributionReady
+        ? `Export blocked: ${missingAttribution.length} selected story or stories lack a named source with a publication date. Resolve the missing attribution in the story evidence records, then check again.`
+        : "Server-side preflight passed: this exact saved edition has current human approval, factual clearance and named source/date attribution for every story. This is an export preflight, not a public publishing action."
     });
   }
   const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now(), structure: r.ed.structure as Structure });
