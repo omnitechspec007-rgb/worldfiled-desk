@@ -16,7 +16,7 @@ const sameOwner = summarizeSourceIndependence([
   { outlet: "North News", ownershipStatus: "verified", publisherGroupKey: "group-one", originStatus: "verified", originType: "original_reporting" },
   { outlet: "North Daily", ownershipStatus: "verified", publisherGroupKey: "group-one", originStatus: "verified", originType: "original_reporting" },
 ]);
-check("two outlets in one verified ownership group do not count as independent", sameOwner.namedOutlets === 2 && sameOwner.confirmedIndependentOrigins === 1 && sameOwner.status === "unknown");
+check("two outlets in one verified ownership group do not count as independent", sameOwner.namedOutlets === 2 && sameOwner.confirmedIndependentOrigins === 1 && sameOwner.status === "known_shared_origin");
 
 const wire = summarizeSourceIndependence([
   { outlet: "North News", ownershipStatus: "verified", publisherGroupKey: "group-one", originStatus: "verified", originType: "wire_copy", upstreamSourceRegistryId: "wire-registry" },
