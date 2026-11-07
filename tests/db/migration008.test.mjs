@@ -43,6 +43,8 @@ try {
   await admin.query("reset role");
   const counts = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [storyId, key]);
   ok("replay and conflict create no duplicate decision or audit", Number(counts.rows[0].decisions) === 1 && Number(counts.rows[0].audits) === 1 && Number(counts.rows[0].keys) === 1);
+  const audit = await admin.query("select detail from audit_events where entity_id=$1 order by id desc limit 1", [storyId]);
+  ok("audit event includes the idempotency key for traceability", audit.rows[0].detail.idempotency_key === key);
   const status = (await admin.query("select editorial_status from stories where id=$1", [storyId])).rows[0].editorial_status;
   ok("story status and appended decision agree", status === "approved");
   await admin.query("set role service_role");
