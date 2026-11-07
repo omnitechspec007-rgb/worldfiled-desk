@@ -78,6 +78,15 @@ const A = story("Alpha ministry publishes preparedness guide for households", 8)
 const B = story("Bravo agency announces late shelter funding decision", 1);
 const Cc = story("Charlie council passes earlier recycling rule", 40);
 const D = story("Delta board approves harbour plan", 6);
+for (const storyId of [A, D]) {
+  const row = T("stories").find((story) => story.id === storyId)!;
+  row.verification_status = "verified";
+  T("claims").push({
+    id: crypto.randomUUID(), story_id: storyId,
+    claim_evidence: [{ id: crypto.randomUUID(), passage: "Checked supporting passage for the planner fixture.", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60_000).toISOString() }],
+    verification_results: [{ id: crypto.randomUUID(), outcome: "SUPPORTED", reviewer_notes: "Planner fixture editor decision.", created_at: new Date().toISOString() }],
+  });
+}
 
 console.log("Planner API");
 assert.equal((await get("", null)).status, 401); assert.equal((await call({ action: "plan" }, null)).status, 401); ok("planner requires sign-in");
@@ -123,6 +132,10 @@ T("edition_decisions").push({ id: crypto.randomUUID(), edition_id: E, decision: 
 pl = await (await get("")).json(); assert.equal(pl.cycle.stage, "prompt"); assert(pl.cycle.approved); ok("approval moves the stage to prompt");
 const dec = T("edition_decisions")[0]; T("edition_prompts").push({ id: crypto.randomUUID(), edition_id: E, version: 1, members: [A, D], members_hash: hashOf(E), approval_decision_id: dec.id, created_at: new Date().toISOString() });
 pl = await (await get("")).json(); assert.equal(pl.cycle.stage, "production"); assert.equal(pl.cycle.standing.readiness, "READY FOR PRODUCTION"); ok("a current prompt moves the stage to production: READY FOR PRODUCTION");
+T("stories").find((story) => story.id === A)!.verification_status = "in_progress";
+pl = await (await get("")).json(); assert.equal(pl.cycle.stage, "prompt"); assert.equal(pl.cycle.promptMade, false);
+ok("a later claim-register change makes the saved prompt stale and returns the cycle to the prompt gate");
+T("stories").find((story) => story.id === A)!.verification_status = "verified";
 assert.equal((await call({ action: "mark-stage", id: cyc.id, stage: "review", done: true })).status, 409); ok("final review cannot be marked before production");
 assert.equal((await call({ action: "mark-stage", id: cyc.id, stage: "production", done: true })).status, 200); pl = await (await get("")).json(); assert.equal(pl.cycle.standing.readiness, "READY FOR FINAL REVIEW"); ok("production done: READY FOR FINAL REVIEW");
 let pb = await call({ action: "publish", id: cyc.id }); assert.equal(pb.status, 409); assert.equal((await pb.json()).error, "stages_incomplete"); ok("publishing with final review not marked asks for confirmation");
