@@ -92,9 +92,12 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
   ctx.fillStyle = "#B17A16";
   ctx.fillRect(82, 242, 72, 5);
   ctx.fillStyle = "#0B1F38";
-  ctx.font = "700 54px Georgia, serif";
   const titleLines = linesFor(ctx, title.toUpperCase(), 900, 2);
-  titleLines.forEach((line, i) => ctx.fillText(line, 82, 310 + i * 62));
+  // Keep a two-line edition title clear of the date baseline inside the fixed masthead panel.
+  const titleSize = titleLines.length > 1 ? 44 : 54;
+  const titleY = titleLines.length > 1 ? 300 : 330;
+  ctx.font = "700 " + titleSize + "px Georgia, serif";
+  titleLines.forEach((line, i) => ctx.fillText(line, 82, titleY + i * (titleSize + 10)));
   ctx.fillStyle = "#52677D";
   ctx.font = "600 19px Inter, Arial, sans-serif";
   ctx.fillText(date.toUpperCase(), 82, 397);
