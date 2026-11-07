@@ -194,7 +194,9 @@ try {
   ok("verified source relationship requires evidence URL or review rationale",unsubstantiatedReviewRejected);
   await admin.query("update publication_relationships set review_status='verified',evidence_url='https://example.org/about/ownership',reviewed_at=now(),reviewed_by='editor' where id=$1",[relationship.id]);
   await admin.query("insert into publication_relationship_review_events(relationship_id,previous_status,new_status,evidence_url,reviewed_by) values($1,'unverified','verified','https://example.org/about/ownership','editor')",[relationship.id]);
-  ok("verified source relationship records its evidence and append-only review event");
+  const relationshipState=await admin.query("select review_status,evidence_url from publication_relationships where id=$1",[relationship.id]);
+  const relationshipEvents=await admin.query("select count(*)::int n from publication_relationship_review_events where relationship_id=$1",[relationship.id]);
+  ok("verified source relationship records its evidence and append-only review event",relationshipState.rows[0].review_status==="verified" && relationshipState.rows[0].evidence_url==="https://example.org/about/ownership" && relationshipEvents.rows[0].n===1);
 
   const articleA=(await admin.query("insert into retrieved_sources(url,url_hash,title,registry_id) values($1,$2,'Original report',$3) returning id",["https://example.org/story",hash("https://example.org/story"),sourceRegistryA])).rows[0].id;
   const articleB=(await admin.query("insert into retrieved_sources(url,url_hash,title,registry_id) values($1,$2,'Syndicated report',$3) returning id",["https://daily.example.org/story",hash("https://daily.example.org/story"),sourceRegistryB])).rows[0].id;
@@ -205,9 +207,12 @@ try {
   ok("verified syndicated origin requires an upstream article or source reference",unlinkedSyndicationRejected);
   await admin.query("update article_lineage set origin_type='syndicated',upstream_retrieved_source_id=$2,review_status='verified',reviewed_at=now(),reviewed_by='editor',evidence_url='https://example.org/original' where id=$1",[unknownLineage.id,articleA]);
   await admin.query("insert into article_lineage_review_events(lineage_id,previous_status,new_status,evidence_url,reviewed_by) values($1,'unverified','verified','https://example.org/original','editor')",[unknownLineage.id]);
-  ok("verified syndicated article links to its upstream article and records review history");
+  const lineageState=await admin.query("select origin_type,review_status,upstream_retrieved_source_id from article_lineage where id=$1",[unknownLineage.id]);
+  const lineageEvents=await admin.query("select count(*)::int n from article_lineage_review_events where lineage_id=$1",[unknownLineage.id]);
+  ok("verified syndicated article links to its upstream article and records review history",lineageState.rows[0].origin_type==="syndicated" && lineageState.rows[0].review_status==="verified" && lineageState.rows[0].upstream_retrieved_source_id===articleA && lineageEvents.rows[0].n===1);
   const originalLineage=(await admin.query("insert into article_lineage(retrieved_source_id,origin_type,review_status,evidence_url,reviewed_at,reviewed_by) values($1,'original_reporting','verified','https://example.org/byline',now(),'editor') returning id",[articleA])).rows[0].id;
-  ok("verified original reporting can be recorded with review evidence and no upstream copy");
+  const originalState=await admin.query("select origin_type,review_status,evidence_url from article_lineage where id=$1",[originalLineage]);
+  ok("verified original reporting can be recorded with review evidence and no upstream copy",originalState.rows[0].origin_type==="original_reporting" && originalState.rows[0].review_status==="verified" && originalState.rows[0].evidence_url==="https://example.org/byline");
   let selfArticleLineageRejected=false;
   try { await admin.query("insert into article_lineage(retrieved_source_id,upstream_retrieved_source_id,origin_type) values($1,$1,'republished')",[articleA]); } catch { selfArticleLineageRejected=true; }
   ok("article lineage cannot identify itself as its upstream article",selfArticleLineageRejected);
@@ -219,7 +224,9 @@ try {
   ok("full-text extraction cannot be allowed without a reviewed basis",extractionWithoutBasisRejected);
   await admin.query("update source_content_policies set policy='extraction_allowed',evidence_url='https://review.example.net/terms',policy_reason='Publisher terms reviewed for permitted extraction.',reviewed_at=now(),reviewed_by='editor' where source_id=$1",[sourceRegistryC]);
   await admin.query("insert into source_content_policy_events(source_id,previous_policy,new_policy,evidence_url,policy_reason,reviewed_by) values($1,'metadata_only','extraction_allowed','https://review.example.net/terms','Publisher terms reviewed for permitted extraction.','editor')",[sourceRegistryC]);
-  ok("content policy changes require review evidence and preserve an event record");
+  const policyState=await admin.query("select policy,evidence_url,reviewed_by from source_content_policies where source_id=$1",[sourceRegistryC]);
+  const policyEvents=await admin.query("select count(*)::int n from source_content_policy_events where source_id=$1",[sourceRegistryC]);
+  ok("content policy changes require review evidence and preserve an event record",policyState.rows[0].policy==="extraction_allowed" && policyState.rows[0].evidence_url==="https://review.example.net/terms" && policyState.rows[0].reviewed_by==="editor" && policyEvents.rows[0].n===1);
 
   const lineageSecurity=await admin.query("select c.relname, c.relrowsecurity, has_table_privilege('service_role',c.oid,'select') service_select, has_table_privilege('anon',c.oid,'select') anon_select, has_table_privilege('authenticated',c.oid,'insert') auth_insert from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('publication_relationships','publication_relationship_review_events','article_lineage','article_lineage_review_events','source_content_policies','source_content_policy_events') order by c.relname");
   ok("source lineage tables have RLS and are not directly exposed to browser roles",lineageSecurity.rows.length===6 && lineageSecurity.rows.every(x=>x.relrowsecurity && x.service_select && !x.anon_select && !x.auth_insert));
