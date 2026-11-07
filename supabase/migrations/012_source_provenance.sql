@@ -131,15 +131,62 @@ create table if not exists public.article_lineage_review_events (
 create index if not exists idx_article_lineage_review_events_lineage
   on public.article_lineage_review_events(lineage_id, created_at desc);
 
+create table if not exists public.source_content_policies (
+  source_id uuid primary key references public.source_registry(id) on delete restrict,
+  policy text not null default 'metadata_only'
+    check (policy in ('blocked','metadata_only','extraction_allowed')),
+  policy_reason text,
+  evidence_url text,
+  reviewed_at timestamptz,
+  reviewed_by text,
+  updated_at timestamptz not null default now(),
+  constraint source_content_policy_review_has_basis check (
+    policy = 'metadata_only'
+    or (
+      reviewed_at is not null
+      and nullif(btrim(reviewed_by), '') is not null
+      and (
+        nullif(btrim(evidence_url), '') is not null
+        or nullif(btrim(policy_reason), '') is not null
+      )
+    )
+  )
+);
+
+create table if not exists public.source_content_policy_events (
+  id uuid primary key default gen_random_uuid(),
+  source_id uuid not null references public.source_registry(id) on delete restrict,
+  previous_policy text check (previous_policy in ('blocked','metadata_only','extraction_allowed')),
+  new_policy text not null check (new_policy in ('blocked','metadata_only','extraction_allowed')),
+  evidence_url text,
+  policy_reason text,
+  reviewed_by text not null,
+  created_at timestamptz not null default now(),
+  constraint source_content_policy_event_has_basis check (
+    nullif(btrim(reviewed_by), '') is not null
+    and (
+      nullif(btrim(evidence_url), '') is not null
+      or nullif(btrim(policy_reason), '') is not null
+    )
+  )
+);
+create index if not exists idx_source_content_policy_events_source
+  on public.source_content_policy_events(source_id, created_at desc);
+
 alter table public.source_relationships enable row level security;
 alter table public.source_relationship_review_events enable row level security;
 alter table public.article_lineage enable row level security;
 alter table public.article_lineage_review_events enable row level security;
+alter table public.source_content_policies enable row level security;
+alter table public.source_content_policy_events enable row level security;
 
 revoke all on public.source_relationships, public.source_relationship_review_events,
-  public.article_lineage, public.article_lineage_review_events from public, anon, authenticated;
+  public.article_lineage, public.article_lineage_review_events,
+  public.source_content_policies, public.source_content_policy_events from public, anon, authenticated;
 
-grant select, insert, update on public.source_relationships, public.article_lineage to service_role;
-grant select, insert on public.source_relationship_review_events, public.article_lineage_review_events to service_role;
+grant select, insert, update on public.source_relationships, public.article_lineage, public.source_content_policies to service_role;
+grant select, insert on public.source_relationship_review_events, public.article_lineage_review_events, public.source_content_policy_events to service_role;
+revoke update, delete, truncate on public.source_relationship_review_events, public.article_lineage_review_events, public.source_content_policy_events from service_role;
+revoke delete, truncate on public.source_relationships, public.article_lineage, public.source_content_policies from service_role;
 
 commit;
