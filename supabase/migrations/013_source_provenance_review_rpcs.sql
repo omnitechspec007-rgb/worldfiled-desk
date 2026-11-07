@@ -15,7 +15,7 @@ on conflict (singleton) do nothing;
 
 alter table public.source_provenance_state enable row level security;
 revoke all on public.source_provenance_state from public, anon, authenticated;
-grant select, update on public.source_provenance_state to service_role;
+grant select, update on public.source_provenance_state, public.source_registry to service_role;
 
 alter table public.article_lineage_review_events
   add column if not exists previous_origin_type text
@@ -44,6 +44,8 @@ declare
 begin
   if p_idempotency_key is null or p_request_hash is null or p_request_hash !~ '^[0-9a-f]{64}$'
      or p_relationship_id is null
+     or p_review_status is null
+     or p_review_status is null
      or p_review_status not in ('unverified','verified','disputed','rejected')
      or coalesce(char_length(p_evidence_url),0)>2000
      or coalesce(char_length(p_review_notes),0)>1200
@@ -122,6 +124,7 @@ declare
 begin
   if p_idempotency_key is null or p_request_hash is null or p_request_hash !~ '^[0-9a-f]{64}$'
      or p_lineage_id is null
+     or p_origin_type is null
      or p_origin_type not in ('original_reporting','wire_copy','syndicated','republished','press_release','official_document','aggregator','other','unknown')
      or p_review_status not in ('unverified','verified','disputed','rejected')
      or coalesce(char_length(p_upstream_url),0)>2000
@@ -205,12 +208,16 @@ declare
 begin
   if p_idempotency_key is null or p_request_hash is null or p_request_hash !~ '^[0-9a-f]{64}$'
      or p_source_id is null
+     or p_policy is null
      or p_policy not in ('blocked','metadata_only','extraction_allowed')
      or coalesce(char_length(p_evidence_url),0)>2000
      or coalesce(char_length(p_policy_reason),0)>1200
      or (nullif(btrim(p_evidence_url),'') is null and nullif(btrim(p_policy_reason),'') is null) then
     return jsonb_build_object('status',400,'body',jsonb_build_object('error','invalid_source_content_policy'));
   end if;
+
+  perform 1 from public.source_registry where id=p_source_id for update;
+  if not found then return jsonb_build_object('status',404,'body',jsonb_build_object('error','source_not_found')); end if;
 
   select * into current_row from public.source_content_policies where source_id=p_source_id for update;
   if found then previous_policy:=current_row.policy; else previous_policy:='metadata_only'; end if;
