@@ -13,7 +13,7 @@ const EMBED =
 
 function shape(story: any, withExtract: boolean, policies: ContentPolicyRow[]) {
   const sources = (story.story_source_links ?? [])
-    .filter((l: any) => l.retrieved_sources && canRetrieveMetadata(policyForSource(policies, l.retrieved_sources.source_registry?.id ?? "")))
+    .filter((l: any) => typeof l.retrieved_sources?.source_registry?.id === "string" && canRetrieveMetadata(policyForSource(policies, l.retrieved_sources.source_registry.id)))
     .map((l: any) => {
       const s = l.retrieved_sources;
       if (!s) return null;
