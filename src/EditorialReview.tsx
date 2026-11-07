@@ -13,10 +13,15 @@ export default function EditorialReview() {
   const [open, setOpen] = useState<string | null>(null);
   const [ack, setAck] = useState(false);
   const [notes, setNotes] = useState("");
-  const [msg, setMsg] = useState("");
+  const [pending, setPending] = useState<PendingDecision | null>(() => {
+    try {
+      const raw = sessionStorage.getItem("wf:pending-story-decision");
+      return raw ? JSON.parse(raw) as PendingDecision : null;
+    } catch { return null; }
+  });
+  const [msg, setMsg] = useState(() => pending ? "A previous decision may not have received confirmation. Retry the same operation to safely check its result." : "");
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<PendingDecision | null>(null);
-  const [uncertain, setUncertain] = useState(false);
+  const [uncertain, setUncertain] = useState(() => Boolean(pending));
 
   const load = useCallback(async () => {
     try {
@@ -38,6 +43,7 @@ export default function EditorialReview() {
     setBusy(true);
     setMsg("");
     setPending(operation);
+    try { sessionStorage.setItem("wf:pending-story-decision", JSON.stringify(operation)); } catch { /* in-memory retry remains available */ }
     try {
       const res = await fetch("/.netlify/functions/decide", {
         method: "POST",
@@ -52,6 +58,7 @@ export default function EditorialReview() {
         } else {
           setPending(null);
           setUncertain(false);
+          try { sessionStorage.removeItem("wf:pending-story-decision"); } catch { /* ignore unavailable storage */ }
           setMsg(data.detail || data.error || "The decision was not saved. Review the message and try again.");
         }
         setBusy(false);
@@ -59,6 +66,7 @@ export default function EditorialReview() {
       }
       setPending(null);
       setUncertain(false);
+      try { sessionStorage.removeItem("wf:pending-story-decision"); } catch { /* ignore unavailable storage */ }
       setOpen(null);
       setAck(false);
       setNotes("");
@@ -72,6 +80,7 @@ export default function EditorialReview() {
   };
 
   const decide = (id: string, decision: "approved" | "rejected" | "needs_research") => {
+    if (uncertain && pending) return;
     const operation: PendingDecision = {
       storyId: id,
       decision,
@@ -106,15 +115,15 @@ export default function EditorialReview() {
               </label>
               <label>Notes (optional)<input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} /></label>
               <div className="actions">
-                <button className="primary" disabled={!ack || busy} onClick={() => decide(s.id, "approved")}>{busy ? "SAVING…" : "CONFIRM APPROVAL"}</button>
+                <button className="primary" disabled={!ack || busy || uncertain} onClick={() => decide(s.id, "approved")}>{busy ? "SAVING…" : "CONFIRM APPROVAL"}</button>
                 <button onClick={() => { setOpen(null); setAck(false); }}>Cancel</button>
               </div>
             </div>
           ) : (
             <div className="actions">
-              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved"}>Approve…</button>
-              <button onClick={() => decide(s.id, "rejected")} disabled={busy}>Reject</button>
-              <button onClick={() => void decide(s.id, "needs_research")} disabled={busy}>Needs more research</button>
+              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain}>Approve…</button>
+              <button onClick={() => decide(s.id, "rejected")} disabled={busy || uncertain}>Reject</button>
+              <button onClick={() => void decide(s.id, "needs_research")} disabled={busy || uncertain}>Needs more research</button>
               <Link to={`/evidence/${s.id}`}>Open sources</Link>
             </div>
           )}
