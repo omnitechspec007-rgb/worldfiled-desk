@@ -149,7 +149,7 @@ export async function editionClaimClearanceByStory(storyIds: string[]): Promise<
     const claimClearance = assessClaimClearance(claims, [storyId]);
     const statusClearance = assessStoryVerificationStatus(stories, [storyId]);
     const blocked = [...statusClearance.blocked, ...claimClearance.blocked];
-    return [storyId, { ready: blocked.length === 0, blocked }];
+    return [storyId, { ready: blocked.length === 0, blocked }] as [string, ClaimClearance];
   }));
 }
 
