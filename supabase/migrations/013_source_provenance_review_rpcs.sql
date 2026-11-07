@@ -45,7 +45,6 @@ begin
   if p_idempotency_key is null or p_request_hash is null or p_request_hash !~ '^[0-9a-f]{64}$'
      or p_relationship_id is null
      or p_review_status is null
-     or p_review_status is null
      or p_review_status not in ('unverified','verified','disputed','rejected')
      or coalesce(char_length(p_evidence_url),0)>2000
      or coalesce(char_length(p_review_notes),0)>1200
@@ -126,6 +125,7 @@ begin
      or p_lineage_id is null
      or p_origin_type is null
      or p_origin_type not in ('original_reporting','wire_copy','syndicated','republished','press_release','official_document','aggregator','other','unknown')
+     or p_review_status is null
      or p_review_status not in ('unverified','verified','disputed','rejected')
      or coalesce(char_length(p_upstream_url),0)>2000
      or coalesce(char_length(p_evidence_url),0)>2000
