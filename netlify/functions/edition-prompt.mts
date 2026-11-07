@@ -16,7 +16,7 @@ import type { StyleRuleIn } from "../lib/prompt-architect.mts";
 import { loadCreative } from "../lib/creative-data.mts";
 import { FORMATS, configHash, approvalState, selectFormat, type SoundOpt } from "../lib/presenter.mts";
 import { buildBlueprint } from "../lib/blueprint.mts";
-import { UUID, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, packsFor, promptValidity } from "../lib/edition-data.mts";
+import { UUID, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, editionClaimClearanceByStory, packsFor, promptValidity } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -197,12 +197,22 @@ async function history() {
     if (e instanceof DbError && e.upstream === 404) return json({ notInstalled: true, prompts: [] });
     throw e;
   }
+  // Batch the current claim-register check across all prompt members. Reusing a saved prompt must
+  // not remain marked current after a claim/evidence change invalidates story-level clearance.
+  const currentIdsByEdition = new Map<string, string[]>();
+  for (const r of rows) if (!currentIdsByEdition.has(r.edition_id)) currentIdsByEdition.set(r.edition_id, await memberIds(r.edition_id));
+  const allCurrentIds = [...new Set([...currentIdsByEdition.values()].flat())];
+  const clearanceByStory = await editionClaimClearanceByStory(allCurrentIds);
   const out = [];
   for (const r of rows) {
-    const v = await promptValidity(r, Date.now(), false);
-    // history list checks approval, members and member decisions only (cheap); the full evidence check runs when a prompt is opened
+    const currentIds = currentIdsByEdition.get(r.edition_id) ?? [];
+    const blocked = currentIds.flatMap((id) => clearanceByStory.get(id)?.blocked ?? [{ storyId: id, reason: "Claim-register clearance could not be confirmed." }]);
+    const claimClearance = currentIds.length
+      ? { ready: blocked.length === 0, blocked }
+      : { ready: false, blocked: [{ storyId: "", reason: "The edition has no stories." }] };
+    const v = await promptValidity(r, Date.now(), false, claimClearance, currentIds);
     const stale = await creativeStale(r);
-    out.push({ id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.approvalCurrent && v.membersCurrent && v.storiesOk && !stale, reasons: stale ? [...v.reasons, stale] : v.reasons });
+    out.push({ id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.current && !stale, reasons: stale ? [...v.reasons, stale] : v.reasons });
   }
   return json({ prompts: out });
 }
@@ -218,7 +228,7 @@ async function one(id: string) {
   return json({
     id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, createdAt: r.created_at, brandVersion: r.brand_spec_version,
     developments: (r.members ?? []).length, coherence: r.coherence, roles: r.roles, rationale: r.rationale, tools: r.tools,
-    valid: v.current, validity: { approvalCurrent: v.approvalCurrent, membersCurrent: v.membersCurrent, storiesOk: v.storiesOk, evidenceCurrent: v.evidenceCurrent }, reasons: v.reasons,
+    valid: v.current, validity: { approvalCurrent: v.approvalCurrent, membersCurrent: v.membersCurrent, storiesOk: v.storiesOk, claimClearanceCurrent: v.claimClearanceCurrent, evidenceCurrent: v.evidenceCurrent }, reasons: v.reasons,
     prompt: v.current ? r.prompt_text : null,
     withheld: v.current ? undefined : "This prompt may no longer be valid and is kept as history only: " + v.reasons.join(" ") + " Re-approve or adjust the edition and generate a new version.",
   });
