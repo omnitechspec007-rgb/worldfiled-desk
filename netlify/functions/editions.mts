@@ -9,7 +9,8 @@
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { evaluateEdition, suggestEditions, membersKey, STRUCTURE_LABEL, type Structure, type Dev } from "../lib/editions.mts";
-import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
+import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, attachSourceProvenance, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
+import { summarizeSourceIndependence } from "../lib/source-independence.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -17,7 +18,16 @@ const STRUCTS = Object.keys(STRUCTURE_LABEL) as Structure[];
 
 const devSummary = (d: Dev, decision: string | null, flag?: { fresh: boolean; why: string | null; ageHours: number | null }) => ({
   fresh: flag?.fresh ?? true, notFreshWhy: flag?.why ?? null, ageHours: flag?.ageHours ?? null,
-  sources: d.sources.map((x) => ({ outlet: x.outlet, region: x.region, tier: x.tier, title: x.title, url: x.url, publishedAt: x.publishedAt ?? null, snippet: (x.summary ?? "").slice(0, 300) })),
+  sources: d.sources.map((x) => ({
+    outlet: x.outlet, region: x.region, tier: x.tier, title: x.title, url: x.url,
+    publishedAt: x.publishedAt ?? null, snippet: (x.summary ?? "").slice(0, 300),
+    sourceRegistryId: x.sourceRegistryId ?? null, retrievedSourceId: x.retrievedSourceId ?? null,
+    ownershipStatus: x.ownershipStatus ?? "unknown", publisherGroupKey: x.publisherGroupKey ?? null,
+    originType: x.originType ?? "unknown", originStatus: x.originStatus ?? "unverified",
+    upstreamSourceRegistryId: x.upstreamSourceRegistryId ?? null,
+    upstreamRetrievedSourceId: x.upstreamRetrievedSourceId ?? null, upstreamUrl: x.upstreamUrl ?? null,
+  })),
+  sourceIndependence: summarizeSourceIndependence(d.sources),
   id: d.id, headline: d.headline, category: d.category, decision,
   type: d.a.typeLabel, recommendation: d.a.recommendation, recommendationWhy: d.a.recommendationWhy,
   curiosityScore: d.a.curiosityScore, evidenceStrength: d.a.evidenceStrength, corroborated: d.a.corroborated,
@@ -73,6 +83,7 @@ async function savedEditions() {
 async function desk() {
   const now = Date.now();
   const { pool, all, skipped, decisions, flags } = await loadPool(now);
+  await attachSourceProvenance(all);
   const sug = suggestEditions(pool.map((l) => l.dev), { now });
   const stripped = (s: any) => ({ ...evalSummary(s), key: s.key, rank: s.rank, excluded: s.excluded });
   const saved = await savedEditions();
