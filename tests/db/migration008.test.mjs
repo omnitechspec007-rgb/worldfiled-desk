@@ -167,6 +167,55 @@ try {
   const concurrentClaimState=await admin.query("select (select count(*) from verification_results where claim_id=$1 and outcome='PARTIALLY_SUPPORTED') decisions,(select count(*) from audit_events where entity_id=$1::text and event_type='claim_verification_partially_supported') audits,(select count(*) from idempotency_records where idempotency_key=$2) keys",[claim3,concurrentClaimKey]);
   ok("concurrent claim retry creates exactly one decision, audit and key", Number(concurrentClaimState.rows[0].decisions)===1 && Number(concurrentClaimState.rows[0].audits)===1 && Number(concurrentClaimState.rows[0].keys)===1);
   await secondClaim.end();
+
+  // Story clearance RPC: lock the story/claims, verify the latest evidence state, and audit atomically.
+  const story4 = (await admin.query("insert into stories(headline,cluster_key) values('Clearance RPC test','test-clearance-rpc') returning id")).rows[0].id;
+  const source4 = (await admin.query("insert into retrieved_sources(url,url_hash,title,publisher,content_status,extract) values($1,$2,'Official clearance source','Test agency','extracted','Checked passage') returning id", ["https://example.org/clearance-rpc",hash("https://example.org/clearance-rpc")])).rows[0].id;
+  const claim4 = (await admin.query("insert into claims(story_id,claim_text,claim_hash,category) values($1,'A policy notice was published on 6 November.',$2,'date') returning id", [story4,hash("A policy notice was published on 6 November.")])).rows[0].id;
+  await admin.query("insert into claim_evidence(claim_id,source_id,passage,passage_hash,extraction_status,is_contradiction,created_at) values($1,$2,'A policy notice was published on 6 November.',$3,'extracted',false,now()-interval '1 minute')", [claim4,source4,hash("clearance-evidence-1")]);
+  await admin.query("set role service_role");
+  const clearanceKey=randomUUID();
+  const clearanceHash=hash(JSON.stringify({storyId:story4,acknowledged:true}));
+  const clearanceCall=(client,key=clearanceKey,digest=clearanceHash)=>client.query("select public.complete_story_verification($1,$2,$3,true) as result",[key,digest,story4]);
+  const unresolved=(await clearanceCall(admin)).rows[0].result;
+  ok("story clearance refuses claims without a current supported decision", unresolved.status===409 && unresolved.body.error==="claims_unresolved");
+  await admin.query("reset role");
+  await admin.query("insert into verification_results(claim_id,outcome,determined_by,reviewer_notes,created_at) values($1,'SUPPORTED','editor','Checked against the official notice.',now())",[claim4]);
+  await admin.query("insert into claim_evidence(claim_id,source_id,passage,passage_hash,extraction_status,is_contradiction,created_at) values($1,$2,'A later evidence passage was added.',$3,'extracted',false,now()+interval '1 minute')",[claim4,source4,hash("clearance-evidence-2")]);
+  await admin.query("set role service_role");
+  const stale=(await clearanceCall(admin,randomUUID(),hash("stale-clearance"))).rows[0].result;
+  ok("story clearance refuses a decision older than the latest evidence", stale.status===409);
+  await admin.query("reset role");
+  await admin.query("insert into verification_results(claim_id,outcome,determined_by,reviewer_notes,created_at) values($1,'SUPPORTED','editor','Rechecked both passages.',now()+interval '2 minutes')",[claim4]);
+  await admin.query("set role service_role");
+  const cleared=(await clearanceCall(admin)).rows[0].result;
+  ok("story clearance succeeds only after all current claims have supporting passages and current decisions", cleared.status===200 && cleared.body.verificationStatus==="verified" && cleared.replayed===false);
+  const clearanceReplay=(await clearanceCall(admin)).rows[0].result;
+  ok("story clearance safely replays the original result", clearanceReplay.status===200 && clearanceReplay.replayed===true);
+  const clearanceConflict=(await clearanceCall(admin,clearanceKey,hash("changed-clearance"))).rows[0].result;
+  ok("story clearance rejects same key with changed request", clearanceConflict.status===409);
+  await admin.query("reset role");
+  const clearanceState=await admin.query("select verification_status from stories where id=$1",[story4]);
+  const clearanceAudit=await admin.query("select count(*)::int n from audit_events where entity_id=$1::text and event_type='story_verification_verified'",[story4]);
+  ok("story clearance status and audit event are committed exactly once", clearanceState.rows[0].verification_status==="verified" && clearanceAudit.rows[0].n===1);
+
+  // Completion audit failure rolls back the idempotency record and cannot report clearance.
+  const story5=(await admin.query("insert into stories(headline,cluster_key) values('Clearance rollback test','test-clearance-rollback') returning id")).rows[0].id;
+  const source5=(await admin.query("insert into retrieved_sources(url,url_hash,title,publisher) values($1,$2,'Source','Test agency') returning id",["https://example.org/clearance-rollback",hash("https://example.org/clearance-rollback")])).rows[0].id;
+  const claim5=(await admin.query("insert into claims(story_id,claim_text,claim_hash) values($1,'The report was published on 7 November.',$2) returning id",[story5,hash("The report was published on 7 November.")])).rows[0].id;
+  await admin.query("insert into claim_evidence(claim_id,source_id,passage,passage_hash,created_at) values($1,$2,'The report was published on 7 November.',$3,now()-interval '1 minute')",[claim5,source5,hash("rollback-evidence")]);
+  await admin.query("insert into verification_results(claim_id,outcome,determined_by,reviewer_notes) values($1,'SUPPORTED','editor','Checked.')",[claim5]);
+  await admin.query(`create function public.test_fail_clearance_audit() returns trigger language plpgsql as $test$ begin if new.event_type='story_verification_verified' then raise exception 'injected clearance audit failure'; end if; return new; end $test$;`);
+  await admin.query("create trigger test_fail_clearance_audit before insert on audit_events for each row execute function public.test_fail_clearance_audit()");
+  await admin.query("set role service_role");
+  const rollbackClearanceKey=randomUUID();
+  let clearanceRolledBack=false;
+  try { await admin.query("select public.complete_story_verification($1,$2,$3,true)",[rollbackClearanceKey,hash("rollback-clearance"),story5]); } catch { clearanceRolledBack=true; }
+  ok("clearance audit failure propagates instead of reporting success",clearanceRolledBack);
+  await admin.query("reset role");
+  await admin.query("drop trigger test_fail_clearance_audit on audit_events; drop function public.test_fail_clearance_audit()");
+  const clearanceRollbackState=await admin.query("select (select verification_status from stories where id=$1) status,(select count(*) from idempotency_records where idempotency_key=$2) keys,(select count(*) from audit_events where entity_id=$1::text and event_type='story_verification_verified') audits",[story5,rollbackClearanceKey]);
+  ok("clearance audit failure rolls back status, audit and idempotency record",clearanceRollbackState.rows[0].status==="unverified" && Number(clearanceRollbackState.rows[0].keys)===0 && Number(clearanceRollbackState.rows[0].audits)===0);
 } finally {
   await admin.end(); if (server) await server.stop();
 }
