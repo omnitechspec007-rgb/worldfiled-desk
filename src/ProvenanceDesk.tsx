@@ -407,6 +407,7 @@ function LineageReviewForm({ edge, sources, onSave, disabled }: { edge: Lineage;
     <label>Reviewer rationale
       <textarea rows={2} value={reviewNotes} onChange={(event) => setReviewNotes(event.target.value)} maxLength={1200} placeholder="Explain what the evidence establishes. Unknown is an acceptable outcome." disabled={disabled} />
     </label>
-    <button type="submit" disabled={disabled || (!evidenceUrl.trim() && !reviewNotes.trim())}>Save article-origin review</button>
+    <p className="muted">To verify a non-original origin, identify an upstream publisher or origin URL. Otherwise keep the classification unverified or disputed.</p>
+    <button type="submit" disabled={disabled || (!evidenceUrl.trim() && !reviewNotes.trim()) || (reviewStatus === "verified" && originType !== "original_reporting" && !upstreamSource && !upstreamUrl.trim() && !edge.upstreamArticle?.id)}>Save article-origin review</button>
   </form>;
 }
