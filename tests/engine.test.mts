@@ -310,6 +310,11 @@ assert.equal(g2.version, 2); assert.equal(g2.treatment.key, "science_discovery")
 const hist = await (await get(creativeFn, "history=1")).json();
 assert.equal(hist.prompts.length, 2); assert(hist.prompts.every((h: any) => h.approvalCurrent && h.headline)); ok("history lists both versions, approval current");
 const one = await (await get(creativeFn, `id=${g1.id}`)).json(); assert(one.prompt && one.prompt.includes(firstUrl)); ok("a current prompt can be opened and copied");
+const linkedEvidence = T("retrieved_sources").find((row) => T("story_source_links").some((link) => link.story_id === sid && link.source_id === row.id));
+T("source_content_policies").push({ source_id: linkedEvidence.registry_id, policy: "blocked" });
+const withheldByPolicy = await (await get(creativeFn, `id=${g1.id}`)).json();
+assert.equal(withheldByPolicy.prompt, null); assert.equal(withheldByPolicy.evidenceAccessible, false); ok("saved prompt is withheld when any source in its evidence snapshot becomes blocked");
+T("source_content_policies").length = 0;
 assert.equal((await call(creativeFn, { storyId: "bad" })).status, 400); assert.equal((await get(creativeFn, "id=zzz")).status, 400); ok("bad ids rejected");
 const g3 = await (await call(creativeFn, { storyId: sid, deliverable: "nonsense", durationSeconds: 5000, treatmentKey: "nonsense" })).json(); assert.equal(g3.saved, true); assert(g3.prompt.length > 1000); ok("unknown options fall back to safe defaults");
 const countBefore = T("creative_prompts").length;
