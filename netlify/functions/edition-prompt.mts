@@ -100,7 +100,7 @@ async function preview(editionId: string, req: Request) {
       const sources = r.loaded.get(id)?.dev.sources ?? [];
       return !sources.some((source: any) =>
         typeof source.outlet === "string" && source.outlet.trim().length > 0 &&
-        typeof source.publishedAt === "string" && /^\\d{4}-\\d{2}-\\d{2}/.test(source.publishedAt) &&
+        typeof source.publishedAt === "string" && /^\d{4}-\d{2}-\d{2}/.test(source.publishedAt) &&
         Number.isFinite(Date.parse(source.publishedAt))
       );
     }).map((id) => r.loaded.get(id)?.dev.headline ?? id);
