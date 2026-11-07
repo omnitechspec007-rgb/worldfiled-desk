@@ -73,6 +73,55 @@ export async function loadPool(now = Date.now(), limit = 150) {
   return { pool, all, skipped, decisions, flags };
 }
 
+/** Attach only explicitly reviewed ownership and article-lineage records. Missing schema/rows remain unknown. */
+export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
+  const sources = loaded.flatMap((item) => item.dev.sources);
+  const retrievedIds = [...new Set(sources.map((source) => source.retrievedSourceId).filter((id): id is string => !!id))];
+  const registryIds = [...new Set(sources.map((source) => source.sourceRegistryId).filter((id): id is string => !!id))];
+  if (!retrievedIds.length || !registryIds.length) return;
+
+  const registry = new Map<string, any>();
+  const lineage = new Map<string, any>();
+  try {
+    for (const part of chunk(registryIds, 50)) {
+      const rows = await db<any[]>(`source_registry?id=in.(${part.join(",")})&select=id,ownership_status,publisher_group_key`);
+      for (const row of rows) registry.set(row.id, row);
+    }
+  } catch (e) {
+    if (!(e instanceof DbError) || ![400, 404].includes(e.upstream)) throw e;
+  }
+  try {
+    for (const part of chunk(retrievedIds, 50)) {
+      const rows = await db<any[]>(`article_lineage?retrieved_source_id=in.(${part.join(",")})&select=retrieved_source_id,upstream_retrieved_source_id,upstream_source_registry_id,upstream_url,origin_type,review_status&order=updated_at.desc&limit=500`);
+      for (const row of rows) if (!lineage.has(row.retrieved_source_id)) lineage.set(row.retrieved_source_id, row);
+    }
+  } catch (e) {
+    if (!(e instanceof DbError) || ![400, 404].includes(e.upstream)) throw e;
+  }
+
+  const upstreamRegistryIds = [...new Set([...lineage.values()].map((row) => row.upstream_source_registry_id).filter((id): id is string => !!id))];
+  for (const part of chunk(upstreamRegistryIds, 50)) {
+    try {
+      const rows = await db<any[]>(`source_registry?id=in.(${part.join(",")})&select=id,ownership_status,publisher_group_key`);
+      for (const row of rows) registry.set(row.id, row);
+    } catch (e) {
+      if (!(e instanceof DbError) || ![400, 404].includes(e.upstream)) throw e;
+    }
+  }
+
+  for (const source of sources) {
+    const owner = source.sourceRegistryId ? registry.get(source.sourceRegistryId) : null;
+    const origin = source.retrievedSourceId ? lineage.get(source.retrievedSourceId) : null;
+    source.ownershipStatus = owner?.ownership_status ?? null;
+    source.publisherGroupKey = owner?.publisher_group_key ?? null;
+    source.originType = origin?.origin_type ?? null;
+    source.originStatus = origin?.review_status ?? null;
+    source.upstreamRetrievedSourceId = origin?.upstream_retrieved_source_id ?? null;
+    source.upstreamSourceRegistryId = origin?.upstream_source_registry_id ?? null;
+    source.upstreamUrl = origin?.upstream_url ?? null;
+  }
+}
+
 export async function latestDecisions(ids: string[]) {
   const m = new Map<string, { id: string; decision: string; created_at: string }>();
   for (const part of chunk(ids, 30)) {
