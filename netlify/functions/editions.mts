@@ -126,6 +126,7 @@ async function evaluate(u: URL) {
   const r = await evaluateIds(ids, u.searchParams.get("structure") ?? undefined);
   if ("missing" in r) return json({ error: "not_found", detail: "Some developments are no longer available.", missing: r.missing }, 404);
   const decs = await latestDecisions(ids);
+  await attachSourceProvenance([...r.loaded.values()]);
   return json({ evaluation: r.out, developments: ids.map((i) => devSummary(r.loaded.get(i)!.dev, decs.get(i)?.decision ?? null)) });
 }
 
@@ -140,6 +141,7 @@ async function detail(id: string) {
   const r = await evaluateIds(ids, e.structure);
   const memberDecs = await latestDecisions(ids);
   const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(memberDecs.get(i)?.decision ?? ""));
+  if ("loaded" in r) await attachSourceProvenance([...r.loaded.values()]);
   return json({
     id, title: e.title, theme: e.theme, editionKind: e.edition_kind ?? "video", structure: e.structure, structureLabel: STRUCTURE_LABEL[e.structure as Structure], angle: e.narrative_angle, status: e.status,
     ids, membersKey: membersKey(ids), updatedAt: e.updated_at,
