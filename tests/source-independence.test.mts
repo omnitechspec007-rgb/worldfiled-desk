@@ -24,6 +24,12 @@ const wire = summarizeSourceIndependence([
 ]);
 check("verified wire and syndicated copies are not counted as independent original reporting", wire.confirmedIndependentOrigins === 0 && wire.confirmedSharedOrigins === 1 && wire.status === "known_shared_origin");
 
+const wireAndOrigin = summarizeSourceIndependence([
+  { outlet: "Wire Service", ownershipStatus: "verified", publisherGroupKey: "wire-group", originStatus: "verified", originType: "original_reporting" },
+  { outlet: "Partner Daily", ownershipStatus: "verified", publisherGroupKey: "partner-group", originStatus: "verified", originType: "syndicated", upstreamSourceRegistryId: "wire-registry", upstreamOwnershipStatus: "verified", upstreamPublisherGroupKey: "wire-group" },
+]);
+check("a syndicated copy and its verified upstream original resolve to one origin", wireAndOrigin.confirmedIndependentOrigins === 1 && wireAndOrigin.status === "known_shared_origin");
+
 const unknown = summarizeSourceIndependence([
   { outlet: "North News", ownershipStatus: "unverified", publisherGroupKey: null, originStatus: "unverified", originType: "unknown" },
   { outlet: "South Journal", ownershipStatus: "unverified", publisherGroupKey: null, originStatus: "unverified", originType: "unknown" },
