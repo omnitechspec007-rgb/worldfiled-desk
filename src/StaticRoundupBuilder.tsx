@@ -7,6 +7,8 @@ type RoundupStory = {
   location?: string;
   source?: string;
   publishedAt?: string | null;
+  sourceUrl?: string;
+  reviewed?: boolean;
 };
 
 type Props = { title: string; stories: RoundupStory[]; exportReady: boolean; preflightNote: string };
@@ -174,6 +176,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
     ...s,
     headline: s.headline.slice(0, 150),
     summary: (s.summary || s.headline).slice(0, 190),
+    reviewed: false,
   })), [storySignature]);
   const omittedCount = Math.max(0, stories.length - MAX_BALANCED_STORIES);
   const [cards, setCards] = useState<RoundupStory[]>(initial);
@@ -201,9 +204,14 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
     });
   };
   const removeCard = (id: string) => setCards((current) => current.filter((card) => card.id !== id));
+  const reviewCard = (id: string, reviewed: boolean) => setCards((current) => current.map((card) => card.id === id ? { ...card, reviewed } : card));
+  const allCardsReviewed = cards.length > 0 && cards.every((card) => card.reviewed === true);
+  const canExport = exportReady && allCardsReviewed;
 
   const downloadPoster = () => {
     if (!exportReady) { setNotice("Export blocked: " + preflightNote); return; }
+    if (!allCardsReviewed) { setNotice("Export blocked: review every card's headline and supporting text against its source first."); return; }
+    if (!allCardsReviewed) { setNotice("Export blocked: review every card's headline and supporting text against its source first."); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const a = document.createElement("a");
@@ -315,15 +323,16 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
             </div>
             <label>Headline<input value={card.headline} maxLength={150} onChange={(e) => updateCard(card.id, "headline", e.target.value)} /></label>
             <label>Supporting text<textarea value={card.summary} maxLength={190} rows={2} onChange={(e) => updateCard(card.id, "summary", e.target.value)} /></label>
-            <p className="meta">{card.source ? "Source: " + card.source : "No source label available; inspect the linked story and evidence before export."}</p>
+            <p className="meta">{card.source ? "Source: " + card.source : "No source label available; export will remain blocked."}{card.sourceUrl ? <> · <a href={card.sourceUrl} target="_blank" rel="noreferrer">Open source</a></> : null}</p>
+            <label className="inline"><input type="checkbox" checked={card.reviewed === true} onChange={(e) => reviewCard(card.id, e.target.checked)} /> I checked this headline and supporting text against the source.</label>
           </div>
         ))}
       </div>
       {notice && <p className="status">{notice}</p>}
-      <p className={exportReady ? "status good" : "status bad"}>{exportReady ? "EXPORT CLEARANCE CONFIRMED: " : "EXPORT LOCKED: "}{preflightNote}</p>
+      <p className={canExport ? "status good" : "status bad"}>{!exportReady ? "EXPORT LOCKED: " + preflightNote : !allCardsReviewed ? "EDITOR REVIEW REQUIRED: check every headline and supporting text against its source before export." : "EXPORT CLEARANCE CONFIRMED: " + preflightNote}</p>
       <div className="actions">
-        <button disabled={!exportReady} onClick={downloadPoster}>Download static poster (PNG)</button>
-        <button className="primary" disabled={!exportReady || rendering || cards.length === 0} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
+        <button disabled={!canExport} onClick={downloadPoster}>Download static poster (PNG)</button>
+        <button className="primary" disabled={!canExport || rendering} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
       </div>
       <p className="meta">Export uses WebM in modern Chrome and Edge. MP4 conversion is not performed in this browser-only release. The same single frame remains visible for all six seconds.</p>
     </div>
