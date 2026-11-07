@@ -1,5 +1,5 @@
-export const CONTRADICTION_RECONCILIATION_PREFIX = "CONTRADICTION RECONCILIATION:\\n";
-const EDITOR_NOTES_SEPARATOR = "\\n\\nEDITOR NOTES:\\n";
+export const CONTRADICTION_RECONCILIATION_PREFIX = "CONTRADICTION RECONCILIATION:\n";
+const EDITOR_NOTES_SEPARATOR = "\n\nEDITOR NOTES:\n";
 
 /** Store a dedicated editor explanation separately from general reviewer notes. */
 export function formatReviewerNotes(reconciliation: string, notes: string): string {
