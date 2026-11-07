@@ -174,12 +174,14 @@ assert.equal(r.status,409); assert.equal((await r.json()).error,"source_not_appr
 policies[0].policy = "blocked";
 r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"Restricted passage"});
 assert.equal(r.status,409); assert.equal((await r.json()).error,"source_blocked_by_content_policy"); ok("new evidence cannot be attached from a blocked source");
-const blockedView=await (await get()).json();
-assert.equal(blockedView.claims[0].claim_evidence[0].passage,null); assert.equal(blockedView.claims[0].claim_evidence[0].policyBlocked,true); ok("existing evidence passages from a newly blocked source are redacted in the verification view");
-policies.length=0;
+policies[0].policy = "extraction_allowed";
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"x".repeat(4001)})).status,400); ok("overlong evidence passages are rejected without truncation");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"Text",isContradiction:"false"})).status,400); ok("string booleans are rejected and cannot silently become contradiction flags");
 r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"}); assert.equal(r.status,200); assert.equal(evidence.length,1); ok("checked passage is attached to a source already linked to the story");
+policies[0].policy = "blocked";
+const blockedView=await (await get()).json();
+assert.equal(blockedView.claims[0].claim_evidence[0].passage,null); assert.equal(blockedView.claims[0].claim_evidence[0].policyBlocked,true); ok("existing evidence passages from a newly blocked source are redacted in the verification view");
+policies[0].policy = "extraction_allowed";
 const evidenceKey=crypto.randomUUID();
 const evidenceBody={action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"};
 const evidenceFirst=await post(evidenceBody,true,evidenceKey); assert.equal(evidenceFirst.status,200);
