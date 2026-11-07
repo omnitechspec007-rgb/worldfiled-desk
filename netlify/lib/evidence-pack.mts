@@ -27,6 +27,8 @@ export type EvSource = {
   upstreamSourceRegistryId?: string | null;
   upstreamRetrievedSourceId?: string | null;
   upstreamUrl?: string | null;
+  upstreamOwnershipStatus?: string | null;
+  upstreamPublisherGroupKey?: string | null;
   /** Publisher country from the source registry (e.g. "Ghana"); NOT necessarily where the event happened. */
   outletCountry?: string;
   tier: "primary" | "reporting";
