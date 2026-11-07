@@ -372,7 +372,15 @@ export default function EditionDesk() {
   const automatic = buildAutomaticPicks(desk?.developments ?? []);
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
-    return d ? { id: d.id, headline: d.headline, summary: d.whatChanged || d.sources[0]?.snippet || "Summary unavailable — review the evidence before export.", location: d.locations.map((x) => x.country).join(", "), source: d.sources[0]?.outlet ?? "", publishedAt: d.sources[0]?.publishedAt ?? null } : null;
+    if (!d) return null;
+    const attributedSource = d.sources.find((x) => x.outlet.trim() && x.publishedAt) ?? d.sources[0];
+    return {
+      id: d.id, headline: d.headline,
+      summary: d.whatChanged || attributedSource?.snippet || "Summary unavailable — review the evidence before export.",
+      location: d.locations.map((x) => x.country).join(", "),
+      source: attributedSource?.outlet ?? "",
+      publishedAt: attributedSource?.publishedAt ?? null
+    };
   }).filter((x) => x !== null);
   return (
     <section>
