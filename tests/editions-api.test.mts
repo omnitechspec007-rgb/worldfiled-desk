@@ -74,6 +74,15 @@ globalThis.fetch = (async (input: any, init: any = {}) => { const u = new URL(St
 const call = (fn: any, body: any, c: string | null = cookie) => fn(new Request("https://x/", { method: "POST", headers: { origin: "https://x", "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
 const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("https://x/?" + q, { method: "GET", headers: c ? { cookie: c } : {} }));
 
+const inputCheckId = "11111111-1111-4111-8111-111111111111";
+let inputCheck = await call(edFn, { action: "save", ids: [inputCheckId], title: "x".repeat(301) });
+assert.equal(inputCheck.status, 400);
+assert.equal((await inputCheck.json()).error, "bad_title");
+inputCheck = await call(edFn, { action: "save", ids: [inputCheckId], title: "Valid title", angle: "x".repeat(1001) });
+assert.equal(inputCheck.status, 400);
+assert.equal((await inputCheck.json()).error, "field_too_long");
+ok("edition titles and editorial angles reject overlong input rather than silently truncating it");
+
 // ---------- seed: recent stories with sources ----------
 const H = 3600_000; const at = (h: number) => new Date(Date.now() - h * H).toISOString();
 const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "" }; T("source_registry").push(r); } return r; };
