@@ -178,6 +178,7 @@ try {
   await admin.query("insert into story_source_links(story_id,source_id,role) values($1,$2,'original')",[story6,source6]);
   const claim6=(await admin.query("insert into claims(story_id,claim_text,claim_hash) values($1,'The commission issued a statement on 7 November.',$2) returning id",[story6,hash("The commission issued a statement on 7 November.")])).rows[0].id;
   await admin.query("update stories set verification_status='verified' where id=$1",[story6]);
+  const unlinkedSource=(await admin.query("insert into retrieved_sources(url,url_hash,title) values($1,$2,'Unlinked source') returning id",["https://example.org/unlinked-evidence",hash("https://example.org/unlinked-evidence")])).rows[0].id;
   await admin.query("set role service_role");
   const evidenceKey6=randomUUID();
   const passage6="The commission issued a statement on 7 November.";
@@ -196,7 +197,6 @@ try {
   ok("same evidence fingerprint does not create a duplicate or overwrite",duplicate.status===200 && duplicate.body.evidence.id===evidenceFirst.body.evidence.id && duplicate.body.note.includes("already recorded"));
   const fingerprintConflict=(await evidenceCall(admin,randomUUID(),hash("contradiction flip"),passage6,"Paragraph 2",true)).rows[0].result;
   ok("existing passage fingerprint cannot be silently reclassified as contradictory",fingerprintConflict.status===409);
-  const unlinkedSource=(await admin.query("insert into retrieved_sources(url,url_hash,title) values($1,$2,'Unlinked source') returning id",["https://example.org/unlinked-evidence",hash("https://example.org/unlinked-evidence")])).rows[0].id;
   const unlinked=(await evidenceCall(admin,randomUUID(),hash("unlinked"),"A passage from an unlinked source.","Paragraph 1",false,unlinkedSource)).rows[0].result;
   ok("evidence intake refuses a source not linked to the story",unlinked.status===400);
   await admin.query("reset role");
