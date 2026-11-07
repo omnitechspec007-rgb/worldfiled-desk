@@ -301,7 +301,7 @@ export async function stageRank(runId: string, config: { windowDays?: number; re
     sources: (r.story_source_links ?? [])
       .map((l: any) => l.retrieved_sources)
       .filter(Boolean)
-      .filter((s: any) => canRetrieveMetadata(policyForSource(policies, s.source_registry?.id ?? "")))
+      .filter((s: any) => typeof s.source_registry?.id === "string" && canRetrieveMetadata(policyForSource(policies, s.source_registry.id)))
       .filter((s: any) => !config.region || config.region === "all" || (s.source_registry?.country_scope ?? "").startsWith(config.region))
       .map((s: any) => ({
         outlet: s.source_registry?.publisher ?? s.source_registry?.name ?? "Unknown",
