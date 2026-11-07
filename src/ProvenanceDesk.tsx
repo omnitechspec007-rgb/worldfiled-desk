@@ -222,7 +222,7 @@ export default function ProvenanceDesk() {
                 <option value="verified">Verified</option>
                 <option value="disputed">Disputed</option>
                 <option value="rejected">Rejected</option>
-                {tab === "publishers" && <><option value="metadata_only">Metadata only</option><option value="healthy">Retrieval healthy</option><option value="failing">Retrieval failing</option></>}
+                {tab === "publishers" && <><option value="blocked">Blocked by policy</option><option value="metadata_only">Metadata only</option><option value="extraction_allowed">Extraction review allowed</option><option value="healthy">Retrieval healthy</option><option value="failing">Retrieval failing</option></>}
               </select>
             </label>
             <button onClick={() => void load()} disabled={busy}>{busy ? "Refreshing…" : "Refresh records"}</button>
@@ -230,7 +230,7 @@ export default function ProvenanceDesk() {
 
           {tab === "publishers" && (
             <>
-            <p className="provenance-policy-warning">Content-access policy is recorded separately from reliability. The policy register is not yet enforced by the retrieval pipeline; do not treat an “extraction allowed” entry as technical or legal authorization.</p>
+            <p className="provenance-policy-warning">Content-access policies are enforced in discovery, clustering and scoring. BLOCKED sources are not requested; missing policy records default to METADATA ONLY. EXTRACTION ALLOWED is only a documented review state: this pipeline still stores feed metadata and does not fetch full article text. Record evidence or rationale for every policy decision, and review publisher terms before allowing extraction.</p>
             <div className="provenance-list">
               {sources.length === 0 && <div className="panel">No publishers match these filters.</div>}
               {sources.map((source) => <article className="panel provenance-card" key={source.id}>
@@ -246,6 +246,7 @@ export default function ProvenanceDesk() {
                 </div>
                 {source.contentPolicy.policy_reason && <p className="meta">Policy rationale: {source.contentPolicy.policy_reason}</p>}
                 {source.contentPolicy.evidence_url && <a href={source.contentPolicy.evidence_url} target="_blank" rel="noreferrer">View policy evidence</a>}
+                <PolicyReviewForm source={source} onSave={beginReview} disabled={reviewBusy || reviewUncertain || Boolean(reviewPending)} />
               </article>)}
             </div>
             </>
@@ -324,13 +325,52 @@ export default function ProvenanceDesk() {
               </article>)}
             </div>
           )}
-          <p className="provenance-footnote">Publisher relationship candidates and article-origin reviews are evidence-backed, idempotent editor actions. Content-access policy remains read-only until the retrieval pipeline enforces it. No AI-generated guess is treated as a verified fact, and unknown origins never count as confirmed independent coverage.</p>
+          <p className="provenance-footnote">Publisher relationship, article-origin and content-access reviews are evidence-backed, idempotent editor actions. Policy changes are enforced on the next research stage; blocked sources are also excluded from downstream clustering and scoring. No AI-generated guess is treated as a verified fact, and unknown origins never count as confirmed independent coverage.</p>
         </>
       )}
     </section>
   );
 }
 
+
+function PolicyReviewForm({ source, onSave, disabled }: { source: Source; onSave: ReviewSubmit; disabled: boolean }) {
+  const [policy, setPolicy] = useState(source.contentPolicy.policy);
+  const [evidenceUrl, setEvidenceUrl] = useState(source.contentPolicy.evidence_url ?? "");
+  const [policyReason, setPolicyReason] = useState(source.contentPolicy.policy_reason ?? "");
+  useEffect(() => {
+    setPolicy(source.contentPolicy.policy);
+    setEvidenceUrl(source.contentPolicy.evidence_url ?? "");
+    setPolicyReason(source.contentPolicy.policy_reason ?? "");
+  }, [source.id, source.contentPolicy.policy, source.contentPolicy.evidence_url, source.contentPolicy.policy_reason]);
+  const explanation = policy === "blocked"
+    ? "The source will be skipped before any feed request and excluded from clustering and scoring."
+    : policy === "extraction_allowed"
+      ? "This records a reviewed permission state only. The current pipeline still retrieves feed metadata, not full article text."
+      : "The source may contribute feed titles and short summaries only. This is also the default when no policy has been reviewed.";
+  return <form className="provenance-review-form" onSubmit={(event) => {
+    event.preventDefault();
+    onSave({ action: "review_source_content_policy", sourceId: source.id, policy, evidenceUrl: evidenceUrl.trim(), policyReason: policyReason.trim() });
+  }}>
+    <h3>Review content-access policy</h3>
+    <p className="muted">{explanation}</p>
+    <div className="candidate-fields">
+      <label>Access policy
+        <select value={policy} onChange={(event) => setPolicy(event.target.value)} disabled={disabled}>
+          <option value="blocked">Blocked — do not retrieve</option>
+          <option value="metadata_only">Metadata only — feed metadata</option>
+          <option value="extraction_allowed">Extraction allowed — reviewed permission</option>
+        </select>
+      </label>
+      <label>Evidence URL (HTTPS)
+        <input type="url" value={evidenceUrl} onChange={(event) => setEvidenceUrl(event.target.value)} maxLength={2000} placeholder="https://…" disabled={disabled} />
+      </label>
+    </div>
+    <label>Policy rationale
+      <textarea rows={2} value={policyReason} onChange={(event) => setPolicyReason(event.target.value)} maxLength={1200} placeholder="Record the relevant terms, rights review or reason for restriction." disabled={disabled} />
+    </label>
+    <button type="submit" disabled={disabled || (!evidenceUrl.trim() && !policyReason.trim())}>Save content-access review</button>
+  </form>;
+}
 
 function RelationshipReviewForm({ edge, onSave, disabled }: { edge: Edge; onSave: ReviewSubmit; disabled: boolean }) {
   const [reviewStatus, setReviewStatus] = useState(edge.review_status);
