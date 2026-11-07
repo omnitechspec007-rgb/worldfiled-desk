@@ -420,7 +420,7 @@ export default function EditionDesk() {
             <p className="meta">These stories passed the screen but were not placed in this balanced roundup. They have not been rejected or deleted; find them in Review all developments.</p>
             <ul className="comps">{automatic.notSelected.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reason}</li>)}</ul>
           </details>}
-          <p className="caution">Two outlet names do not prove independent reporting. Syndication and shared-source relationships must be checked in the Source Provenance Desk. Research currently relies primarily on headlines and snippets, not full article text. Open the source links and check the underlying claims before publication.</p>
+          <p className="caution">Only relationships explicitly marked verified in the Source Provenance Desk affect the independence assessment. Unreviewed ownership or article lineage remains unknown; unknown provenance is never counted as independent confirmation. Research currently relies primarily on headlines and snippets, not full article text. Open the source links and check the underlying claims before publication.</p>
         </div>
       )}
       {desk && tab === "suggested" && (
