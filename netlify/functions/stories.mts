@@ -3,14 +3,15 @@
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { MODEL_VERSION } from "../lib/scoring.mts";
+import { canRetrieveMetadata, loadContentPolicies, policyForSource, type ContentPolicyRow } from "../lib/source-policy.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 const EMBED =
-  "story_source_links(role,retrieved_sources(id,title,url,publisher,published_at,retrieved_at,content_status,extract,source_registry(name,publisher,country_scope,source_type,reliability_note)))";
+  "story_source_links(role,retrieved_sources(id,title,url,publisher,published_at,retrieved_at,content_status,extract,source_registry(id,name,publisher,country_scope,source_type,reliability_note)))";
 
-function shape(story: any, withExtract: boolean) {
+function shape(story: any, withExtract: boolean, policies: ContentPolicyRow[]) {
   const sources = (story.story_source_links ?? [])
     .map((l: any) => {
       const s = l.retrieved_sources;
@@ -18,6 +19,7 @@ function shape(story: any, withExtract: boolean) {
       const reg = s.source_registry ?? {};
       return {
         id: s.id,
+        registryId: reg.id,
         title: s.title,
         url: s.url,
         outlet: reg.publisher ?? reg.name ?? s.publisher ?? "Unknown",
@@ -31,7 +33,8 @@ function shape(story: any, withExtract: boolean) {
         role: l.role,
       };
     })
-    .filter(Boolean) as any[];
+    .filter(Boolean)
+    .filter((s: any) => canRetrieveMetadata(policyForSource(policies, s.registryId ?? ""))) as any[];
   const outlets = new Set(sources.map((s) => s.outlet));
   const regions = [...new Set(sources.map((s) => s.region))];
   const newest = sources.map((s) => s.publishedAt ?? s.retrievedAt ?? "").sort().pop() ?? "";
@@ -64,7 +67,7 @@ async function scoresFor(ids: string[]) {
   return out;
 }
 
-async function shortlistView() {
+async function shortlistView(policies: ContentPolicyRow[]) {
   let latest: any[];
   try {
     latest = await db<any[]>("shortlist?select=run_id,created_at&order=created_at.desc&limit=1");
@@ -82,7 +85,7 @@ async function shortlistView() {
   }
   for (const [k, v] of await scoresFor(ids)) scores.set(k, v);
   const build = (r: any) => ({
-    ...(stories.get(r.story_id) ? shape(stories.get(r.story_id), true) : { id: r.story_id }),
+    ...(stories.get(r.story_id) ? shape(stories.get(r.story_id), true, policies) : { id: r.story_id }),
     rank: r.rank,
     priority: Number(r.priority),
     reason: r.reason,
@@ -101,6 +104,7 @@ export default async (req: Request) => {
   if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
   try {
     const url = new URL(req.url);
+    const policies = await loadContentPolicies();
     const id = url.searchParams.get("id");
     const view = url.searchParams.get("view");
     if (id) {
@@ -114,12 +118,12 @@ export default async (req: Request) => {
         /* scoring tables not installed yet */
       }
       const decisions = await db<any[]>(`editorial_decisions?story_id=eq.${id}&select=decision,notes,decided_by,created_at&order=created_at.desc&limit=10`);
-      return json({ story: { ...shape(rows[0], true), scores, decisions } });
+      return json({ story: { ...shape(rows[0], true, policies), scores, decisions } });
     }
-    if (view === "shortlist") return json(await shortlistView());
+    if (view === "shortlist") return json(await shortlistView(policies));
     if (view === "approved") {
       const rows = await db<any[]>(`stories?editorial_status=eq.approved&select=${FIELDS}&order=created_at.desc&limit=30`);
-      return json({ stories: rows.map((r) => shape(r, false)).map(({ sources, ...rest }) => rest) });
+      return json({ stories: rows.map((r) => shape(r, false, policies)).map(({ sources, ...rest }) => rest) });
     }
     const rows = await db<any[]>(`stories?select=${FIELDS}&order=created_at.desc&limit=250`);
     const list = rows.map((r) => shape(r, false)).map(({ sources, ...rest }) => rest);
