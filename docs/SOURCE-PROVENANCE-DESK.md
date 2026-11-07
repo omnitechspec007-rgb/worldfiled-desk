@@ -12,7 +12,7 @@ This stage adds a read-only, authenticated explorer for the provenance records i
 ## Safety
 - No publisher ownership or article origin is inferred or backfilled.
 - A different publisher name/domain is not treated as proof of independence.
-- The endpoint is read-only and uses the existing server-side service-role helper.
+- Provenance reads and review mutations use the existing server-side service-role helper. Mutations are limited to the explicit idempotent RPC actions; no generic table-write endpoint is exposed.
 - All responses are `Cache-Control: no-store`.
 - If the new provenance schema is absent, the page explains that migrations are not installed. It does not run them.
 - Editors can submit a publisher-relationship candidate with an HTTPS evidence URL or written rationale. The candidate is always created as `unverified`; no candidate is automatically promoted or counted as independent coverage.
