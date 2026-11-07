@@ -53,7 +53,7 @@ export default async (req: Request) => {
             : { ...e, policyBlocked: false };
         }),
       }));
-      const safeSources = sources.filter((x) => x.retrieved_sources && canRetrieveMetadata(policyForSource(policies, x.retrieved_sources.source_registry?.id ?? "")));
+      const safeSources = sources.filter((x) => typeof x.retrieved_sources?.source_registry?.id === "string" && canRetrieveMetadata(policyForSource(policies, x.retrieved_sources.source_registry.id)));
       return json({ story: stories[0], claims: safeClaims, sources: safeSources.map(x=>({ ...x.retrieved_sources, linkRole:x.role })) });
     }
     if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -102,8 +102,9 @@ export default async (req: Request) => {
       if (!linked[0]) return json({ error: "source_not_linked_to_story" }, 400);
       const retrieved = await db<any[]>(`retrieved_sources?id=eq.${sourceId}&select=id,registry_id&limit=1`);
       if (!retrieved[0]) return json({ error: "source_not_found" }, 404);
+      if (typeof retrieved[0].registry_id !== "string") return json({ error: "source_registry_missing", detail: "This retrieved item is not linked to a registered publisher, so its access policy cannot be confirmed." }, 409);
       const policies = await loadContentPolicies();
-      if (!canRetrieveMetadata(policyForSource(policies, retrieved[0].registry_id ?? ""))) {
+      if (!canRetrieveMetadata(policyForSource(policies, retrieved[0].registry_id))) {
         return json({ error: "source_blocked_by_content_policy", detail: "This source is blocked by its reviewed content-access policy and cannot be added as claim evidence." }, 409);
       }
       const key = req.headers.get("idempotency-key") ?? "";
