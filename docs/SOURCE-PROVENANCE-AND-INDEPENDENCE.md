@@ -35,7 +35,7 @@ Do not collapse these into one "reliability score".
 
 ### 2. Proposed data model
 
-#### source_relationships
+#### publication_relationships
 
 Append-only, reviewable relationship records between two source-registry entries:
 - source_id and related_source_id;
@@ -149,7 +149,7 @@ Record the evidence URL and the reviewer decision. If evidence is unavailable, l
 
 ## Implementation stages
 
-1. **Schema and constraints:** add source_relationships, article_lineage and source-policy history tables with safe defaults and RLS review.
+1. **Schema and constraints:** add publication_relationships, article_lineage and source-policy history tables with safe defaults and RLS review.
 2. **Read-only audit view:** show current source metadata and unknown lineage without changing editorial scoring.
 3. **Editor review workflow:** confirm/dispute ownership and syndication links with evidence and immutable history.
 4. **Cluster lineage panel:** show article origin chains and distinguish article count from independent origin count.
@@ -159,9 +159,9 @@ Record the evidence URL and the reviewer decision. If evidence is unavailable, l
 
 ## Implementation checkpoint
 
-The first schema slice is now present on this feature branch as migration 012:
-- `source_relationships` stores publication-to-publication relationships with an explicit review state.
-- `source_relationship_review_events` preserves the review history.
+The first schema slice is now present on this feature branch as migration 012. The existing application already has a legacy article-to-article table named `source_relationships`; that table is left untouched. Publisher-to-publisher edges use the distinct `publication_relationships` name:
+- `publication_relationships` stores publication-to-publication relationships with an explicit review state, separate from the legacy article-level relationship table.
+- `publication_relationship_review_events` preserves the review history.
 - `article_lineage` stores per-article upstream/origin links.
 - `article_lineage_review_events` preserves article-origin review history.
 - `source_content_policies` separates blocked / metadata-only / extraction-allowed from reliability and independence.
