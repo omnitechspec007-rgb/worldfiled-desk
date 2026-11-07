@@ -330,3 +330,83 @@ export default function ProvenanceDesk() {
     </section>
   );
 }
+
+
+function RelationshipReviewForm({ edge, onSave, disabled }: { edge: Edge; onSave: ReviewSubmit; disabled: boolean }) {
+  const [reviewStatus, setReviewStatus] = useState(edge.review_status);
+  const [evidenceUrl, setEvidenceUrl] = useState(edge.evidence_url ?? "");
+  const [reviewNotes, setReviewNotes] = useState(edge.review_notes ?? "");
+  return <form className="provenance-review-form" onSubmit={(event) => {
+    event.preventDefault();
+    onSave({ action: "review_relationship", relationshipId: edge.id, reviewStatus, evidenceUrl: evidenceUrl.trim(), reviewNotes: reviewNotes.trim() });
+  }}>
+    <h3>Review this relationship</h3>
+    <div className="candidate-fields">
+      <label>Review outcome
+        <select value={reviewStatus} onChange={(event) => setReviewStatus(event.target.value)} disabled={disabled}>
+          <option value="unverified">Keep unverified</option><option value="verified">Verify with evidence</option>
+          <option value="disputed">Disputed</option><option value="rejected">Reject relationship</option>
+        </select>
+      </label>
+      <label>Evidence URL (HTTPS)
+        <input type="url" value={evidenceUrl} onChange={(event) => setEvidenceUrl(event.target.value)} maxLength={2000} placeholder="https://…" disabled={disabled} />
+      </label>
+    </div>
+    <label>Reviewer rationale
+      <textarea rows={2} value={reviewNotes} onChange={(event) => setReviewNotes(event.target.value)} maxLength={1200} placeholder="What did you check? What does it establish?" disabled={disabled} />
+    </label>
+    <button type="submit" disabled={disabled || (!evidenceUrl.trim() && !reviewNotes.trim())}>Save relationship review</button>
+  </form>;
+}
+
+function LineageReviewForm({ edge, sources, onSave, disabled }: { edge: Lineage; sources: Source[]; onSave: ReviewSubmit; disabled: boolean }) {
+  const [originType, setOriginType] = useState(edge.origin_type);
+  const [reviewStatus, setReviewStatus] = useState(edge.review_status);
+  const [upstreamSource, setUpstreamSource] = useState(edge.upstreamPublisher?.id ?? "");
+  const [upstreamUrl, setUpstreamUrl] = useState(edge.upstream_url ?? "");
+  const [evidenceUrl, setEvidenceUrl] = useState(edge.evidence_url ?? "");
+  const [reviewNotes, setReviewNotes] = useState(edge.review_notes ?? "");
+  return <form className="provenance-review-form" onSubmit={(event) => {
+    event.preventDefault();
+    onSave({
+      action: "review_article_lineage", lineageId: edge.id, originType, reviewStatus,
+      upstreamRetrievedSourceId: edge.upstreamArticle?.id ?? "",
+      upstreamSourceRegistryId: upstreamSource, upstreamUrl: upstreamUrl.trim(),
+      evidenceUrl: evidenceUrl.trim(), reviewNotes: reviewNotes.trim(),
+    });
+  }}>
+    <h3>Review article origin</h3>
+    <div className="candidate-fields">
+      <label>Origin classification
+        <select value={originType} onChange={(event) => setOriginType(event.target.value)} disabled={disabled}>
+          <option value="original_reporting">Original reporting</option><option value="wire_copy">Wire copy</option>
+          <option value="syndicated">Syndicated</option><option value="republished">Republished</option>
+          <option value="press_release">Press release</option><option value="official_document">Official document</option>
+          <option value="aggregator">Aggregator</option><option value="other">Other</option><option value="unknown">Unknown</option>
+        </select>
+      </label>
+      <label>Review outcome
+        <select value={reviewStatus} onChange={(event) => setReviewStatus(event.target.value)} disabled={disabled}>
+          <option value="unverified">Keep unverified</option><option value="verified">Verify with evidence</option>
+          <option value="disputed">Disputed</option><option value="rejected">Reject classification</option>
+        </select>
+      </label>
+      <label>Upstream publisher (if known)
+        <select value={upstreamSource} onChange={(event) => setUpstreamSource(event.target.value)} disabled={disabled}>
+          <option value="">Unknown / not recorded</option>
+          {sources.map((source) => <option key={source.id} value={source.id}>{source.publisher || source.name}</option>)}
+        </select>
+      </label>
+      <label>Upstream article / origin URL
+        <input type="url" value={upstreamUrl} onChange={(event) => setUpstreamUrl(event.target.value)} maxLength={2000} placeholder="https://…" disabled={disabled} />
+      </label>
+      <label>Evidence URL (HTTPS)
+        <input type="url" value={evidenceUrl} onChange={(event) => setEvidenceUrl(event.target.value)} maxLength={2000} placeholder="https://…" disabled={disabled} />
+      </label>
+    </div>
+    <label>Reviewer rationale
+      <textarea rows={2} value={reviewNotes} onChange={(event) => setReviewNotes(event.target.value)} maxLength={1200} placeholder="Explain what the evidence establishes. Unknown is an acceptable outcome." disabled={disabled} />
+    </label>
+    <button type="submit" disabled={disabled || (!evidenceUrl.trim() && !reviewNotes.trim())}>Save article-origin review</button>
+  </form>;
+}
