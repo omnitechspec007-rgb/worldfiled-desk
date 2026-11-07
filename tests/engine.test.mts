@@ -13,6 +13,7 @@ const seed = await import(`${root}lib/seed-sources.mts`);
 const runsFn = (await import(`${root}functions/runs.mts`)).default;
 const stepFn = (await import(`${root}functions/run-step.mts`)).default;
 const { clusterItems } = await import(`${root}lib/cluster.mts`);
+const { stageCluster } = await import(`${root}lib/pipeline.mts`);
 const decideFn = (await import(`${root}functions/decide.mts`)).default;
 const creativeFn = (await import(`${root}functions/creative.mts`)).default;
 const referenceFn = (await import(`${root}functions/reference.mts`)).default;
@@ -177,6 +178,30 @@ assert(Object.values(shareStory).some((n: any) => n === 2)); ok("same announceme
 assert.equal(T("stories").length, new Set(T("stories").map((s) => s.cluster_key)).size); ok("no duplicate stories");
 const unDedup = T("retrieved_sources").find((x) => x.url.includes("/a/0"));
 assert(!T("retrieved_sources").some((x) => /utm_/.test(x.url_hash))); ok("tracking parameters do not create duplicate URLs");
+
+console.log("Source content policy is enforced before retrieval and downstream use");
+reset(); behaviour = {}; shared = {}; fetched.length = 0;
+const blockedSeed = seed.SEED_SOURCES.find((s: any) => s.name === "UN News");
+const extractionSeed = seed.SEED_SOURCES.find((s: any) => s.name === "Dawn");
+r = await start();
+await call(stepFn, { runId: r.run.id }); // complete prepare, then apply reviewed policies before discovery
+const blockedRegistry = T("source_registry").find((s) => s.name === "UN News");
+const extractionRegistry = T("source_registry").find((s) => s.name === "Dawn");
+T("source_content_policies").push(
+  { source_id: blockedRegistry.id, policy: "blocked" },
+  { source_id: extractionRegistry.id, policy: "extraction_allowed" },
+);
+end = await runToEnd(r.run.id);
+assert.equal(end.run.status, "completed");
+assert(!fetched.includes(blockedSeed.feed)); ok("blocked source feed is never requested");
+assert(!T("retrieved_sources").some((x) => x.registry_id === blockedRegistry.id)); ok("blocked source produces no retrieved-source rows");
+assert(T("retrieved_sources").filter((x) => x.registry_id === extractionRegistry.id).every((x) => x.content_status === "metadata_only")); ok("extraction_allowed does not trigger full-text extraction in the metadata-only stage");
+const discoverStage = T("research_run_stages").find((x) => x.run_id === r.run.id && x.stage === "discover");
+assert.equal(discoverStage.detail.blocked, 1); ok("run progress reports blocked-source count");
+const legacyBlocked = { id: crypto.randomUUID(), registry_id: blockedRegistry.id, title: "Legacy blocked source story", url: "https://un.example/legacy", url_hash: "f".repeat(64), retrieved_at: new Date().toISOString(), content_status: "metadata_only" };
+T("retrieved_sources").push(legacyBlocked);
+await stageCluster("policy-filter-test", { windowDays: 3 });
+assert(!T("story_source_links").some((link) => link.source_id === legacyBlocked.id)); ok("previously stored records from a newly blocked source are excluded from clustering");
 
 console.log("Source failures are flagged, never treated as empty");
 reset(); behaviour = { [hostFor("Dawn")]: "malformed", [hostFor("Al Jazeera")]: "timeout", [hostFor("Japan Times")]: "http500", [hostFor("Arab News")]: "unsafe-redirect", [hostFor("CNA")]: "html", [hostFor("Africanews")]: "empty", [hostFor("Euronews")]: "old", [hostFor("France 24")]: "network" };
