@@ -23,3 +23,41 @@
   .sidebar { padding: 24px 16px; }
   main { padding: 28px 24px; }
 }
+
+/* Draft Audit: compact, readable review workspace */
+.page-intro { margin: 0 0 22px; max-width: 760px; }
+.page-intro h1 { margin-bottom: 8px; }
+.page-intro > p:last-child { max-width: 700px; color: rgba(11,31,56,.76); }
+.eyebrow { font-size: .68rem; font-weight: 800; letter-spacing: .13em; color: #53706e; margin: 0 0 6px; }
+.muted { color: rgba(11,31,56,.62); font-size: .82rem; }
+.audit-toolbar, .audit-result-heading, .audit-footer { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.audit-toolbar h2, .audit-result-heading h2 { margin-bottom: 2px; }
+.audit-toolbar p { margin: 0; }
+.audit-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.draft-label { margin: 18px 0 7px; font-weight: 700; }
+.draft-input { display: block; width: 100%; min-height: 260px; resize: vertical; padding: 13px 14px; border: 1px solid var(--line); background: #fffefa; color: var(--navy); font: inherit; line-height: 1.65; }
+.draft-input:focus { outline: 2px solid var(--teal); outline-offset: 2px; }
+.audit-footer { margin-top: 12px; }
+.audit-counts { display: flex; gap: 14px; flex-wrap: wrap; font-size: .78rem; color: rgba(11,31,56,.7); }
+.audit-counts strong { color: var(--navy); font-size: 1.1rem; margin-right: 3px; }
+.finding-list { list-style: none; padding: 0; margin: 14px 0 0; }
+.finding { border-top: 1px solid var(--line); padding: 15px 0; }
+.finding-topline { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.finding-topline code { font-size: .72rem; color: rgba(11,31,56,.65); }
+.finding-position { margin-left: auto; font-size: .72rem; color: rgba(11,31,56,.58); }
+.finding-severity { font-size: .66rem; font-weight: 800; letter-spacing: .08em; padding: 3px 7px; border: 1px solid var(--line); }
+.finding-severity.review { border-color: #b26a22; color: #8b4b0c; }
+.finding-severity.suggestion { color: #386c65; border-color: #8ab7ad; }
+.finding p { margin: 8px 0; }
+.finding blockquote { margin: 8px 0; padding: 9px 12px; border-left: 3px solid var(--gold); background: rgba(255,200,87,.12); font-size: .9rem; }
+.finding-recommendation { color: rgba(11,31,56,.78); font-size: .86rem; }
+.audit-boundary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.audit-boundary-grid h3 { margin-top: 4px; }
+.audit-boundary-grid ul { margin: 8px 0; padding-left: 19px; font-size: .88rem; }
+.audit-caveat { border-top: 1px solid var(--line); padding-top: 12px; font-size: .84rem; font-weight: 600; }
+@media (max-width: 650px) {
+  .audit-toolbar, .audit-result-heading, .audit-footer { align-items: flex-start; flex-direction: column; }
+  .audit-counts { gap: 10px; }
+  .audit-boundary-grid { grid-template-columns: 1fr; gap: 4px; }
+  .finding-position { margin-left: 0; }
+}
