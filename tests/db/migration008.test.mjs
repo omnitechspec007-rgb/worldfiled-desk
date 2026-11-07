@@ -41,9 +41,9 @@ try {
   const mismatch = (await invoke(key, hash(payload + "changed"), "rejected", "Changed", false)).rows[0].result;
   ok("same key with changed payload is rejected", mismatch.status === 409 && mismatch.body.error === "idempotency_key_reused");
   await admin.query("reset role");
-  const counts = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1::text) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [storyId, key]);
+  const counts = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1::text::text) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [storyId, key]);
   ok("replay and conflict create no duplicate decision or audit", Number(counts.rows[0].decisions) === 1 && Number(counts.rows[0].audits) === 1 && Number(counts.rows[0].keys) === 1);
-  const audit = await admin.query("select detail from audit_events where entity_id=$1 order by id desc limit 1", [storyId]);
+  const audit = await admin.query("select detail from audit_events where entity_id=$1::text order by id desc limit 1", [storyId]);
   ok("audit event includes the idempotency key for traceability", audit.rows[0].detail.idempotency_key === key);
   const status = (await admin.query("select editorial_status from stories where id=$1", [storyId])).rows[0].editorial_status;
   ok("story status and appended decision agree", status === "approved");
@@ -92,7 +92,7 @@ try {
   await admin.query("reset role");
   await second.query("reset role");
   const outcomes = [left.rows[0].result, right.rows[0].result];
-  const concurrentState = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [story2, key2]);
+  const concurrentState = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1::text) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [story2, key2]);
   ok("concurrent same-key requests produce one commit and one replay", outcomes.every(x => x.status === 200) && outcomes.filter(x => x.replayed === false).length === 1 && outcomes.filter(x => x.replayed === true).length === 1);
   ok("concurrent retry creates exactly one decision, audit event and idempotency record", Number(concurrentState.rows[0].decisions) === 1 && Number(concurrentState.rows[0].audits) === 1 && Number(concurrentState.rows[0].keys) === 1);
   await second.end();
