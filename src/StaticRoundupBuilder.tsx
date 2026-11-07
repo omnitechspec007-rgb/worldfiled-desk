@@ -130,20 +130,21 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
     ctx.fillStyle = "#52677D";
     ctx.font = "700 18px Inter, Arial, sans-serif";
     const label = story.location ? story.location.toUpperCase().slice(0, 38) : "WORLD UPDATE";
-    ctx.fillText(String(index + 1).padStart(2, "0") + "  /  " + label, padX, y + 29);
+    const topInset = Math.max(0, (cardH - 260) / 2);
+    ctx.fillText(String(index + 1).padStart(2, "0") + "  /  " + label, padX, y + 29 + topInset);
 
     const dense = cards.length >= 6;
-    const headlineSize = cards.length >= 7 ? 30 : cards.length === 6 ? 34 : 38;
+    const headlineSize = cards.length >= 7 ? 30 : cards.length === 6 ? 34 : cards.length <= 3 ? 46 : 38;
     ctx.fillStyle = "#0B1F38";
     ctx.font = "700 " + headlineSize + "px Inter, Arial, sans-serif";
-    const headlineY = y + 65;
+    const headlineY = y + 65 + topInset;
     const titleCount = drawText(ctx, story.headline, padX, headlineY, 900, headlineSize * 1.12, 2);
 
-    const summarySize = cards.length >= 7 ? 20 : cards.length === 6 ? 22 : 25;
+    const summarySize = cards.length >= 7 ? 20 : cards.length === 6 ? 22 : cards.length <= 3 ? 30 : 25;
     ctx.fillStyle = "#31465B";
     ctx.font = "500 " + summarySize + "px Inter, Arial, sans-serif";
     const summaryY = headlineY + titleCount * headlineSize * 1.12 + (dense ? 9 : 14);
-    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.18, dense ? 1 : 2);
+    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.18, dense ? 1 : cards.length <= 3 ? 3 : 2);
 
     ctx.fillStyle = "#68798A";
     ctx.font = "600 20px Inter, Arial, sans-serif";
