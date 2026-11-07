@@ -4,7 +4,7 @@ import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { formatReviewerNotes, hasContradictionReconciliation } from "../lib/claim-clearance.mts";
 import { assessClaimClearance } from "../lib/edition-data.mts";
-import { canRetrieveMetadata, loadContentPolicies, policyForSource } from "../lib/source-policy.mts";
+import { canRetrieveMetadata, canUsePassageEvidence, loadContentPolicies, policyForSource } from "../lib/source-policy.mts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -47,10 +47,12 @@ export default async (req: Request) => {
         ...claim,
         claim_evidence: (claim.claim_evidence ?? []).map((e: any) => {
           const registryId = e.retrieved_sources?.registry_id;
-          const blocked = typeof registryId !== "string" || !canRetrieveMetadata(policyForSource(policies, registryId));
-          return blocked
-            ? { ...e, passage: null, passage_location: null, extraction_status: "inaccessible", policyBlocked: true, retrieved_sources: null }
-            : { ...e, policyBlocked: false };
+          const policy = typeof registryId === "string" ? policyForSource(policies, registryId) : "blocked";
+          const blocked = !canRetrieveMetadata(policy);
+          const passageWithheld = !canUsePassageEvidence(policy);
+          return passageWithheld
+            ? { ...e, passage: null, passage_location: null, extraction_status: "inaccessible", policyBlocked: blocked, passageWithheld: true, retrieved_sources: blocked ? null : e.retrieved_sources }
+            : { ...e, policyBlocked: false, passageWithheld: false };
         }),
       }));
       const safeSources = sources.filter((x) => typeof x.retrieved_sources?.source_registry?.id === "string" && canRetrieveMetadata(policyForSource(policies, x.retrieved_sources.source_registry.id)));
@@ -104,8 +106,9 @@ export default async (req: Request) => {
       if (!retrieved[0]) return json({ error: "source_not_found" }, 404);
       if (typeof retrieved[0].registry_id !== "string") return json({ error: "source_registry_missing", detail: "This retrieved item is not linked to a registered publisher, so its access policy cannot be confirmed." }, 409);
       const policies = await loadContentPolicies();
-      if (!canRetrieveMetadata(policyForSource(policies, retrieved[0].registry_id))) {
-        return json({ error: "source_blocked_by_content_policy", detail: "This source is blocked by its reviewed content-access policy and cannot be added as claim evidence." }, 409);
+      const policy = policyForSource(policies, retrieved[0].registry_id);
+      if (!canUsePassageEvidence(policy)) {
+        return json({ error: policy === "blocked" ? "source_blocked_by_content_policy" : "source_not_approved_for_passage_evidence", detail: policy === "blocked" ? "This source is blocked by its reviewed content-access policy and cannot be added as claim evidence." : "This source is metadata-only. Review its access policy as extraction allowed before storing a full-text passage as claim evidence." }, 409);
       }
       const key = req.headers.get("idempotency-key") ?? "";
       if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same evidence operation with the same key." }, 400);
@@ -145,7 +148,7 @@ export default async (req: Request) => {
         ]);
         const accessibleSupport = (claimRows[0]?.claim_evidence ?? []).some((e: any) =>
           typeof e.retrieved_sources?.registry_id === "string" &&
-          canRetrieveMetadata(policyForSource(policies, e.retrieved_sources.registry_id)) &&
+          canUsePassageEvidence(policyForSource(policies, e.retrieved_sources.registry_id)) &&
           e.passage && e.extraction_status === "extracted" && !e.is_contradiction
         );
         if (!accessibleSupport) return json({ error: "no_accessible_supporting_evidence", detail: "A supported decision requires an extracted supporting passage from a source currently permitted by its content-access policy." }, 409);
