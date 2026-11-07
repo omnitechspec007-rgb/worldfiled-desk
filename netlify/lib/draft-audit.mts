@@ -47,10 +47,11 @@ export function lintDraft(input: unknown): DraftFinding[] {
       "Remove the duplicate or make the distinct update explicit."));
     else seen.add(key);
   }
-  const paragraphs = text.split(/\n\s*\n/);
+  const chunks = text.split(/(\n\s*\n)/);
   let offset = 0;
   const openings = new Set<string>();
-  for (const paragraph of paragraphs) {
+  for (let index = 0; index < chunks.length; index += 2) {
+    const paragraph = chunks[index];
     const trimmed = paragraph.trim();
     const leading = paragraph.indexOf(trimmed);
     const opening = trimmed.split(/\s+/).slice(0, 3).join(" ").toLocaleLowerCase("en");
@@ -61,7 +62,7 @@ export function lintDraft(input: unknown): DraftFinding[] {
         "Vary structure only when it improves clarity; do not rewrite merely to avoid a pattern."));
       else openings.add(opening);
     }
-    offset += paragraph.length + 2;
+    offset += paragraph.length + (chunks[index + 1]?.length ?? 0);
   }
   return findings.sort((a, b) => a.start - b.start || a.ruleId.localeCompare(b.ruleId));
 }
