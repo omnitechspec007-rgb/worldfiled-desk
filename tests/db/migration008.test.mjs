@@ -29,6 +29,10 @@ try {
   await admin.query(migration9);
   await admin.query(migration9);
   ok("migration 009 applies twice without duplicating or failing", true);
+  const migration10 = fs.readFileSync(root + "migrations/010_claim_evidence_idempotency.sql", "utf8");
+  await admin.query(migration10);
+  await admin.query(migration10);
+  ok("migration 010 applies twice without duplicating or failing", true);
 
   const storyId = (await admin.query("insert into stories(headline,cluster_key) values('Test decision','test-decision-1') returning id")).rows[0].id;
   const key = randomUUID();
@@ -167,6 +171,55 @@ try {
   const concurrentClaimState=await admin.query("select (select count(*) from verification_results where claim_id=$1 and outcome='PARTIALLY_SUPPORTED') decisions,(select count(*) from audit_events where entity_id=$1::text and event_type='claim_verification_partially_supported') audits,(select count(*) from idempotency_records where idempotency_key=$2) keys",[claim3,concurrentClaimKey]);
   ok("concurrent claim retry creates exactly one decision, audit and key", Number(concurrentClaimState.rows[0].decisions)===1 && Number(concurrentClaimState.rows[0].audits)===1 && Number(concurrentClaimState.rows[0].keys)===1);
   await secondClaim.end();
+
+  // Evidence intake RPC: source ownership, exact fingerprint, story invalidation and audit are atomic.
+  const story6=(await admin.query("insert into stories(headline,cluster_key) values('Evidence intake test','test-evidence-intake') returning id")).rows[0].id;
+  const source6=(await admin.query("insert into retrieved_sources(url,url_hash,title,publisher) values($1,$2,'Evidence source','Test publisher') returning id",["https://example.org/evidence-intake",hash("https://example.org/evidence-intake")])).rows[0].id;
+  await admin.query("insert into story_source_links(story_id,source_id,role) values($1,$2,'primary')",[story6,source6]);
+  const claim6=(await admin.query("insert into claims(story_id,claim_text,claim_hash) values($1,'The commission issued a statement on 7 November.',$2) returning id",[story6,hash("The commission issued a statement on 7 November.")])).rows[0].id;
+  await admin.query("update stories set verification_status='verified' where id=$1",[story6]);
+  await admin.query("set role service_role");
+  const evidenceKey6=randomUUID();
+  const passage6="The commission issued a statement on 7 November.";
+  const passageHash6=hash(passage6);
+  const evidenceDigest6=hash(JSON.stringify({storyId:story6,claimId:claim6,sourceId:source6,passage:passage6,location:"Paragraph 2",isContradiction:false}));
+  const evidenceCall=(client,key=evidenceKey6,digest=evidenceDigest6,passage=passage6,location="Paragraph 2",contradiction=false,source=source6)=>
+    client.query("select public.add_claim_evidence($1,$2,$3,$4,$5,$6,$7,$8,$9) as result",[key,digest,story6,claim6,source,passage,hash(passage||("source:"+source+":no-passage")),location,contradiction]);
+  const evidenceFirst=(await evidenceCall(admin)).rows[0].result;
+  ok("evidence intake stores a source-linked passage and invalidates prior story clearance",evidenceFirst.status===200 && evidenceFirst.body.evidence.extraction_status==="extracted" && (await admin.query("select verification_status from stories where id=$1",[story6])).rows[0].verification_status==="in_progress");
+  const evidenceReplay=(await evidenceCall(admin)).rows[0].result;
+  ok("evidence intake replays the original result",evidenceReplay.status===200 && evidenceReplay.replayed===true && evidenceReplay.body.evidence.id===evidenceFirst.body.evidence.id);
+  const evidenceConflict=(await evidenceCall(admin,evidenceKey6,hash("changed request"),passage6,"Changed location",false)).rows[0].result;
+  ok("evidence idempotency key rejects changed request data",evidenceConflict.status===409);
+  const duplicateKey=randomUUID();
+  const duplicate=(await evidenceCall(admin,duplicateKey,hash("same evidence new key"))).rows[0].result;
+  ok("same evidence fingerprint does not create a duplicate or overwrite",duplicate.status===200 && duplicate.body.evidence.id===evidenceFirst.body.evidence.id && duplicate.body.note.includes("already recorded"));
+  const fingerprintConflict=(await evidenceCall(admin,randomUUID(),hash("contradiction flip"),passage6,"Paragraph 2",true)).rows[0].result;
+  ok("existing passage fingerprint cannot be silently reclassified as contradictory",fingerprintConflict.status===409);
+  const unlinkedSource=(await admin.query("insert into retrieved_sources(url,url_hash,title) values($1,$2,'Unlinked source') returning id",["https://example.org/unlinked-evidence",hash("https://example.org/unlinked-evidence")])).rows[0].id;
+  const unlinked=(await evidenceCall(admin,randomUUID(),hash("unlinked"),"A passage from an unlinked source.","Paragraph 1",false,unlinkedSource)).rows[0].result;
+  ok("evidence intake refuses a source not linked to the story",unlinked.status===400);
+  await admin.query("reset role");
+  const evidenceCounts=await admin.query("select (select count(*) from claim_evidence where claim_id=$1) evidence,(select count(*) from audit_events where entity_id=$1::text and event_type='claim_evidence_added') audits,(select count(*) from idempotency_records where endpoint_key='claim_evidence_add' and idempotency_key=$2) keys",[claim6,evidenceKey6]);
+  ok("evidence replay and duplicate fingerprint create one evidence row and one audit event",Number(evidenceCounts.rows[0].evidence)===1 && Number(evidenceCounts.rows[0].audits)===1 && Number(evidenceCounts.rows[0].keys)===1);
+
+  // Evidence audit failure must roll back both the passage and story-clearance invalidation.
+  const story7=(await admin.query("insert into stories(headline,cluster_key) values('Evidence rollback test','test-evidence-rollback') returning id")).rows[0].id;
+  const source7=(await admin.query("insert into retrieved_sources(url,url_hash,title) values($1,$2,'Rollback source') returning id",["https://example.org/evidence-rollback",hash("https://example.org/evidence-rollback")])).rows[0].id;
+  await admin.query("insert into story_source_links(story_id,source_id,role) values($1,$2,'primary')",[story7,source7]);
+  const claim7=(await admin.query("insert into claims(story_id,claim_text,claim_hash) values($1,'The ministry issued a notice on 7 November.',$2) returning id",[story7,hash("The ministry issued a notice on 7 November.")])).rows[0].id;
+  await admin.query("update stories set verification_status='verified' where id=$1",[story7]);
+  await admin.query(`create function public.test_fail_evidence_audit() returns trigger language plpgsql as $test$ begin if new.event_type='claim_evidence_added' then raise exception 'injected evidence audit failure'; end if; return new; end $test$;`);
+  await admin.query("create trigger test_fail_evidence_audit before insert on audit_events for each row execute function public.test_fail_evidence_audit()");
+  await admin.query("set role service_role");
+  const rollbackEvidenceKey=randomUUID();
+  let evidenceRolledBack=false;
+  try { await admin.query("select public.add_claim_evidence($1,$2,$3,$4,$5,$6,$7,$8,false)",[rollbackEvidenceKey,hash("rollback evidence"),story7,claim7,source7,"The ministry issued a notice on 7 November.",hash("rollback passage"),"Paragraph 1"]); } catch { evidenceRolledBack=true; }
+  ok("evidence audit failure propagates instead of reporting success",evidenceRolledBack);
+  await admin.query("reset role");
+  await admin.query("drop trigger test_fail_evidence_audit on audit_events; drop function public.test_fail_evidence_audit()");
+  const evidenceRollbackState=await admin.query("select (select count(*) from claim_evidence where claim_id=$1) evidence,(select verification_status from stories where id=$2) status,(select count(*) from idempotency_records where idempotency_key=$3) keys",( [claim7,story7,rollbackEvidenceKey] ));
+  ok("evidence audit failure rolls back passage, story status and idempotency record",Number(evidenceRollbackState.rows[0].evidence)===0 && evidenceRollbackState.rows[0].status==="verified" && Number(evidenceRollbackState.rows[0].keys)===0);
 
   // Story clearance RPC: lock the story/claims, verify the latest evidence state, and audit atomically.
   const story4 = (await admin.query("insert into stories(headline,cluster_key) values('Clearance RPC test','test-clearance-rpc') returning id")).rows[0].id;
