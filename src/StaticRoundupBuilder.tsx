@@ -192,7 +192,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
   }, [editionTitle, date, cards]);
 
   const updateCard = (id: string, key: "headline" | "summary", value: string) => {
-    setCards((current) => current.map((c) => c.id === id ? { ...c, [key]: value } : c));
+    setCards((current) => current.map((c) => c.id === id ? { ...c, [key]: value, reviewed: false } : c));
   };
   const moveCard = (index: number, direction: -1 | 1) => {
     setCards((current) => {
