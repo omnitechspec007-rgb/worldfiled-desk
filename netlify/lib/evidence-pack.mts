@@ -17,6 +17,16 @@ export type ClaimClass = "OFFICIALLY_DOCUMENTED" | "MULTI_OUTLET_REPORTED" | "SI
 export type EvSource = {
   outlet: string;
   region: string;
+  /** Stable database identities used only to join reviewed publisher/article provenance. */
+  sourceRegistryId?: string;
+  retrievedSourceId?: string;
+  ownershipStatus?: string | null;
+  publisherGroupKey?: string | null;
+  originType?: string | null;
+  originStatus?: string | null;
+  upstreamSourceRegistryId?: string | null;
+  upstreamRetrievedSourceId?: string | null;
+  upstreamUrl?: string | null;
   /** Publisher country from the source registry (e.g. "Ghana"); NOT necessarily where the event happened. */
   outletCountry?: string;
   tier: "primary" | "reporting";
