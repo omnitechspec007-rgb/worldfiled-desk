@@ -164,7 +164,7 @@ try {
   await secondClaim.query("reset role");
   const claimOutcomes=[claimLeft.rows[0].result,claimRight.rows[0].result];
   ok("concurrent claim retries yield one commit and one replay", claimOutcomes.every(x=>x.status===200) && claimOutcomes.filter(x=>x.replayed===false).length===1 && claimOutcomes.filter(x=>x.replayed===true).length===1);
-  const concurrentClaimState=await admin.query("select (select count(*) from verification_results where claim_id=$1 and outcome='PARTIALLY_SUPPORTED') decisions,(select count(*) from audit_events where entity_id=$1::text) audits,(select count(*) from idempotency_records where idempotency_key=$2) keys",[claim3,concurrentClaimKey]);
+  const concurrentClaimState=await admin.query("select (select count(*) from verification_results where claim_id=$1 and outcome='PARTIALLY_SUPPORTED') decisions,(select count(*) from audit_events where entity_id=$1::text and event_type='claim_verification_partially_supported') audits,(select count(*) from idempotency_records where idempotency_key=$2) keys",[claim3,concurrentClaimKey]);
   ok("concurrent claim retry creates exactly one decision, audit and key", Number(concurrentClaimState.rows[0].decisions)===1 && Number(concurrentClaimState.rows[0].audits)===1 && Number(concurrentClaimState.rows[0].keys)===1);
   await secondClaim.end();
 } finally {
