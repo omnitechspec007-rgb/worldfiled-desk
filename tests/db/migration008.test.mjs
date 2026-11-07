@@ -41,6 +41,10 @@ try {
   await admin.query(migration12);
   await admin.query(migration12);
   ok("migration 012 applies twice without duplicating or failing", true);
+  const migration13 = fs.readFileSync(root + "migrations/013_source_provenance_review_rpcs.sql", "utf8");
+  await admin.query(migration13);
+  await admin.query(migration13);
+  ok("migration 013 applies twice without duplicating or failing", true);
 
   const storyId = (await admin.query("insert into stories(headline,cluster_key) values('Test decision','test-decision-1') returning id")).rows[0].id;
   const key = randomUUID();
@@ -227,6 +231,50 @@ try {
   const policyState=await admin.query("select policy,evidence_url,reviewed_by from source_content_policies where source_id=$1",[sourceRegistryC]);
   const policyEvents=await admin.query("select count(*)::int n from source_content_policy_events where source_id=$1",[sourceRegistryC]);
   ok("content policy changes require review evidence and preserve an event record",policyState.rows[0].policy==="extraction_allowed" && policyState.rows[0].evidence_url==="https://review.example.net/terms" && policyState.rows[0].reviewed_by==="editor" && policyEvents.rows[0].n===1);
+
+  // Review RPCs: state, append-only history, audit, idempotency and cache revision are atomic.
+  await admin.query("set role service_role");
+  const revision0=(await admin.query("select revision from source_provenance_state where singleton")).rows[0].revision;
+  const relationshipReviewKey=randomUUID();
+  const relationshipReviewHash=hash("relationship review request 1");
+  const relationshipReviewCall=(client,key=relationshipReviewKey,digest=relationshipReviewHash,status="disputed")=>
+    client.query("select public.review_publication_relationship($1,$2,$3,$4,$5,$6) as result",[key,digest,relationship.id,status,"https://example.org/ownership-dispute","Ownership evidence is conflicting and needs further review."]);
+  const relationshipReviewed=(await relationshipReviewCall(admin)).rows[0].result;
+  ok("publication relationship review records a disputed state",relationshipReviewed.status===200 && relationshipReviewed.body.reviewStatus==="disputed" && Number(relationshipReviewed.body.provenanceRevision)===Number(revision0)+1);
+  const relationshipReviewReplay=(await relationshipReviewCall(admin)).rows[0].result;
+  ok("publication relationship review safely replays without a second revision",relationshipReviewReplay.replayed===true && Number((await admin.query("select revision from source_provenance_state where singleton")).rows[0].revision)===Number(revision0)+1);
+  const relationshipReviewConflict=(await relationshipReviewCall(admin,relationshipReviewKey,hash("changed relationship review"))).rows[0].result;
+  ok("publication relationship review rejects changed payload for same key",relationshipReviewConflict.status===409);
+
+  const lineageReviewKey=randomUUID();
+  const lineageReviewHash=hash("article lineage review request 1");
+  const lineageReviewed=(await admin.query("select public.review_article_lineage($1,$2,$3,'syndicated','disputed',$4,null,'https://example.org/original','https://example.org/ownership-dispute','Origin relationship is disputed pending confirmation.') as result",[lineageReviewKey,lineageReviewHash,unknownLineage.id,articleA])).rows[0].result;
+  ok("article lineage review records disputed origin and upstream article",lineageReviewed.status===200 && lineageReviewed.body.reviewStatus==="disputed" && lineageReviewed.body.originType==="syndicated" && Number(lineageReviewed.body.provenanceRevision)===Number(revision0)+2);
+  const lineageReviewReplay=(await admin.query("select public.review_article_lineage($1,$2,$3,'syndicated','disputed',$4,null,'https://example.org/original','https://example.org/ownership-dispute','Origin relationship is disputed pending confirmation.') as result",[lineageReviewKey,lineageReviewHash,unknownLineage.id,articleA])).rows[0].result;
+  ok("article lineage review safely replays without duplicate history",lineageReviewReplay.replayed===true);
+
+  const policyReviewKey=randomUUID();
+  const policyReviewHash=hash("source policy review request 1");
+  const policyReviewed=(await admin.query("select public.review_source_content_policy($1,$2,$3,'blocked','https://review.example.net/terms','Publisher terms require blocking extraction.') as result",[policyReviewKey,policyReviewHash,sourceRegistryC])).rows[0].result;
+  ok("source access policy review records a blocked policy and advances revision",policyReviewed.status===200 && policyReviewed.body.policy==="blocked" && Number(policyReviewed.body.provenanceRevision)===Number(revision0)+3);
+  const policyReviewReplay=(await admin.query("select public.review_source_content_policy($1,$2,$3,'blocked','https://review.example.net/terms','Publisher terms require blocking extraction.') as result",[policyReviewKey,policyReviewHash,sourceRegistryC])).rows[0].result;
+  ok("source access policy review safely replays without duplicate history",policyReviewReplay.replayed===true);
+  await admin.query("reset role");
+
+  const reviewStates=await admin.query("select (select review_status from publication_relationships where id=$1) relationship_status,(select count(*) from publication_relationship_review_events where relationship_id=$1) relationship_events,(select review_status from article_lineage where id=$2) lineage_status,(select count(*) from article_lineage_review_events where lineage_id=$2) lineage_events,(select policy from source_content_policies where source_id=$3) policy,(select count(*) from source_content_policy_events where source_id=$3) policy_events,(select revision from source_provenance_state where singleton) revision",[relationship.id,unknownLineage.id,sourceRegistryC]);
+  ok("all provenance review states and append-only event histories persist",reviewStates.rows[0].relationship_status==="disputed" && Number(reviewStates.rows[0].relationship_events)===2 && reviewStates.rows[0].lineage_status==="disputed" && Number(reviewStates.rows[0].lineage_events)===2 && reviewStates.rows[0].policy==="blocked" && Number(reviewStates.rows[0].policy_events)===2 && Number(reviewStates.rows[0].revision)===Number(revision0)+3);
+
+  await admin.query(`create function public.test_fail_provenance_audit() returns trigger language plpgsql as $test$ begin if new.event_type='publication_relationship_reviewed' then raise exception 'injected provenance audit failure'; end if; return new; end $test$;`);
+  await admin.query("create trigger test_fail_provenance_audit before insert on audit_events for each row execute function public.test_fail_provenance_audit()");
+  await admin.query("set role service_role");
+  const rollbackReviewKey=randomUUID();
+  let reviewRolledBack=false;
+  try { await relationshipReviewCall(admin,rollbackReviewKey,hash("rollback review"),"verified"); } catch { reviewRolledBack=true; }
+  ok("provenance audit failure propagates instead of reporting a saved review",reviewRolledBack);
+  await admin.query("reset role");
+  await admin.query("drop trigger test_fail_provenance_audit on audit_events; drop function public.test_fail_provenance_audit()");
+  const rollbackReviewState=await admin.query("select (select review_status from publication_relationships where id=$1) status,(select revision from source_provenance_state where singleton) revision,(select count(*) from idempotency_records where idempotency_key=$2) keys,(select count(*) from publication_relationship_review_events where relationship_id=$1) events",[relationship.id,rollbackReviewKey]);
+  ok("provenance audit failure rolls back review state, history, cache revision and idempotency record",rollbackReviewState.rows[0].status==="disputed" && Number(rollbackReviewState.rows[0].revision)===Number(revision0)+3 && Number(rollbackReviewState.rows[0].keys)===0 && Number(rollbackReviewState.rows[0].events)===2);
 
   const lineageSecurity=await admin.query("select c.relname, c.relrowsecurity, has_table_privilege('service_role',c.oid,'select') service_select, has_table_privilege('anon',c.oid,'select') anon_select, has_table_privilege('authenticated',c.oid,'insert') auth_insert from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('publication_relationships','publication_relationship_review_events','article_lineage','article_lineage_review_events','source_content_policies','source_content_policy_events') order by c.relname");
   ok("source lineage tables have RLS and are not directly exposed to browser roles",lineageSecurity.rows.length===6 && lineageSecurity.rows.every(x=>x.relrowsecurity && x.service_select && !x.anon_select && !x.auth_insert));
