@@ -21,7 +21,7 @@ type Payload = {
   sources: Source[]; relationships: Edge[]; lineage: Lineage[];
 };
 type Tab = "publishers" | "relationships" | "articles";
-const label = (value: string | null | undefined) => value ? value.replaceAll("_", " ") : "Unknown";
+const label = (value: string | null | undefined) => value ? value.replace(/_/g, " ") : "Unknown";
 const date = (value: string | null | undefined) => value ? new Date(value).toLocaleDateString() : "Not recorded";
 
 export default function ProvenanceDesk() {
