@@ -53,6 +53,8 @@ declare
   result_body jsonb;
 begin
   if p_idempotency_key is null
+     or p_request_hash is null
+     or p_decision is null
      or p_request_hash !~ '^[0-9a-f]{64}$'
      or p_story_id is null
      or p_decision not in ('approved', 'rejected', 'needs_research')
