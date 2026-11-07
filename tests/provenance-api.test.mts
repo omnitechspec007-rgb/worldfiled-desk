@@ -64,6 +64,7 @@ try {
   assert.equal(originMismatch.status, 403, "cross-origin mutations are rejected");
 
   const candidateBody = {
+    action: "create_relationship_candidate",
     sourceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     relatedSourceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     relationshipType: "same_owner",
