@@ -102,7 +102,7 @@ function DevDetail({ d }: { d: Dev }) {
   return (
     <div>
       <h3>Sources</h3>
-      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}<div className="meta">Ownership: {x.ownershipStatus === "verified" ? "verified" : "unknown or unverified"} · Article origin: {x.originStatus === "verified" ? x.originType : "unverified / unknown"}</div>{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
       <h3>Source independence assessment</h3>
       <p className={d.sourceIndependence?.status === "confirmed_independent" ? "ok" : "caution"}>{d.sourceIndependence?.explanation ?? "Independence unknown; outlet names are not proof of separate reporting."}</p>
       <h3>Editorial reasoning</h3>
