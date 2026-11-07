@@ -157,6 +157,20 @@ Record the evidence URL and the reviewer decision. If evidence is unavailable, l
 6. **Cache invalidation and idempotent mutations:** version every derived summary and protect all writes.
 7. **Manual backfill:** review the highest-impact sources first; never auto-label the existing registry.
 
+## Implementation checkpoint
+
+The first schema slice is now present on this feature branch as migration 012:
+- `source_relationships` stores publication-to-publication relationships with an explicit review state.
+- `source_relationship_review_events` preserves the review history.
+- `article_lineage` stores per-article upstream/origin links.
+- `article_lineage_review_events` preserves article-origin review history.
+- `source_content_policies` separates blocked / metadata-only / extraction-allowed from reliability and independence.
+- `source_content_policy_events` preserves policy changes.
+
+New relationships default to `unverified`; new article lineage defaults to `unknown/unverified`; source content policy defaults to `metadata_only`. Verified/disputed/rejected states require reviewer identity and an evidence URL or written rationale. Browser roles receive no table access; review-history tables are append-only for the service role.
+
+Real-Postgres migration tests are being added before any UI or scoring integration. This migration has not been applied to the live database, and existing source records are not backfilled.
+
 ## Explicit non-goals
 
 - Do not rebuild the ingestion pipeline.
