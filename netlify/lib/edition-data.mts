@@ -88,7 +88,7 @@ export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
       for (const row of rows) registry.set(row.id, row);
     }
   } catch (e) {
-    if (!(e instanceof DbError) || ![400, 404].includes(e.upstream)) throw e;
+    if (!(e instanceof DbError) || (e.upstream !== 400 && e.upstream !== 404)) throw e;
   }
   try {
     for (const part of chunk(retrievedIds, 50)) {
@@ -96,7 +96,7 @@ export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
       for (const row of rows) if (!lineage.has(row.retrieved_source_id)) lineage.set(row.retrieved_source_id, row);
     }
   } catch (e) {
-    if (!(e instanceof DbError) || ![400, 404].includes(e.upstream)) throw e;
+    if (!(e instanceof DbError) || (e.upstream !== 400 && e.upstream !== 404)) throw e;
   }
 
   const upstreamRegistryIds = [...new Set([...lineage.values()].map((row) => row.upstream_source_registry_id).filter((id): id is string => !!id))];
@@ -105,7 +105,7 @@ export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
       const rows = await db<any[]>(`source_registry?id=in.(${part.join(",")})&select=id,ownership_status,publisher_group_key`);
       for (const row of rows) registry.set(row.id, row);
     } catch (e) {
-      if (!(e instanceof DbError) || ![400, 404].includes(e.upstream)) throw e;
+      if (!(e instanceof DbError) || (e.upstream !== 400 && e.upstream !== 404)) throw e;
     }
   }
 
