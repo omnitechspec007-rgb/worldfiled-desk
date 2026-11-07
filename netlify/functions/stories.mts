@@ -92,9 +92,15 @@ async function shortlistView(policies: ContentPolicyRow[]) {
     patterns: r.detail?.patterns ?? [],
     scores: scores.get(r.story_id) ?? [],
   });
-  const picks = rows.filter((r) => r.selected).sort((a, b) => a.rank - b.rank).map(build);
-  const heldBack = rows.filter((r) => !r.selected).sort((a, b) => b.priority - a.priority).map(build);
-  return { view: "shortlist", runId: latest[0].run_id, picks, heldBack };
+  const picksAll = rows.filter((r) => r.selected).sort((a, b) => a.rank - b.rank).map(build);
+  const heldBackAll = rows.filter((r) => !r.selected).sort((a, b) => b.priority - a.priority).map(build);
+  const eligible = (story: any) => (story.sourceCount ?? 0) > 0;
+  const picks = picksAll.filter(eligible);
+  const heldBack = heldBackAll.filter(eligible);
+  return {
+    view: "shortlist", runId: latest[0].run_id, picks, heldBack,
+    excludedByPolicy: picksAll.length + heldBackAll.length - picks.length - heldBack.length,
+  };
 }
 
 export default async (req: Request) => {
