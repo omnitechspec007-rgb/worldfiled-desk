@@ -1,6 +1,7 @@
 // Edition Desk API tests against a simulated Supabase (PostgREST-style). The simulation emulates the migration-004
 // triggers; the real SQL is tested separately on a real Postgres (tests/db/migration004.test.mjs).
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
 
 process.env.EDITOR_PASSPHRASE = "blue lantern river 42";
 process.env.SESSION_SECRET = "z".repeat(40);
@@ -13,6 +14,10 @@ const epFn = (await import(`${root}functions/edition-prompt.mts`)).default;
 const { membersKey } = await import(`${root}lib/editions.mts`);
 const cookie = session.makeSessionCookie().split(";")[0];
 let n = 0; const ok = (m: string) => console.log("PASS " + m); void n;
+const editionDeskSource = readFileSync(new URL("../src/EditionDesk.tsx", import.meta.url), "utf8");
+assert.ok(editionDeskSource.includes("</div>\n      <div className=\"tabs\">"), "Edition Desk panel and tabs must be separated by a real line break");
+assert.ok(!editionDeskSource.includes("</div>\\n      <div className=\"tabs\">"), "A literal \\n escape must not leak into rendered JSX text");
+ok("Edition Desk layout uses a real line break before its tabs");
 
 const UNIQUE: Record<string, string[]> = { edition_developments: ["edition_id", "story_id"], edition_prompts: ["edition_id", "version"] };
 let tables: Record<string, any[]> = {}; let failNext: { table: string; method: string; status: number } | null = null; let missing = new Set<string>(); let seq = 0;
