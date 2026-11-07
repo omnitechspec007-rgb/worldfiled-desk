@@ -30,7 +30,7 @@ export default function EvidenceRoom() {
     try {
       const raw = sessionStorage.getItem("wf:pending-claim-decision");
       const value = raw ? JSON.parse(raw) as PendingClaimDecision : null;
-      return value && value.storyId === id && value.body?.action === "decide_claim" && typeof value.key === "string" ? value : null;
+      return value && typeof value.storyId === "string" && value.body?.action === "decide_claim" && typeof value.key === "string" ? value : null;
     } catch { return null; }
   });
   const [decisionUncertain, setDecisionUncertain] = useState(() => Boolean(pendingDecision));
