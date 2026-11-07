@@ -137,7 +137,7 @@ try {
   await admin.query("reset role");
 
   // Audit failure must roll back claim decision, story status and idempotency record.
-  await admin.query(`create function public.test_fail_claim_audit() returns trigger language plpgsql as $ begin if new.entity_type='claim' then raise exception 'injected claim audit failure'; end if; return new; end $;`);
+  await admin.query(`create function public.test_fail_claim_audit() returns trigger language plpgsql as $test$ begin if new.entity_type='claim' then raise exception 'injected claim audit failure'; end if; return new; end $test$;`);
   await admin.query("create trigger test_fail_claim_audit before insert on audit_events for each row execute function public.test_fail_claim_audit()");
   await admin.query("set role service_role");
   const rollbackClaimKey = randomUUID();
