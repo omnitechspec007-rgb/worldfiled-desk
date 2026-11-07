@@ -18,6 +18,7 @@ type Dev = {
     outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string;
     sourceRegistryId: string | null; retrievedSourceId: string | null; ownershipStatus: string; publisherGroupKey: string | null;
     originType: string; originStatus: string; upstreamSourceRegistryId: string | null; upstreamRetrievedSourceId: string | null; upstreamUrl: string | null;
+    upstreamOwnershipStatus: string | null; upstreamPublisherGroupKey: string | null;
   }[];
 };
 type Comp = { name: string; points: number; max: number; why: string };
