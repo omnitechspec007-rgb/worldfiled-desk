@@ -1,6 +1,6 @@
 // Story list and story detail (evidence trail). Read-only.
 // The list order is PROVISIONAL (outlet count, then recency). It is not a quality score.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { MODEL_VERSION } from "../lib/scoring.mts";
 
@@ -41,6 +41,7 @@ function shape(story: any, withExtract: boolean) {
     category: story.category,
     region: story.region,
     editorialStatus: story.editorial_status,
+    verificationStatus: story.verification_status,
     createdAt: story.created_at,
     outlets: outlets.size,
     sourceCount: sources.length,
@@ -51,7 +52,7 @@ function shape(story: any, withExtract: boolean) {
   };
 }
 
-const FIELDS = `id,headline,category,region,created_at,editorial_status,${EMBED}`;
+const FIELDS = `id,headline,category,region,created_at,editorial_status,verification_status,${EMBED}`;
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
 async function scoresFor(ids: string[]) {
@@ -96,6 +97,7 @@ async function shortlistView() {
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
   try {
     const url = new URL(req.url);

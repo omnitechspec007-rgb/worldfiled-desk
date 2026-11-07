@@ -4,7 +4,7 @@
 //   GET  ?history=1       saved edition prompts (no text) with validity
 //   GET  ?id=ID           one saved prompt; the text is withheld if it is no longer valid (history is kept)
 // Gates: this function checks approval, member list, member decisions; the database trigger checks them again at insert time.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { buildEditionPrompt, EditionPromptTooLarge, MAX_EDITION_PROMPT_CHARS } from "../lib/edition-prompt.mts";
 import { buildTextEditionPrompt } from "../lib/text-edition-prompt.mts";
@@ -16,7 +16,7 @@ import type { StyleRuleIn } from "../lib/prompt-architect.mts";
 import { loadCreative } from "../lib/creative-data.mts";
 import { FORMATS, configHash, approvalState, selectFormat, type SoundOpt } from "../lib/presenter.mts";
 import { buildBlueprint } from "../lib/blueprint.mts";
-import { UUID, loadStories, memberIds, latestEditionDecision, latestDecisions, packsFor, promptValidity } from "../lib/edition-data.mts";
+import { UUID, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, packsFor, promptValidity } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -48,6 +48,7 @@ async function approvedRules(): Promise<{ rules: StyleRuleIn[]; installed: boole
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     const u = new URL(req.url);
     if (req.method === "GET") {
@@ -80,6 +81,8 @@ async function readiness(editionId: string) {
   const decs = await latestDecisions(ids);
   const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(decs.get(i)?.decision ?? ""));
   if (blocked.length) return { fail: json({ error: "member_blocked", detail: "A development in this edition was rejected or sent back for research.", blocked }, 409) };
+  const clearance = await editionClaimClearance(ids);
+  if (!clearance.ready) return { fail: json({ error: "verification_blocked", detail: "Prompt generation is blocked because one or more edition stories have incomplete or unresolved factual verification.", blockedClaims: clearance.blocked }, 409) };
   const loaded = await loadStories(ids);
   const missing = ids.filter((i) => !loaded.has(i));
   if (missing.length) return { fail: json({ error: "not_found", detail: "A development is no longer available.", missing }, 404) };
@@ -89,6 +92,18 @@ async function readiness(editionId: string) {
 async function preview(editionId: string, req: Request) {
   const r = await readiness(editionId);
   if ("fail" in r) return r.fail;
+  const requestUrl = new URL(req.url);
+  if (requestUrl.searchParams.get("deliverable") === "static_roundup_6s") {
+    return json({
+      editionId,
+      editionKind: r.ed.edition_kind ?? "video",
+      deliverable: "static_roundup_6s",
+      exportReady: r.ed.edition_kind !== "text",
+      approval: { decision: r.dec.decision, membersHash: r.dec.members_hash, current: true },
+      factualClearance: { ready: true, stories: r.ids.length },
+      note: "Server-side preflight passed: this exact saved edition has current human approval and current factual clearance. This is an export preflight, not a public publishing action."
+    });
+  }
   const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now(), structure: r.ed.structure as Structure });
   const members = packsFor(r.ids, r.loaded);
   if (r.ed.edition_kind === "text") return json({ editionId, editionKind: "text", title: r.ed.title, structure: r.ed.structure, structureLabel: STRUCTURE_LABEL[r.ed.structure as Structure], developments: members.map((m, i) => ({ ref: "D" + (i + 1), headline: m.dev.headline, sources: m.pack.sources.length, omitted: m.pack.omitted_sources.count, classes: classCounts(m.pack) })), textBriefing: { targetWords: "1500-2200", targetReadMinutes: "5-8", targetStories: "12-18", note: "Editorial targets, never quotas. Use fewer stories or words when the evidence does not support more." }, deliverables: [{ key: "text_briefing", label: "Written daily news briefing" }], maxPromptChars: MAX_EDITION_PROMPT_CHARS });

@@ -46,6 +46,25 @@ function matches(row: any, params: URLSearchParams) {
 function postgrest(url: URL, init: any) {
   const table = url.pathname.split("/rest/v1/")[1];
   const m = init.method ?? "GET";
+  if (table === "rpc/record_story_editorial_decision" && m === "POST") {
+    const b = JSON.parse(init.body);
+    const records = T("idempotency_records");
+    const prior = records.find((x) => x.actor_key === "editor" && x.endpoint_key === "story_editorial_decision" && x.idempotency_key === b.p_idempotency_key);
+    if (prior) {
+      if (prior.request_hash !== b.p_request_hash) return new Response(JSON.stringify({ status: 409, body: { error: "idempotency_key_reused" } }), { status: 200 });
+      return new Response(JSON.stringify({ status: prior.response_status, body: prior.response_body, replayed: true }), { status: 200 });
+    }
+    const story = T("stories").find((x) => x.id === b.p_story_id);
+    if (!story) return new Response(JSON.stringify({ status: 404, body: { error: "not_found" } }), { status: 200 });
+    const previous = story.editorial_status;
+    const decision = { id: crypto.randomUUID(), story_id: b.p_story_id, decision: b.p_decision, decided_by: "editor", notes: b.p_notes || null, created_at: new Date(Date.now() + seq++).toISOString() };
+    T("editorial_decisions").push(decision);
+    story.editorial_status = b.p_decision;
+    T("audit_events").push({ id: ++seq, event_type: "story_" + b.p_decision, entity_type: "story", entity_id: b.p_story_id, actor: "editor", detail: { previous, notes: b.p_notes || null, acknowledged: b.p_acknowledged } });
+    const response = { ok: true, status: b.p_decision };
+    records.push({ actor_key: "editor", endpoint_key: "story_editorial_decision", idempotency_key: b.p_idempotency_key, request_hash: b.p_request_hash, response_status: 200, response_body: response, completed_at: new Date().toISOString() });
+    return new Response(JSON.stringify({ status: 200, body: response, replayed: false }), { status: 200 });
+  }
   if (failNext && failNext.table === table && failNext.method === m) { const st = failNext.status ?? 500; failNext = null; return new Response("{}", { status: st }); }
   if (missing.has(table)) return new Response("{}", { status: 404 });
   const rows = T(table);
@@ -123,8 +142,8 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
 }) as any;
 
 // ---------- helpers ----------
-const call = (fn: any, body: any, c: string | null = cookie) =>
-  fn(new Request("https://x/", { method: "POST", headers: { "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
+const call = (fn: any, body: any, c: string | null = cookie, idem?: string) =>
+  fn(new Request("https://x/", { method: "POST", headers: { origin: "https://x", "content-type": "application/json", ...(c ? { cookie: c } : {}), ...(fn === decideFn && c ? { "idempotency-key": idem ?? crypto.randomUUID() } : {}) }, body: JSON.stringify(body) }));
 const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("https://x/?" + q, { method: "GET", headers: c ? { cookie: c } : {} }));
 const start = async (key = crypto.randomUUID().replace(/-/g, "")) => (await (await call(runsFn, { idempotencyKey: key })).json());
 async function runToEnd(runId: string, max = 40) {
@@ -246,7 +265,7 @@ assert.equal((await call(decideFn, { storyId: sid, decision: "publish", acknowle
 assert.equal(T("editorial_decisions").length, 0); ok("refused attempts leave no decision record");
 assert.equal((await call(creativeFn, { storyId: sid })).status, 409); assert.equal(T("creative_prompts").length, 0); assert.equal((await get(creativeFn, `storyId=${sid}`)).status, 409); ok("unapproved story: no prompt and no recommendation");
 assert.equal((await call(creativeFn, { storyId: sid }, null)).status, 401); assert.equal((await get(creativeFn, "history=1", null)).status, 401); assert.equal((await call(referenceFn, { action: "seed" }, null)).status, 401); ok("architect, history and reference library require sign-in");
-assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" })).status, 200);
+assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" }, cookie, crypto.randomUUID())).status, 200);
 assert.equal(T("stories").find((x) => x.id === sid).editorial_status, "approved"); assert.equal(T("editorial_decisions").length, 1); assert(T("audit_events").some((a) => a.event_type === "story_approved" && a.entity_id === sid)); ok("approval saved with notes, status updated and audit event written");
 console.log("Creative Prompt Architect (approved story)");
 const pv = await (await get(creativeFn, `storyId=${sid}`)).json();

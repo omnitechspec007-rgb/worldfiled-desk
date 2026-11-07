@@ -4,6 +4,7 @@ import { db, DbError } from "./db.mts";
 import { buildDev, membersKey, type Dev } from "./editions.mts";
 import { buildEvidencePack, type EvStory, type EvSource } from "./evidence-pack.mts";
 import { evidenceHash, type EditionMember } from "./edition-prompt.mts";
+import { hasContradictionReconciliation } from "./claim-clearance.mts";
 import type { StoryInput } from "./scoring.mts";
 
 export const UUID = /^[0-9a-f-]{36}$/i;
@@ -88,6 +89,60 @@ export function packsFor(ids: string[], loaded: Map<string, Loaded>, conflictNot
     const l = loaded.get(id)!;
     return { dev: l.dev, pack: buildEvidencePack(l.story, { refPrefix: `D${i + 1}-`, conflictNote: conflictNotes[i] ?? null }) };
   });
+}
+
+
+export type ClaimClearance = { ready: boolean; blocked: { storyId: string; claimId?: string; reason: string }[] };
+/** A publishable edition requires a complete claim register for every member story. */
+export function assessClaimClearance(rows: any[], storyIds: string[]): ClaimClearance {
+  const blocked: ClaimClearance["blocked"] = [];
+  const byStory = new Map<string, any[]>();
+  for (const row of rows) byStory.set(row.story_id, [...(byStory.get(row.story_id) ?? []), row]);
+  for (const storyId of storyIds) {
+    const claims = byStory.get(storyId) ?? [];
+    if (!claims.length) { blocked.push({ storyId, reason: "No material claims have been recorded." }); continue; }
+    for (const claim of claims) {
+      const latest = [...(claim.verification_results ?? [])].sort((a,b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? "")))[0];
+      const evidence = claim.claim_evidence ?? [];
+      const extracted = evidence.filter((e:any) => e.passage && e.extraction_status === "extracted");
+      const support = extracted.some((e:any) => !e.is_contradiction);
+      const contradiction = extracted.some((e:any) => e.is_contradiction);
+      const latestEvidenceAt = Math.max(0, ...evidence.map((e:any) => Date.parse(e.created_at ?? "") || 0));
+      const decisionAt = Date.parse(latest?.created_at ?? "") || 0;
+      if (!latest) blocked.push({ storyId, claimId: claim.id, reason: "No editor decision recorded." });
+      else if (latest.outcome !== "SUPPORTED") blocked.push({ storyId, claimId: claim.id, reason: "Latest decision is " + latest.outcome + "." });
+      else if (!support) blocked.push({ storyId, claimId: claim.id, reason: "No extracted supporting passage." });
+      else if (decisionAt < latestEvidenceAt) blocked.push({ storyId, claimId: claim.id, reason: "Evidence was added or changed after the latest editor decision; review this claim again." });
+      else if (contradiction && !hasContradictionReconciliation(latest.reviewer_notes)) blocked.push({ storyId, claimId: claim.id, reason: "Contradictory evidence needs a specific editor reconciliation rationale, not a general note." });
+    }
+  }
+  return { ready: blocked.length === 0, blocked };
+}
+
+/** The editor's explicit story-level completeness acknowledgement is part of clearance. */
+export function assessStoryVerificationStatus(stories: any[], storyIds: string[]): ClaimClearance {
+  const byId = new Map(stories.map((story) => [story.id, story.verification_status]));
+  const blocked = storyIds
+    .filter((storyId) => byId.get(storyId) !== "verified")
+    .map((storyId) => ({
+      storyId,
+      reason: byId.has(storyId)
+        ? "The editor has not explicitly marked this material-claim register complete."
+        : "The story record is missing; claim-register clearance cannot be confirmed.",
+    }));
+  return { ready: blocked.length === 0, blocked };
+}
+
+export async function editionClaimClearance(storyIds: string[]): Promise<ClaimClearance> {
+  if (!storyIds.length) return { ready: false, blocked: [{ storyId: "", reason: "The edition has no stories." }] };
+  const [claims, stories] = await Promise.all([
+    db<any[]>(`claims?story_id=in.(${storyIds.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`),
+    db<any[]>(`stories?id=in.(${storyIds.join(",")})&select=id,verification_status`),
+  ]);
+  const claimClearance = assessClaimClearance(claims, storyIds);
+  const statusClearance = assessStoryVerificationStatus(stories, storyIds);
+  const blocked = [...statusClearance.blocked, ...claimClearance.blocked];
+  return { ready: blocked.length === 0, blocked };
 }
 
 export type Validity = { current: boolean; reasons: string[]; approvalCurrent: boolean; membersCurrent: boolean; storiesOk: boolean; evidenceCurrent: boolean | null };

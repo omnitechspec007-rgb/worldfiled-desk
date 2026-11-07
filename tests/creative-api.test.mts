@@ -37,6 +37,13 @@ function postgrest(url: URL, init: any) {
     const ord = p.get("order"); if (ord) { const [c, d] = ord.split(",")[0].split("."); out = [...out].sort((a, b) => (typeof a[c] === "number" ? a[c] - b[c] : String(a[c] ?? "").localeCompare(String(b[c] ?? ""))) * (d === "desc" ? -1 : 1)); }
     const lim = Number(p.get("limit") ?? 0); if (lim) out = out.slice(0, lim);
     if (table === "stories") out = out.map((st) => ({ ...st, story_source_links: T("story_source_links").filter((l) => l.story_id === st.id).map((l) => { const rs = T("retrieved_sources").find((r) => r.id === l.source_id); return { retrieved_sources: rs ? { ...rs, source_registry: T("source_registry").find((g) => g.id === rs.registry_id) } : null }; }) }));
+    // Synthetic, current claim registers isolate the creative workflow tests from claim-edge cases.
+    // Claim-clearance and claim-verification suites exercise unsupported, stale and contradictory evidence.
+    if (table === "claims") out = T("stories").filter((st) => matches({ story_id: st.id }, p)).map((st) => ({
+      id: "claim-" + st.id, story_id: st.id,
+      claim_evidence: [{ id: "evidence-" + st.id, passage: "Checked synthetic supporting passage for creative workflow test.", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60000).toISOString() }],
+      verification_results: [{ id: "decision-" + st.id, outcome: "SUPPORTED", reviewer_notes: "Synthetic editor decision for creative workflow test.", created_at: new Date().toISOString() }]
+    }));
     return new Response(JSON.stringify(out), { status: 200 });
   }
   if (m === "POST") {
@@ -60,14 +67,16 @@ function postgrest(url: URL, init: any) {
   return new Response("{}", { status: 405 });
 }
 globalThis.fetch = (async (input: any, init: any = {}) => { const u = new URL(String(input)); if (u.hostname !== "abc.supabase.co") throw new Error("unexpected fetch " + u); return postgrest(u, init); }) as any;
-const call = (fn: any, body: any, c: string | null = cookie) => fn(new Request("https://x/", { method: "POST", headers: { "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
+const call = (fn: any, body: any, c: string | null = cookie) => fn(new Request("https://x/", { method: "POST", headers: { origin: "https://x", "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
 const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("https://x/?" + q, { method: "GET", headers: c ? { cookie: c } : {} }));
 
 // ---------- seed ----------
 const H = 3600_000; const NOW = Date.now(); const at = (h: number) => new Date(NOW - h * H).toISOString();
 const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "" }; T("source_registry").push(r); } return r; };
 function story(headline: string, category: string, srcs: [string, string, string, boolean?][]) {
-  const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending" }; T("stories").push(st);
+  // Synthetic fixture: claim and story-level clearance are both complete.
+  const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending", verification_status: "verified" };
+  T("stories").push(st);
   srcs.forEach(([outlet, title, extract, official], i) => { const rs = { id: crypto.randomUUID(), registry_id: reg(outlet, !!official).id, title, url: `https://${outlet.toLowerCase().replace(/\W/g, "")}.example/${st.id.slice(0, 6)}/${i}`, published_at: at(5), retrieved_at: at(1), extract }; T("retrieved_sources").push(rs); T("story_source_links").push({ story_id: st.id, source_id: rs.id }); });
   return st.id;
 }

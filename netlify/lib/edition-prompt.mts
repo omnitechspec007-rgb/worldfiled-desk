@@ -2,6 +2,7 @@
 // Rule-based and deterministic. Every development keeps its own evidence, and nothing here invents a connection:
 // the connection text comes from the edition engine's recorded signals.
 import { createHash } from "node:crypto";
+import { INTEGRITY_POLICY } from "./integrity-policy.mts";
 import { brandBlock, brandChecklist, BRAND_VERSION } from "./brand.mts";
 import { CLASS_MEANING, cleanField, classCounts, renderEvidence, type EvidencePack } from "./evidence-pack.mts";
 import { DELIVERABLES, selectTools, type Deliverable, type ToolPlan } from "./production-tools.mts";
@@ -129,6 +130,8 @@ export function buildEditionPrompt(input: EditionPromptInput) {
   const prompt = `You are being given a complete production assignment by the editor of THE WORLD, FILED. (tagline: "What happened. What changed. What matters."). This is ONE integrated editorial work about ${n} development${n === 1 ? "" : "s"}, not a collection of separate items. Read every section. Do not publish anything; the editor reviews your output.
 
 === RULES THAT OVERRIDE EVERYTHING ELSE ===
+${INTEGRITY_POLICY}
+
 - Use ONLY the facts in section 6. Never invent numbers, dates, names, places, quotes, official statements, source links, legal provisions, scientific conclusions, geographic relationships or corroboration.
 - Every claim has an evidence class. You may not state a claim more strongly than its class allows. Separate, always labelled: EDITORIAL INTERPRETATION (our reading of the connection) and FUTURE POSSIBILITY (anything that "could" or "may" happen, only if a source says it). Creative treatment may never turn a SINGLE_SOURCE, CONFLICTING or UNKNOWN item into an asserted fact.
 - Several outlets repeating one announcement or one wire report are NOT independent confirmation. Do not write "confirmed by multiple sources" unless section 6 shows separate original sources.

@@ -1,7 +1,7 @@
 // Start (or resume) a research run. One click; no inputs.
 // Safety: if an unfinished run already exists, it is returned instead of creating a second one,
 // and the same idempotency key always returns the same run.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 
 const json = (body: unknown, status = 200) =>
@@ -15,6 +15,7 @@ const COLS = "id,status,current_stage,error_summary,created_at,completed_at,conf
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
     const text = await req.text();
