@@ -147,6 +147,10 @@ assert.equal(jpProv.status, "confirmed_independent"); assert.equal(jpProv.confir
 assert.equal(fiProv.status, "known_shared_origin"); assert.equal(fiProv.confirmedIndependentOrigins, 1);
 assert.equal(clProv.status, "known_shared_origin"); assert.equal(clProv.confirmedIndependentOrigins, 0);
 assert.equal(mxProv.status, "known_shared_origin"); assert.equal(mxProv.confirmedIndependentOrigins, 1);
+const mxDetail = d.developments.find((x: any) => x.id === mx);
+assert.equal(mxDetail.sources[0].publisherGroupKey, mxDetail.sources[1].publisherGroupKey);
+assert(mxDetail.sources.every((source: any) => source.ownershipStatus === "verified"));
+
 ok("desk derives independent origins from verified publisher groups, verified ownership edges and upstream article lineage, including mixed registry/relationship records");
 const prep = d.suggestions.find((s: any) => s.ids.includes(jp) && s.ids.includes(fi)); assert(prep && prep.structure === "multi_country" && prep.coherence.verdict === "COHERENT" && prep.coherence.components.length === 7); ok("a coherent multi-country edition is suggested with transparent coherence components");
 assert(!prep.ids.includes(rt) && !prep.ids.includes(sp)); ok("unrelated stories are not forced into the edition");
