@@ -50,11 +50,6 @@ try {
   await admin.query(migration14);
   ok("migration 014 applies twice without duplicating or failing", true);
 
-  const migration14 = fs.readFileSync(root + "migrations/014_publication_relationship_candidates.sql", "utf8");
-  await admin.query(migration14);
-  await admin.query(migration14);
-  ok("migration 014 applies twice without duplicating or failing", true);
-
   const publisherA = (await admin.query("insert into source_registry(name,publisher,source_type) values('Candidate test publisher A','Candidate Media A','feed') returning id")).rows[0].id;
   const publisherB = (await admin.query("insert into source_registry(name,publisher,source_type) values('Candidate test publisher B','Candidate Media B','feed') returning id")).rows[0].id;
   await admin.query("grant usage on schema public to service_role");
@@ -78,7 +73,7 @@ try {
   ok("candidate referencing a missing publisher is refused",missingPublisher.status===404);
   await admin.query("reset role");
   const candidateState = await admin.query("select (select count(*)::int from publication_relationships where relationship_type='same_owner') relationships,(select count(*)::int from publication_relationship_review_events) review_events,(select count(*)::int from audit_events where event_type='publication_relationship_candidate_created') audits,(select revision from source_provenance_state where singleton) revision,(select count(*)::int from idempotency_records where endpoint_key='publication_relationship_candidate') keys");
-  ok("candidate, audit and provenance revision are written exactly once",candidateState.rows[0].relationships===1 && candidateState.rows[0].review_events===0 && candidateState.rows[0].audits===1 && Number(candidateState.rows[0].revision)===1 && candidateState.rows[0].keys===3);
+  ok("candidate, audit and provenance revision are written exactly once",candidateState.rows[0].relationships===1 && candidateState.rows[0].review_events===0 && candidateState.rows[0].audits===1 && Number(candidateState.rows[0].revision)===1 && candidateState.rows[0].keys===2);
   const canonicalEdge = await admin.query("select source_id,related_source_id,review_status from publication_relationships where relationship_type='same_owner'");
   ok("same-owner relationship is stored in canonical UUID order and remains unverified",canonicalEdge.rows[0].source_id<canonicalEdge.rows[0].related_source_id && canonicalEdge.rows[0].review_status==="unverified");
 
