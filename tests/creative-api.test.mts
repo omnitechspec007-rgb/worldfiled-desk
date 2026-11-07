@@ -81,10 +81,10 @@ function story(headline: string, category: string, srcs: [string, string, string
   return st.id;
 }
 const jp = story("Japan orders new emergency preparedness plan with stockpiles for families", "Government and institutional decisions", [["Tokyo Gazette", "Japan updates national preparedness and stockpile directive", "Government ministry orders households and local councils to stockpile water and food for disasters.", true], ["Tokyo Times", "Tokyo tightens emergency readiness rules", "Families must keep supplies; shelters and early warning expanded in Japan."]]);
-// Explicitly permit the synthetic test passages; production defaults remain metadata-only.
-for (const source of T("retrieved_sources")) T("source_content_policies").push({ source_id: source.registry_id, policy: "extraction_allowed" });
 const al = story("Prosecutors accuse Nigeria minister Adewale Ogunlesi of procurement fraud", "Public policy", [["Lagos Gazette", "Prosecutors accuse Nigeria minister Adewale Ogunlesi of procurement fraud", "The minister denied the allegations, officials in Nigeria said."]]);
 const rt = story("Central bank in Brazil raises interest rates as inflation climbs", "Business and economic developments", [["Brasilia Gazette", "Brazil raises interest rates to fight inflation", "The central bank decision affects mortgages, prices and wages."], ["Brasilia Times", "Brazilian central bank hikes rate", "Inflation and currency pressure drive the rate rise in Brazil."]]);
+// Explicitly permit the synthetic test passages; production defaults remain metadata-only.
+for (const source of T("retrieved_sources")) T("source_content_policies").push({ source_id: source.registry_id, policy: "extraction_allowed" });
 const E = crypto.randomUUID(); T("editions").push({ id: E, title: "Roundup", status: "draft", structure: "news_roundup", narrative_angle: "" });
 [jp, al, rt].forEach((s, i) => T("edition_developments").push({ edition_id: E, story_id: s, position: i + 1 }));
 const hashNow = () => hashOf(E);
