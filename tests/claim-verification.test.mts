@@ -36,7 +36,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
     const reviewer_notes = b.p_outcome==="SUPPORTED" && contra
       ? "CONTRADICTION RECONCILIATION:\n"+b.p_contradiction_resolution.trim()+(b.p_reviewer_notes ? "\n\nEDITOR NOTES:\n"+b.p_reviewer_notes : "")
       : b.p_reviewer_notes || null;
-    const result = {id:crypto.randomUUID(),claim_id:b.p_claim_id,outcome:b.p_outcome,determined_by:"editor",reviewer_notes,created_at:new Date(Math.max(++testClock,Date.now())).toISOString()};
+    const result = {id:crypto.randomUUID(),claim_id:b.p_claim_id,outcome:b.p_outcome,determined_by:"editor",reviewer_notes,created_at:(testClock = Math.max(testClock + 1, Date.now()), new Date(testClock).toISOString())};
     decisions.push(result);
     stories.find(x=>x.id===b.p_story_id).verification_status=b.p_outcome==="CONTRADICTED"?"failed":"in_progress";
     auditEvents.push({event_type:"claim_verification_"+b.p_outcome.toLowerCase(),entity_id:b.p_claim_id,detail:{idempotency_key:b.p_idempotency_key}});
