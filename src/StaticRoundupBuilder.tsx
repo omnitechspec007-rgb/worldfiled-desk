@@ -145,7 +145,7 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
 
     ctx.fillStyle = "#68798A";
     ctx.font = "600 13px Inter, Arial, sans-serif";
-    const dateMatch = story.publishedAt ? /^(\\d{4})-(\\d{2})-(\\d{2})/.exec(story.publishedAt) : null;
+    const dateMatch = story.publishedAt ? /^(\d{4})-(\d{2})-(\d{2})/.exec(story.publishedAt) : null;
     const dateLabel = dateMatch
       ? new Date(Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).toUpperCase()
       : "DATE UNKNOWN";
