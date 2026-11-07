@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { formatReviewerNotes, hasContradictionReconciliation } from "../lib/claim-clearance.mts";
+import { editionClaimClearance } from "../lib/edition-data.mts";
+import { canRetrieveMetadata, loadContentPolicies, policyForSource } from "../lib/source-policy.mts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -21,9 +23,23 @@ export default async (req: Request) => {
       if (!UUID.test(storyId)) return json({ error: "bad_story_id" }, 400);
       const stories = await db<any[]>(`stories?id=eq.${storyId}&select=id,headline,verification_status,editorial_status`);
       if (!stories[0]) return json({ error: "not_found" }, 404);
-      const claims = await db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_text,category,created_at,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,retrieved_sources(id,title,url,publisher,content_status,source_registry(name,publisher))),verification_results(id,outcome,determined_by,reviewer_notes,created_at)&order=created_at.asc`);
-      const sources = await db<any[]>(`story_source_links?story_id=eq.${storyId}&select=role,retrieved_sources(id,title,url,publisher,published_at,content_status,source_registry(name,publisher))`);
-      return json({ story: stories[0], claims, sources: sources.filter(x=>x.retrieved_sources).map(x=>({ ...x.retrieved_sources, linkRole:x.role })) });
+      const [claims, sources, policies] = await Promise.all([
+        db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_text,category,created_at,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,retrieved_sources(id,registry_id,title,url,publisher,content_status)),verification_results(id,outcome,determined_by,reviewer_notes,created_at)&order=created_at.asc`),
+        db<any[]>(`story_source_links?story_id=eq.${storyId}&select=role,retrieved_sources(id,title,url,publisher,published_at,content_status,source_registry(id,name,publisher))`),
+        loadContentPolicies(),
+      ]);
+      const safeClaims = claims.map((claim) => ({
+        ...claim,
+        claim_evidence: (claim.claim_evidence ?? []).map((e: any) => {
+          const registryId = e.retrieved_sources?.registry_id;
+          const blocked = typeof registryId !== "string" || !canRetrieveMetadata(policyForSource(policies, registryId));
+          return blocked
+            ? { ...e, passage: null, passage_location: null, extraction_status: "inaccessible", policyBlocked: true, retrieved_sources: null }
+            : { ...e, policyBlocked: false };
+        }),
+      }));
+      const safeSources = sources.filter((x) => x.retrieved_sources && canRetrieveMetadata(policyForSource(policies, x.retrieved_sources.source_registry?.id ?? "")));
+      return json({ story: stories[0], claims: safeClaims, sources: safeSources.map(x=>({ ...x.retrieved_sources, linkRole:x.role })) });
     }
     if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
     let b: any;
@@ -67,6 +83,12 @@ export default async (req: Request) => {
       if (exceeds(b.passage, 4000) || exceeds(b.location, 300)) return json({ error: "field_too_long", detail: "Evidence passage is limited to 4,000 characters and location to 300. Nothing was truncated or saved." }, 400);
       if (b.isContradiction !== undefined && typeof b.isContradiction !== "boolean") return json({ error: "invalid_contradiction_flag", detail: "isContradiction must be a boolean, not a string or inferred value." }, 400);
 
+      const retrieved = await db<any[]>(`retrieved_sources?id=eq.${sourceId}&select=id,registry_id&limit=1`);
+      if (!retrieved[0]) return json({ error: "source_not_found" }, 404);
+      const policies = await loadContentPolicies();
+      if (!canRetrieveMetadata(policyForSource(policies, retrieved[0].registry_id ?? ""))) {
+        return json({ error: "source_blocked_by_content_policy", detail: "This source is blocked by its reviewed content-access policy and cannot be added as claim evidence." }, 409);
+      }
       const key = req.headers.get("idempotency-key") ?? "";
       if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same evidence operation with the same key." }, 400);
       const isContradiction = b.isContradiction === true;
@@ -128,6 +150,8 @@ export default async (req: Request) => {
 
     if (b.action === "complete_story") {
       if (b.acknowledged !== true) return json({ error: "acknowledgement_required" }, 400);
+      const clearance = await editionClaimClearance([storyId]);
+      if (!clearance.ready) return json({ error: "claim_clearance_incomplete", detail: "One or more claims do not have current, accessible evidence and an acceptable editor decision.", blocked: clearance.blocked }, 409);
       const key = req.headers.get("idempotency-key") ?? "";
       if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same clearance request with the same key." }, 400);
       const canonical = JSON.stringify({ storyId, acknowledged: true });
