@@ -144,7 +144,8 @@ begin
     jsonb_build_object(
       'previous', previous_status,
       'notes', nullif(p_notes, ''),
-      'acknowledged', p_acknowledged
+      'acknowledged', p_acknowledged,
+      'idempotency_key', p_idempotency_key
     )
   );
 
