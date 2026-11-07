@@ -13,13 +13,13 @@ const EMBED =
 
 function shape(story: any, withExtract: boolean, policies: ContentPolicyRow[]) {
   const sources = (story.story_source_links ?? [])
+    .filter((l: any) => l.retrieved_sources && canRetrieveMetadata(policyForSource(policies, l.retrieved_sources.source_registry?.id ?? "")))
     .map((l: any) => {
       const s = l.retrieved_sources;
       if (!s) return null;
       const reg = s.source_registry ?? {};
       return {
         id: s.id,
-        registryId: reg.id,
         title: s.title,
         url: s.url,
         outlet: reg.publisher ?? reg.name ?? s.publisher ?? "Unknown",
@@ -33,8 +33,7 @@ function shape(story: any, withExtract: boolean, policies: ContentPolicyRow[]) {
         role: l.role,
       };
     })
-    .filter(Boolean)
-    .filter((s: any) => canRetrieveMetadata(policyForSource(policies, s.registryId ?? ""))) as any[];
+    .filter(Boolean) as any[];
   const outlets = new Set(sources.map((s) => s.outlet));
   const regions = [...new Set(sources.map((s) => s.region))];
   const newest = sources.map((s) => s.publishedAt ?? s.retrievedAt ?? "").sort().pop() ?? "";
