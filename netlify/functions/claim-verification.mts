@@ -138,6 +138,19 @@ export default async (req: Request) => {
       if (exceeds(b.notes, 400) || exceeds(b.contradictionResolution, 1000)) return json({ error: "field_too_long", detail: "Reviewer notes are limited to 400 characters and contradiction rationale to 1,000. Nothing was truncated or saved." }, 400);
       if (!UUID.test(claimId) || !OUTCOMES.includes(outcome)) return json({ error: "bad_decision" }, 400);
 
+      if (outcome === "SUPPORTED" || outcome === "PARTIALLY_SUPPORTED") {
+        const [claimRows, policies] = await Promise.all([
+          db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id,claim_evidence(passage,extraction_status,is_contradiction,retrieved_sources(registry_id))&limit=1`),
+          loadContentPolicies(),
+        ]);
+        const accessibleSupport = (claimRows[0]?.claim_evidence ?? []).some((e: any) =>
+          typeof e.retrieved_sources?.registry_id === "string" &&
+          canRetrieveMetadata(policyForSource(policies, e.retrieved_sources.registry_id)) &&
+          e.passage && e.extraction_status === "extracted" && !e.is_contradiction
+        );
+        if (!accessibleSupport) return json({ error: "no_accessible_supporting_evidence", detail: "A supported decision requires an extracted supporting passage from a source currently permitted by its content-access policy." }, 409);
+      }
+
       const key = req.headers.get("idempotency-key") ?? "";
       if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same decision using the same key." }, 400);
       const canonical = JSON.stringify({
