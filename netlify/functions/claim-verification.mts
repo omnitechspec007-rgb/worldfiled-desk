@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { formatReviewerNotes, hasContradictionReconciliation } from "../lib/claim-clearance.mts";
-import { editionClaimClearance } from "../lib/edition-data.mts";
+import { assessClaimClearance } from "../lib/edition-data.mts";
 import { canRetrieveMetadata, loadContentPolicies, policyForSource } from "../lib/source-policy.mts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -12,6 +12,21 @@ const OUTCOMES = ["SUPPORTED", "PARTIALLY_SUPPORTED", "CONTRADICTED", "INSUFFICI
 const hash = (s: string) => createHash("sha256").update(s.trim().toLowerCase()).digest("hex");
 const clean = (s: unknown) => typeof s === "string" ? s.trim() : "";
 const exceeds = (s: unknown, max: number) => typeof s === "string" && s.trim().length > max;
+
+async function accessibleClaimClearance(storyId: string) {
+  const [claims, policies] = await Promise.all([
+    db<any[]>(`claims?story_id=eq.${storyId}&select=id,story_id,claim_evidence(id,source_id,passage,extraction_status,is_contradiction,created_at,retrieved_sources(registry_id)),verification_results(id,outcome,reviewer_notes,created_at)`),
+    loadContentPolicies(),
+  ]);
+  const safeClaims = claims.map((claim) => ({
+    ...claim,
+    claim_evidence: (claim.claim_evidence ?? []).filter((e: any) =>
+      typeof e.retrieved_sources?.registry_id === "string" &&
+      canRetrieveMetadata(policyForSource(policies, e.retrieved_sources.registry_id))
+    ),
+  }));
+  return assessClaimClearance(safeClaims, [storyId]);
+}
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
@@ -152,7 +167,7 @@ export default async (req: Request) => {
 
     if (b.action === "complete_story") {
       if (b.acknowledged !== true) return json({ error: "acknowledgement_required" }, 400);
-      const clearance = await editionClaimClearance([storyId]);
+      const clearance = await accessibleClaimClearance(storyId);
       if (!clearance.ready) return json({ error: "claim_clearance_incomplete", detail: "One or more claims do not have current, accessible evidence and an acceptable editor decision.", blocked: clearance.blocked }, 409);
       const key = req.headers.get("idempotency-key") ?? "";
       if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same clearance request with the same key." }, 400);
