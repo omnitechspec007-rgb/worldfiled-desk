@@ -1,6 +1,6 @@
 # Source Provenance Desk — implementation stage
 
-This stage adds a read-only, authenticated explorer for the provenance records introduced in migrations 012 and 013.
+This stage adds an authenticated provenance desk for the records introduced in migrations 012 and 013. Publisher relationships and article lineage are reviewed through narrow, audited RPCs; content-access policies are reviewed through the same transactional pattern and enforced by the research pipeline.
 
 ## What it shows
 - Configured publisher identities and retrieval health.
@@ -20,5 +20,14 @@ This stage adds a read-only, authenticated explorer for the provenance records i
 - Editors can now review existing publisher relationships and article-origin records as verified, disputed, rejected or still unverified. Each review requires an evidence URL or written rationale, uses a durable idempotency key, and appends review history and audit data transactionally.
 - Content-policy records remain read-only in the UI and mutation API until the retrieval pipeline enforces those policies. The page explicitly warns that the registry is not yet an enforcement mechanism; `extraction_allowed` is not exposed as an editor action.
 
+## Content-access policy enforcement
+
+The research pipeline reads the policy registry before discovery. Missing rows are treated as `metadata_only`; an unknown policy value is treated as `blocked`. If the policy table is present but cannot be read for a reason other than a pre-migration 404, the stage fails closed.
+
+- `blocked`: do not request the feed; exclude that publisher's previously retrieved records from clustering and scoring.
+- `metadata_only`: read the configured feed and retain only the feed's title, publication metadata and capped summary.
+- `extraction_allowed`: record the reviewed state, but still retain metadata only. No full-article fetcher exists in this pipeline stage.
+
+The provenance page exposes an evidence-backed policy review form. Every policy change requires an HTTPS evidence URL or written rationale and uses the existing idempotent Postgres RPC. The policy is applied on the next research stage; historical retrieved rows are not deleted.
 ## Deployment generation
 The single Vercel API router is generated from `netlify/functions/*.mts`. The production build and test command now run `npm run build:api` first so a newly added handler is included without adding another Vercel function.
