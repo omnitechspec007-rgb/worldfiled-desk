@@ -3,7 +3,7 @@
 //   POST {editionId,...}  generate and save as the next version in the edition's prompt history
 //   GET  ?history=1       saved edition prompts (no text) with validity
 //   GET  ?id=ID           one saved prompt; the text is withheld if it is no longer valid (history is kept)
-// Gates: this function checks approval, member list, member decisions; the database trigger checks them again at insert time.
+// Gates: approval, member list, member decisions and current claim clearance are checked before prompt use or generation; the database trigger rechecks approval and membership at insert time.
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { buildEditionPrompt, EditionPromptTooLarge, MAX_EDITION_PROMPT_CHARS } from "../lib/edition-prompt.mts";
