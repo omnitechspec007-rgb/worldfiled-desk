@@ -195,7 +195,7 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
   };
 }
 
-export async function stageCluster(runId: string, config: { windowDays?: number } = {}): Promise<StageResult> {
+export async function stageCluster(runId: string, config: { windowDays?: number; region?: string } = {}): Promise<StageResult> {
   const days = [1, 3, 7, 14].includes(Number(config.windowDays)) ? Number(config.windowDays) : WINDOW_DAYS;
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
   const [retrieved, sources, policies] = await Promise.all([
