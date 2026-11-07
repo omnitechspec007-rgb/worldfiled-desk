@@ -109,3 +109,12 @@
   .candidate-fields { grid-template-columns: 1fr; }
   .candidate-submit { align-items: stretch; flex-direction: column; }
 }
+
+
+/* Provenance review controls */
+.provenance-review-form { display: grid; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.provenance-review-form h3 { margin: 0; }
+.provenance-review-form select, .provenance-review-form input, .provenance-review-form textarea { width: 100%; max-width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--line); background: #fffefa; color: var(--navy); }
+.provenance-review-form textarea { resize: vertical; line-height: 1.5; }
+.provenance-review-form button { justify-self: start; }
+.provenance-policy-warning { border-left: 3px solid var(--gold); padding: 8px 12px; background: rgba(255,200,87,.1); font-size: .82rem; }
