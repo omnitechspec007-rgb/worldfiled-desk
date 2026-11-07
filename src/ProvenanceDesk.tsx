@@ -324,7 +324,7 @@ export default function ProvenanceDesk() {
               </article>)}
             </div>
           )}
-          <p className="provenance-footnote">Read-only in this stage. The next stage adds evidence-backed relationship proposals and safe, idempotent editor review actions. No AI-generated guess is treated as a verified fact.</p>
+          <p className="provenance-footnote">Publisher relationship candidates and article-origin reviews are evidence-backed, idempotent editor actions. Content-access policy remains read-only until the retrieval pipeline enforces it. No AI-generated guess is treated as a verified fact, and unknown origins never count as confirmed independent coverage.</p>
         </>
       )}
     </section>
