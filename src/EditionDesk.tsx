@@ -128,7 +128,7 @@ export default function EditionDesk() {
   const [ack, setAck] = useState(false);
   const [notes, setNotes] = useState("");
   const [deliverable, setDeliverable] = useState("static_roundup_6s");
-  const [duration, setDuration] = useState(600);
+  const [duration, setDuration] = useState(90);
   const [pAngle, setPAngle] = useState("");
   const [fmt, setFmt] = useState("");
   const [sound, setSound] = useState("subtle");
@@ -161,7 +161,7 @@ export default function EditionDesk() {
           setStructure(typeof draft.structure === "string" ? draft.structure : "");
           setTab(["developments", "suggested", "mine", "automatic"].includes(draft.tab) ? draft.tab : "developments");
           setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "static_roundup_6s");
-          setDuration([480, 600, 720].includes(draft.duration) ? draft.duration : 600);
+          setDuration([60, 90, 120, 480, 600, 720].includes(draft.duration) ? draft.duration : 90);
           setPAngle(typeof draft.pAngle === "string" ? draft.pAngle : "");
           setFmt(typeof draft.fmt === "string" ? draft.fmt : "");
           setSound(draft.sound === "minimal" ? "minimal" : "subtle");
@@ -375,7 +375,8 @@ export default function EditionDesk() {
             <strong>{automatic.picks.length} eligible stories · maximum 7</strong>
             <p className="meta">A quiet news cycle may produce fewer than five. The system will not fill the edition with weaker stories just to reach a target.</p>
             <div className="actions">
-              <button className="primary" disabled={!automatic.picks.length} onClick={() => openSet({ ids: automatic.picks.map((p) => p.story.id), title: "The World You Probably Missed", structure: "news_roundup", editionKind: "video" })}>Review these picks in the roundup workspace</button>
+              <button className="primary" disabled={!automatic.picks.length} onClick={() => openSet({ ids: automatic.picks.map((p) => p.story.id), title: "The World You Probably Missed", structure: "news_roundup", editionKind: "video" })}>Review static roundup · up to 7 stories</button>
+              <button disabled={automatic.picks.length < 2} onClick={() => { openSet({ ids: automatic.picks.slice(0, 4).map((p) => p.story.id), title: "The World, Filed — Daily Brief", structure: "news_roundup", editionKind: "video" }); setDeliverable("script_storyboard"); setDuration(90); }}>Build 90-second narrated edition · top 4 picks</button>
               <button disabled={!automatic.picks.length} onClick={() => { setEditionKind("video"); setIds(automatic.picks.map((p) => p.story.id)); setEditionId(null); setApproval(null); setAck(false); setRes(null); setTab("developments"); }}>Use picks in current workspace</button>
             </div>
           </div>
@@ -534,8 +535,8 @@ export default function EditionDesk() {
             {canBuild && (
               <>
                 {editionKind === "video" && <div className="row">
-                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="static_roundup_6s">Static text-led news roundup · 6 seconds</option><option value="script_storyboard">Script and storyboard (legacy)</option><option value="animated_html">Animated HTML (legacy)</option><option value="narrated_video">Narrated video (legacy)</option></select></label>
-                  <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
+                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="static_roundup_6s">Static text-led news roundup · 6 seconds</option><option value="script_storyboard">Short-form narrated edition · script and storyboard</option><option value="animated_html">Animated HTML preview · advanced</option><option value="narrated_video">Narrated video production · audio and final file</option></select></label>
+                  <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><optgroup label="Short-form daily edition"><option value={60}>60 seconds · concise</option><option value={90}>90 seconds · recommended</option><option value={120}>120 seconds · extra depth</option></optgroup><optgroup label="Long-form bulletin"><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></optgroup></select></label>
                 </div>}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
