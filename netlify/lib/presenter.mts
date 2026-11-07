@@ -404,7 +404,26 @@ export function allocateRuntime(items: RuntimeItem[], secs: number, format: Form
     }
     for (const i of items) if (alloc[i.id] === undefined) alloc[i.id] = i.min;
   }
-  const rounded: Record<string, number> = {}; for (const i of items) rounded[i.id] = Math.round(alloc[i.id]);
+  // Largest-remainder rounding: independent Math.round calls can spend more
+  // than the available story-time budget when several fractional shares round up.
+  // Preserve the intentional minimum-duration overrun branch above; otherwise
+  // round the aggregate once, then award spare seconds by largest fractional share.
+  const rounded: Record<string, number> = {};
+  for (const i of items) rounded[i.id] = Math.floor(alloc[i.id]);
+  if (sumMin <= content) {
+    const target = Math.min(content, Math.round(items.reduce((sum, i) => sum + alloc[i.id], 0)));
+    let spare = Math.max(0, target - Object.values(rounded).reduce((sum, value) => sum + value, 0));
+    const order = items.slice().sort((a, b) => {
+      const fraction = (alloc[b.id] - Math.floor(alloc[b.id])) - (alloc[a.id] - Math.floor(alloc[a.id]));
+      return fraction || items.indexOf(a) - items.indexOf(b);
+    });
+    for (const i of order) {
+      if (!spare) break;
+      if (rounded[i.id] < Math.ceil(alloc[i.id]) && rounded[i.id] < i.cap) {
+        rounded[i.id]++; spare--;
+      }
+    }
+  }
   const total = hook + closing + recap + connection + Object.values(rounded).reduce((a, b) => a + b, 0);
   const shorter = total < secs - 2;
   if (shorter) warnings.push(`The sourced material supports about ${total} seconds, not ${secs}. The edition is shorter on purpose and is not padded.`);
