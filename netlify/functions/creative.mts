@@ -36,7 +36,7 @@ async function loadStory(storyId: string) {
   const sources = (st.story_source_links ?? [])
     .map((l: any) => l.retrieved_sources)
     .filter(Boolean)
-    .filter((s: any) => canRetrieveMetadata(policyForSource(policies, s.source_registry?.id ?? "")))
+    .filter((s: any) => typeof s.source_registry?.id === "string" && canRetrieveMetadata(policyForSource(policies, s.source_registry.id)))
     .map((s: any) => ({
       outlet: s.source_registry?.name ?? "Unknown",
       region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
