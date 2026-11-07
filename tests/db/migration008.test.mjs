@@ -79,7 +79,9 @@ try {
   const story2 = (await admin.query("insert into stories(headline,cluster_key) values('Concurrent test','test-decision-concurrent') returning id")).rows[0].id;
   const key2 = randomUUID();
   const hash2 = hash(JSON.stringify({ storyId: story2, decision: "rejected", notes: "Concurrent", acknowledged: false }));
-  const second = new pg.Client({ host: "localhost", port: 54338, user: "postgres", password: "pw", database: "postgres" });
+  const second = new pg.Client(process.env.TEST_DATABASE_URL
+    ? { connectionString: process.env.TEST_DATABASE_URL }
+    : { host: "localhost", port: 54338, user: "postgres", password: "pw", database: "postgres" });
   await second.connect();
   await admin.query("set role service_role");
   await second.query("set role service_role");
