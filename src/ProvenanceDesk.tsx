@@ -21,6 +21,7 @@ type Payload = {
   sources: Source[]; relationships: Edge[]; lineage: Lineage[];
 };
 type Tab = "publishers" | "relationships" | "articles";
+type Candidate = { sourceId: string; relatedSourceId: string; relationshipType: string; evidenceUrl: string; reviewNotes: string; key: string };
 const label = (value: string | null | undefined) => value ? value.replace(/_/g, " ") : "Unknown";
 const date = (value: string | null | undefined) => value ? new Date(value).toLocaleDateString() : "Not recorded";
 
@@ -31,6 +32,20 @@ export default function ProvenanceDesk() {
   const [status, setStatus] = useState("all");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [candidateSource, setCandidateSource] = useState("");
+  const [candidateRelated, setCandidateRelated] = useState("");
+  const [candidateType, setCandidateType] = useState("same_owner");
+  const [candidateEvidence, setCandidateEvidence] = useState("");
+  const [candidateNotes, setCandidateNotes] = useState("");
+  const [candidateBusy, setCandidateBusy] = useState(false);
+  const [candidatePending, setCandidatePending] = useState<Candidate | null>(() => {
+    try {
+      const raw = sessionStorage.getItem("wf:pending-provenance-candidate");
+      return raw ? JSON.parse(raw) as Candidate : null;
+    } catch { return null; }
+  });
+  const [candidateUncertain, setCandidateUncertain] = useState(() => Boolean(candidatePending));
+  const [candidateMessage, setCandidateMessage] = useState(() => candidatePending ? "A previous candidate submission may not have received confirmation. Retry the same request safely." : "");
 
   const load = useCallback(async () => {
     setBusy(true); setError("");
@@ -45,6 +60,58 @@ export default function ProvenanceDesk() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const clearPendingCandidate = () => {
+    setCandidatePending(null); setCandidateUncertain(false);
+    try { sessionStorage.removeItem("wf:pending-provenance-candidate"); } catch { /* in-memory state remains */ }
+  };
+
+  const submitCandidate = async (operation: Candidate) => {
+    setCandidateBusy(true); setCandidateMessage(""); setCandidatePending(operation);
+    try { sessionStorage.setItem("wf:pending-provenance-candidate", JSON.stringify(operation)); } catch { /* same-page retry remains available */ }
+    try {
+      const response = await fetch("/.netlify/functions/provenance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": operation.key },
+        body: JSON.stringify({
+          sourceId: operation.sourceId, relatedSourceId: operation.relatedSourceId,
+          relationshipType: operation.relationshipType, evidenceUrl: operation.evidenceUrl,
+          reviewNotes: operation.reviewNotes,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (result.outcome === "unknown" || response.status >= 500) {
+          setCandidateUncertain(true);
+          setCandidateMessage("We couldn't confirm whether this candidate was saved. Your submission is preserved; retry the same request.");
+        } else {
+          clearPendingCandidate();
+          setCandidateMessage(result.detail || result.error || "The candidate was not saved.");
+        }
+        return;
+      }
+      clearPendingCandidate();
+      setCandidateSource(""); setCandidateRelated(""); setCandidateEvidence(""); setCandidateNotes("");
+      setCandidateMessage(result.replayed ? "Candidate was already saved. No duplicate was created." : "Candidate recorded as UNVERIFIED. It does not count as independent coverage.");
+      await load();
+    } catch {
+      setCandidateUncertain(true);
+      setCandidateMessage("Connection interrupted. We couldn't confirm whether this candidate was saved. Your submission is preserved; retry the same request.");
+    } finally { setCandidateBusy(false); }
+  };
+
+  const createCandidate = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (candidatePending || candidateUncertain) return;
+    if (!candidateSource || !candidateRelated || candidateSource === candidateRelated) {
+      setCandidateMessage("Choose two different publishers."); return;
+    }
+    const operation: Candidate = {
+      sourceId: candidateSource, relatedSourceId: candidateRelated, relationshipType: candidateType,
+      evidenceUrl: candidateEvidence.trim(), reviewNotes: candidateNotes.trim(), key: crypto.randomUUID(),
+    };
+    void submitCandidate(operation);
+  };
 
   const sources = useMemo(() => (data?.sources ?? []).filter((source) => {
     const haystack = [source.name, source.publisher, source.country_scope, source.category].join(" ").toLowerCase();
@@ -134,15 +201,59 @@ export default function ProvenanceDesk() {
           )}
 
           {tab === "relationships" && (
-            <div className="provenance-list">
-              {relationships.length === 0 && <div className="panel"><h2>No publisher relationships recorded</h2><p>Nothing has been inferred or backfilled. Add a relationship only after collecting credible ownership, syndication or affiliation evidence.</p></div>}
+            <>
+              <div className="panel provenance-candidate">
+                <h2>Record a possible publisher relationship</h2>
+                <p className="muted">This creates an UNVERIFIED candidate only. It never marks two outlets as the same owner or as independent without a separate evidence-backed review.</p>
+                {candidateMessage && <div className={candidateUncertain ? "state-warning" : "state-message"} role={candidateUncertain ? "status" : "alert"}><p>{candidateMessage}</p>{candidateUncertain && candidatePending && <button className="primary" disabled={candidateBusy} onClick={() => void submitCandidate(candidatePending)}>{candidateBusy ? "RETRYING…" : "RETRY SAME SUBMISSION"}</button>}</div>}
+                <form onSubmit={createCandidate}>
+                  <div className="candidate-fields">
+                    <label>Publisher A
+                      <select value={candidateSource} onChange={(event) => setCandidateSource(event.target.value)} required disabled={candidateBusy || candidateUncertain}>
+                        <option value="">Choose publisher</option>
+                        {data.sources.map((source) => <option key={source.id} value={source.id}>{source.publisher || source.name} · {source.name}</option>)}
+                      </select>
+                    </label>
+                    <label>Publisher B
+                      <select value={candidateRelated} onChange={(event) => setCandidateRelated(event.target.value)} required disabled={candidateBusy || candidateUncertain}>
+                        <option value="">Choose publisher</option>
+                        {data.sources.filter((source) => source.id !== candidateSource).map((source) => <option key={source.id} value={source.id}>{source.publisher || source.name} · {source.name}</option>)}
+                      </select>
+                    </label>
+                    <label>Relationship to investigate
+                      <select value={candidateType} onChange={(event) => setCandidateType(event.target.value)} disabled={candidateBusy || candidateUncertain}>
+                        <option value="same_owner">Same owner (symmetric)</option>
+                        <option value="owned_by">Publisher A owned by B</option>
+                        <option value="subsidiary_of">Publisher A is subsidiary of B</option>
+                        <option value="syndicates_from">A syndicates from B</option>
+                        <option value="republishes">A republishes B</option>
+                        <option value="licensed_from">A licenses content from B</option>
+                        <option value="partner">Partnership / affiliation</option>
+                        <option value="aggregates">A aggregates B</option>
+                        <option value="official_source_for">A is official source for B</option>
+                        <option value="other">Other documented relationship</option>
+                      </select>
+                    </label>
+                    <label>Evidence URL (HTTPS)
+                      <input type="url" value={candidateEvidence} onChange={(event) => setCandidateEvidence(event.target.value)} placeholder="https://…" maxLength={2000} disabled={candidateBusy || candidateUncertain} />
+                    </label>
+                  </div>
+                  <label>Why should this relationship be investigated?
+                    <textarea value={candidateNotes} onChange={(event) => setCandidateNotes(event.target.value)} rows={3} maxLength={1200} placeholder="Describe the evidence or uncertainty. Do not state a guess as an established fact." disabled={candidateBusy || candidateUncertain} />
+                  </label>
+                  <div className="candidate-submit"><span className="muted">Provide an evidence link or a written rationale. Maximum 1,200 characters.</span><button className="primary" type="submit" disabled={candidateBusy || candidateUncertain || !candidateSource || !candidateRelated || candidateSource === candidateRelated || (!candidateEvidence.trim() && !candidateNotes.trim())}>{candidateBusy ? "SAVING…" : "ADD UNVERIFIED CANDIDATE"}</button></div>
+                </form>
+              </div>
+              <div className="provenance-list">
+              {relationships.length === 0 && <div className="panel"><h2>No publisher relationships recorded</h2><p>Nothing has been inferred or backfilled. Use the form above to add a candidate with evidence or a written rationale. It will remain unverified until reviewed.</p></div>}
               {relationships.map((edge) => <article className="panel provenance-card" key={edge.id}>
                 <div className="provenance-card-heading"><h2>{edge.source?.publisher || edge.source?.name || "Unknown publisher"} <span aria-hidden="true">↔</span> {edge.relatedSource?.publisher || edge.relatedSource?.name || "Unknown publisher"}</h2><span className="provenance-tag neutral">{label(edge.review_status)}</span></div>
                 <p className="meta">{label(edge.relationship_type)} · Last reviewed {date(edge.reviewed_at)}</p>
                 {edge.review_notes && <p>{edge.review_notes}</p>}
                 {edge.evidence_url && <a href={edge.evidence_url} target="_blank" rel="noreferrer">Open review evidence</a>}
               </article>)}
-            </div>
+              </div>
+            </>
           )}
 
           {tab === "articles" && (
