@@ -11,12 +11,13 @@ import EditionDesk from "./EditionDesk";
 import Planner from "./Planner";
 import CreativeSetup from "./CreativeSetup";
 import DraftAudit from "./DraftAudit";
+import ProvenanceDesk from "./ProvenanceDesk";
 
 const NAV_GROUPS = [
   { label: "RESEARCH", items: [
     { to: "/", label: "Dashboard" }, { to: "/stories", label: "Story Desk" },
     { to: "/evidence", label: "Evidence Room" }, { to: "/review", label: "Editorial Review" },
-    { to: "/draft-audit", label: "Draft Audit" },
+    { to: "/draft-audit", label: "Draft Audit" }, { to: "/provenance", label: "Source Provenance" },
   ] },
   { label: "EDITION WORKFLOW", items: [
     { to: "/planner", label: "Planner" }, { to: "/editions", label: "Daily Editions (Video + Text)" },
@@ -210,12 +211,12 @@ function Desk({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const titles: Record<string, string> = {
     "/": "Dashboard", "/stories": "Story Desk", "/evidence": "Evidence Room",
-    "/review": "Editorial Review", "/draft-audit": "Draft Audit", "/planner": "Planner", "/editions": "Edition Desk",
+    "/review": "Editorial Review", "/draft-audit": "Draft Audit", "/provenance": "Source Provenance", "/planner": "Planner", "/editions": "Edition Desk",
     "/creative": "Presenter and Voice", "/architect": "Prompt Architect",
     "/reference": "Reference Library", "/history": "Prompt History", "/health": "System Health",
   };
   const parent: Record<string, string> = {
-    "/stories": "/", "/evidence": "/stories", "/review": "/stories", "/draft-audit": "/review", "/planner": "/",
+    "/stories": "/", "/evidence": "/stories", "/review": "/stories", "/draft-audit": "/review", "/provenance": "/stories", "/planner": "/",
     "/editions": "/planner", "/creative": "/editions", "/architect": "/editions",
     "/reference": "/", "/history": "/architect", "/health": "/",
   };
@@ -274,6 +275,7 @@ function Desk({ onLogout }: { onLogout: () => void }) {
           <Route path="/evidence/:id" element={<EvidenceRoom />} />
           <Route path="/review" element={<EditorialReview />} />
           <Route path="/draft-audit" element={<DraftAudit />} />
+          <Route path="/provenance" element={<ProvenanceDesk />} />
           <Route path="/planner" element={<Planner />} />
           <Route path="/editions" element={<EditionDesk />} />
           <Route path="/creative" element={<CreativeSetup />} />
