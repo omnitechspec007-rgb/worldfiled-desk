@@ -187,6 +187,7 @@ export default function ProvenanceDesk() {
         <h2>Provenance schema not installed</h2>
         <p>{data.detail}</p>
         <p className="muted">This page does not apply migrations or change the database. The migration files remain review-only until separately approved.</p>
+      </div>}
       {reviewMessage && <div className={reviewUncertain ? "panel state-warning" : "panel state-message"} role={reviewUncertain ? "status" : "alert"}>
         <p>{reviewMessage}</p>
         {reviewUncertain && reviewPending && <button className="primary" disabled={reviewBusy} onClick={() => void submitReview(reviewPending)}>{reviewBusy ? "RETRYING…" : "RETRY SAME REVIEW"}</button>}
