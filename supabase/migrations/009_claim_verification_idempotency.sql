@@ -196,7 +196,7 @@ declare
 begin
   if p_idempotency_key is null
      or p_request_hash is null
-     or p_request_hash !~ '^[0-9a-f]{64}
+     or p_request_hash !~ '^[0-9a-f]{64}$'
      or p_story_id is null
      or p_acknowledged is distinct from true then
     return jsonb_build_object('status', 400, 'body', jsonb_build_object('error', 'invalid_clearance_request'));
