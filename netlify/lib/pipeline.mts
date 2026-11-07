@@ -5,7 +5,8 @@
 // Planned next: evidence (full text) -> claims -> verify
 // An AI provider, when added, plugs in behind the interfaces in ai-provider.mts and is never
 // required for any stage here.
-import { db } from "./db.mts";
+import { db, DbError } from "./db.mts";
+import { canRetrieveMetadata, policyForSource, retrievalContentStatus, type ContentPolicyRow } from "./source-policy.mts";
 import { SEED_SOURCES } from "./seed-sources.mts";
 import { fetchFeed, feedText, urlHash } from "./feeds.mts";
 import { clusterItems } from "./cluster.mts";
@@ -21,6 +22,17 @@ const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length
 type StageResult = { done: boolean; detail: Record<string, any> };
 
 type SourceRow = { id: string; name: string; country_scope: string | null; category: string | null; feed_url: unknown; reliability_note?: string | null };
+
+async function loadContentPolicies(): Promise<ContentPolicyRow[]> {
+  try {
+    return await db<ContentPolicyRow[]>("source_content_policies?select=source_id,policy&limit=1000");
+  } catch (error) {
+    // Before migration 012 exists, no reviewed policy rows can exist. The safe default is
+    // metadata-only; any other database failure stops research rather than bypassing policy.
+    if (error instanceof DbError && error.upstream === 404) return [];
+    throw error;
+  }
+}
 
 export async function stagePrepare(): Promise<StageResult> {
   // Built-in list is the source of truth. Existing rows keep their recorded health, unless the
@@ -135,7 +147,7 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
             published_at: it.publishedAt,
             retrieved_at: now,
             http_status: r.http,
-            content_status: "metadata_only", // headline and short summary only; article text NOT retrieved
+            content_status: retrievalContentStatus(policy), // even extraction_allowed is not a full-text fetch instruction in this stage
             extract: it.summary,
           })),
         });
@@ -144,7 +156,7 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
           prefer: "return=minimal",
           body: { retrieval_status: "healthy", enabled: true, last_checked_at: now, last_success_at: now, last_error: null },
         });
-        results[s.id] = { name: s.name, status: "healthy", items: itemsToSave.length, newItems, refreshedItems, skippedOld: r.skippedOld };
+        results[s.id] = { name: s.name, status: "healthy", policy, items: itemsToSave.length, newItems, refreshedItems, skippedOld: r.skippedOld };
       } else {
         const status = r.status === "healthy" ? "degraded" : r.status;
         const error = r.status === "healthy" ? `no items within the freshness window (${r.skippedOld} older items skipped)` : r.error;
@@ -153,7 +165,7 @@ export async function stageDiscover(prev: Record<string, any>, config: { windowD
           prefer: "return=minimal",
           body: { retrieval_status: status, enabled: false, last_checked_at: now, last_error: error },
         });
-        results[s.id] = { name: s.name, status, items: 0, newItems: 0, refreshedItems: 0, error };
+        results[s.id] = { name: s.name, status, policy, items: 0, newItems: 0, refreshedItems: 0, error };
       }
     })
   );
@@ -189,7 +201,7 @@ export async function stageCluster(runId: string, config: { windowDays?: number 
   );
   const sources = await db<SourceRow[]>("source_registry?select=id,name,country_scope,category,feed_url");
   const allowedSourceIds = new Set(
-    sources.filter((s) => !config.region || config.region === "all" || (s.country_scope ?? "").startsWith(config.region)).map((s) => s.id)
+    sources.filter((s) => canRetrieveMetadata(policyForSource(policies, s.id)) && (!config.region || config.region === "all" || (s.country_scope ?? "").startsWith(config.region))).map((s) => s.id)
   );
   const rows = retrieved.filter((r) => allowedSourceIds.has(r.registry_id ?? ""));
   const reg = new Map(sources.map((s) => [s.id, s]));
