@@ -68,6 +68,24 @@ try {
 
   const grants = await admin.query("select has_table_privilege('anon','idempotency_records','select') anon_read, has_table_privilege('authenticated','idempotency_records','insert') auth_write, has_function_privilege('anon','public.record_story_editorial_decision(uuid,text,uuid,text,text,boolean)','execute') anon_execute, has_function_privilege('service_role','public.record_story_editorial_decision(uuid,text,uuid,text,text,boolean)','execute') service_execute");
   ok("idempotency storage and RPC are unavailable to browser roles", !grants.rows[0].anon_read && !grants.rows[0].auth_write && !grants.rows[0].anon_execute && grants.rows[0].service_execute);
+
+  // Two independent sessions submit the same logical decision at the same time.
+  const story2 = (await admin.query("insert into stories(headline,cluster_key) values('Concurrent test','test-decision-concurrent') returning id")).rows[0].id;
+  const key2 = randomUUID();
+  const hash2 = hash(JSON.stringify({ storyId: story2, decision: "rejected", notes: "Concurrent", acknowledged: false }));
+  const second = new pg.Client({ host: "localhost", port: 54338, user: "postgres", password: "pw", database: "postgres" });
+  await second.connect();
+  await admin.query("set role service_role");
+  await second.query("set role service_role");
+  const concurrentCall = (client) => client.query("select public.record_story_editorial_decision($1,$2,$3,'rejected','Concurrent',false) as result", [key2, hash2, story2]);
+  const [left, right] = await Promise.all([concurrentCall(admin), concurrentCall(second)]);
+  await admin.query("reset role");
+  await second.query("reset role");
+  const outcomes = [left.rows[0].result, right.rows[0].result];
+  const concurrentState = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [story2, key2]);
+  ok("concurrent same-key requests produce one commit and one replay", outcomes.every(x => x.status === 200) && outcomes.filter(x => x.replayed === false).length === 1 && outcomes.filter(x => x.replayed === true).length === 1);
+  ok("concurrent retry creates exactly one decision, audit event and idempotency record", Number(concurrentState.rows[0].decisions) === 1 && Number(concurrentState.rows[0].audits) === 1 && Number(concurrentState.rows[0].keys) === 1);
+  await second.end();
 } finally {
   await admin.end(); await server.stop();
 }
