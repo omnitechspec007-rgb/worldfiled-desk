@@ -38,9 +38,26 @@ export default async (req: Request) => {
       const category = clean(b.category) || "factual";
       if (exceeds(b.claimText, 1200) || exceeds(b.category, 80)) return json({ error: "field_too_long", detail: "Claim text is limited to 1,200 characters and category to 80. Nothing was truncated or saved." }, 400);
       if (claimText.length < 8) return json({ error: "claim_too_short" }, 400);
-      const rows = await db<any[]>(`claims?on_conflict=story_id,claim_hash&select=id,claim_text,category,created_at`, { method: "POST", body: { story_id: storyId, claim_text: claimText, claim_hash: hash(claimText), category, extraction_status: "pending" }, prefer: "resolution=merge-duplicates,return=representation" });
-      await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: "in_progress", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
-      return json({ claim: rows[0], note: "Claim saved. It remains unverified until sources and an editor decision are recorded." });
+
+      const key = req.headers.get("idempotency-key") ?? "";
+      if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same claim operation with the same key." }, 400);
+      const canonical = JSON.stringify({ storyId, claimText, category });
+      const requestHash = createHash("sha256").update(canonical).digest("hex");
+      const claimHash = hash(claimText);
+      const result: any = await db<any>("rpc/add_material_claim", {
+        method: "POST",
+        body: {
+          p_idempotency_key: key,
+          p_request_hash: requestHash,
+          p_story_id: storyId,
+          p_claim_text: claimText,
+          p_claim_hash: claimHash,
+          p_category: category,
+        },
+      });
+      const status = Number(result?.status ?? 500);
+      const responseBody = result?.body ?? { error: "invalid_rpc_response" };
+      return json({ ...responseBody, replayed: result?.replayed === true }, status);
     }
 
     if (b.action === "add_evidence") {
