@@ -21,6 +21,7 @@ create table if not exists public.source_relationships (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint source_relationship_not_self check (source_id <> related_source_id),
+  constraint source_relationship_same_owner_canonical check (relationship_type <> 'same_owner' or source_id < related_source_id),
   constraint source_relationship_review_has_basis check (
     review_status = 'unverified'
     or (
