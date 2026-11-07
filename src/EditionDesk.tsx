@@ -38,6 +38,42 @@ type CreativePreview = {
 type PromptResult = { creative?: { pronunciationCheckRequired: string[]; runtime: { warnings: string[] }; voiceApproval: string } | null; saved: boolean; notInstalled?: boolean; note?: string; id?: string; version?: number; prompt: string; roles: { role: string; why: string }[]; tools: { needed: { name: string }[]; note: string }; brandChecklist: string[] };
 
 const STRUCTS = [["multi_country", "Multi-country synthesis"], ["single_country", "Single-country deep dive"], ["event_roundup", "Event-driven thematic roundup"], ["news_roundup", "Multi-topic news roundup (no shared theme)"]];
+type AutoPick = { story: Dev; score: number; reasons: string[] };
+function buildAutomaticPicks(stories: Dev[]): { picks: AutoPick[]; held: { story: Dev; reason: string }[] } {
+  const eligible: AutoPick[] = [];
+  const held: { story: Dev; reason: string }[] = [];
+  for (const story of stories) {
+    const outlets = new Set(story.sources.map((source) => source.outlet.trim().toLowerCase()).filter(Boolean));
+    const reasons: string[] = [];
+    if (!story.fresh) reasons.push(story.notFreshWhy || 'Outside the current freshness window.');
+    if (story.decision === 'rejected') reasons.push('Previously rejected by an editor.');
+    if (!["HIGH-POTENTIAL STORY", "STRONG EDITION CANDIDATE"].includes(story.recommendation)) reasons.push('Curiosity assessment is not strong enough for automatic shortlisting.');
+    if (story.evidenceStrength.label !== 'MODERATE') reasons.push('Evidence screen is below the current shortlist threshold.');
+    if (outlets.size < 2) reasons.push('Fewer than two distinct named outlets were retrieved.');
+    if (story.sensationalismFlags.length) reasons.push('Sensational or vague-attribution wording needs review.');
+    if (reasons.length) { held.push({ story, reason: reasons.join(' ') }); continue; }
+    const score = story.curiosityScore * 0.55 + Math.min(outlets.size, 4) * 5 + Math.max(0, 24 - (story.ageHours ?? 24)) * 0.35;
+    eligible.push({ story, score, reasons: [
+      'Curiosity rules: ' + story.curiosityScore + '/100 (editorial hypothesis, not measured audience behaviour).',
+      'Evidence screen: ' + story.evidenceStrength.label + '; ' + outlets.size + ' distinct outlet names.',
+      story.ageHours === null ? 'Publication age unknown.' : 'Newest report approximately ' + Math.round(story.ageHours) + ' hours old.'
+    ] });
+  }
+  const remaining = [...eligible].sort((a, b) => b.score - a.score);
+  const picks: AutoPick[] = []; const types = new Set<string>(); const places = new Set<string>();
+  while (remaining.length && picks.length < 7) {
+    let bestIndex = 0, bestValue = -Infinity;
+    remaining.forEach((candidate, index) => {
+      const place = candidate.story.locations[0]?.country ?? '';
+      const diversityBonus = (types.has(candidate.story.type) ? -8 : 4) + (place && places.has(place) ? -5 : 2);
+      const value = candidate.score + diversityBonus;
+      if (value > bestValue) { bestValue = value; bestIndex = index; }
+    });
+    const chosen = remaining.splice(bestIndex, 1)[0]; picks.push(chosen); types.add(chosen.story.type);
+    const place = chosen.story.locations[0]?.country; if (place) places.add(place);
+  }
+  return { picks, held };
+}
 const api = "/.netlify/functions/";
 const post = (fn: string, body: unknown) => fetch(api + fn, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const tone = (v: string) => (v === "COHERENT" ? "ok" : v === "SINGLE DEVELOPMENT" ? "" : "bad");
@@ -64,7 +100,7 @@ function DevDetail({ d }: { d: Dev }) {
 
 export default function EditionDesk() {
   const [desk, setDesk] = useState<Desk | null>(null);
-  const [tab, setTab] = useState<"developments" | "suggested" | "mine">("developments");
+  const [tab, setTab] = useState<"developments" | "suggested" | "mine" | "automatic">("automatic");
   const [q, setQ] = useState("");
   const [showOlder, setShowOlder] = useState(false);
   const [recFilter, setRecFilter] = useState("");
@@ -80,7 +116,7 @@ export default function EditionDesk() {
   const [ids, setIds] = useState<string[]>([]);
   const [editionKind, setEditionKind] = useState<"video" | "text">("video");
   const [selections, setSelections] = useState<{ video: string[]; text: string[] }>({ video: [], text: [] });
-  const selectionLimit = editionKind === "video" ? 10 : 18;
+  const selectionLimit = editionKind === "video" ? 7 : 18;
   const [editionId, setEditionId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [angle, setAngle] = useState("");
@@ -119,11 +155,11 @@ export default function EditionDesk() {
         if (draft && Array.isArray(draft.ids) && draft.ids.length <= 18) {
           setEditionKind(draft.editionKind === "text" ? "text" : "video");
           setIds(draft.ids.filter((x: unknown) => typeof x === "string"));
-          setSelections({ video: Array.isArray(draft.selections?.video) ? draft.selections.video.filter((x: unknown) => typeof x === "string").slice(0, 10) : [], text: Array.isArray(draft.selections?.text) ? draft.selections.text.filter((x: unknown) => typeof x === "string").slice(0, 18) : [] });
+          setSelections({ video: Array.isArray(draft.selections?.video) ? draft.selections.video.filter((x: unknown) => typeof x === "string").slice(0, 7) : [], text: Array.isArray(draft.selections?.text) ? draft.selections.text.filter((x: unknown) => typeof x === "string").slice(0, 18) : [] });
           setTitle(typeof draft.title === "string" ? draft.title : "");
           setAngle(typeof draft.angle === "string" ? draft.angle : "");
           setStructure(typeof draft.structure === "string" ? draft.structure : "");
-          setTab(["developments", "suggested", "mine"].includes(draft.tab) ? draft.tab : "developments");
+          setTab(["developments", "suggested", "mine", "automatic"].includes(draft.tab) ? draft.tab : "developments");
           setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "static_roundup_6s");
           setDuration([480, 600, 720].includes(draft.duration) ? draft.duration : 600);
           setPAngle(typeof draft.pAngle === "string" ? draft.pAngle : "");
@@ -310,6 +346,7 @@ export default function EditionDesk() {
   );
 
   const canBuild = !!editionId && !!approval?.current;
+  const automatic = buildAutomaticPicks(desk?.developments ?? []);
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
     return d ? { id: d.id, headline: d.headline, summary: d.whatChanged || d.whyInteresting[0] || "Consult the linked source material for the verified details.", location: d.locations.map((x) => x.country).join(", "), source: d.sources[0]?.outlet ?? "" } : null;
@@ -323,13 +360,41 @@ export default function EditionDesk() {
 
       <div className="panel">
         <h2>Daily edition profile</h2>
-        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Static news roundup · 8-10 stories · 6 seconds</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
+        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Static news roundup · 5-7 stories · 6 seconds</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
         <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
       </div>\n      <div className="tabs">
         {([["developments", "1. Select developments"], ["suggested", "Suggested editions (shortcut)"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!desk && !msg && <p className="meta">Loading…</p>}
 
+      {desk && tab === "automatic" && (
+        <div className="panel">
+          <h2>Automatic editorial shortlist</h2>
+          <p className="meta">The engine screens fresh, high-curiosity candidates with a moderate evidence screen, at least two distinct named outlets and no detected sensational wording. It then prefers a mix of development types and places. This is a shortlist for your review, not an automatic fact-check or a prediction of views.</p>
+          <div className="confirm">
+            <strong>{automatic.picks.length} eligible stories · maximum 7</strong>
+            <p className="meta">A quiet news cycle may produce fewer than five. The system will not fill the edition with weaker stories just to reach a target.</p>
+            <div className="actions">
+              <button className="primary" disabled={!automatic.picks.length} onClick={() => openSet({ ids: automatic.picks.map((p) => p.story.id), title: "The World You Probably Missed", structure: "news_roundup", editionKind: "video" })}>Review these picks in the roundup workspace</button>
+              <button disabled={!automatic.picks.length} onClick={() => { setEditionKind("video"); setIds(automatic.picks.map((p) => p.story.id)); setEditionId(null); setApproval(null); setAck(false); setRes(null); setTab("developments"); }}>Use picks in current workspace</button>
+            </div>
+          </div>
+          {automatic.picks.length === 0 && <p>No stories currently meet every shortlist condition. Review held stories below or run fresh research; do not lower the evidence threshold just to fill a video.</p>}
+          {automatic.picks.map((p, i) => <div className="roundup-card-editor" key={p.story.id}>
+            <p className="rank">AUTO PICK {String(i + 1).padStart(2, "0")} · INTERNAL RANK {Math.round(p.score)}</p>
+            <h3>{p.story.headline}</h3>
+            <p className="meta">{p.story.recommendation} · curiosity {p.story.curiosityScore}/100 · evidence {p.story.evidenceStrength.label} · {p.story.sources.length} source records · {p.story.ageHours === null ? "age unknown" : Math.round(p.story.ageHours) + "h old"}</p>
+            <ul className="comps">{p.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+            <button onClick={() => setInspect(inspect === "auto-" + p.story.id ? null : "auto-" + p.story.id)}>{inspect === "auto-" + p.story.id ? "Hide sources" : "Inspect sources and reasoning"}</button>
+            {inspect === "auto-" + p.story.id && <DevDetail d={p.story} />}
+          </div>)}
+          <details><summary>Held back by the automatic screen ({automatic.held.length})</summary>
+            <p className="meta">Held stories remain available in Review all developments. Reasons are screening rules, not a judgement that the underlying event is unimportant.</p>
+            <ul className="comps">{automatic.held.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reason}</li>)}</ul>
+          </details>
+          <p className="caution">Two outlet names do not prove independent reporting. Syndication and shared-source relationships must be checked in the Source Provenance Desk. Research currently relies primarily on headlines and snippets, not full article text. Open the source links and check the underlying claims before publication.</p>
+        </div>
+      )}
       {desk && tab === "suggested" && (
         <>
           {desk.suggestions.filter(shown).length === 0 && <div className="panel"><p>No coherent edition found in the current research. That is a valid result: do not force one. Run research again, or build one by hand from the Developments tab.</p></div>}
@@ -346,7 +411,7 @@ export default function EditionDesk() {
         return (
           <div className="panel">
             <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "static news roundup"}</h2>
-            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Static video target: 8-10 stories (maximum 10). Text target: 12-18 (maximum 18). These are editorial guides, not quotas.</p>
+            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Static text roundup: aim for 5-7 stories (maximum 7), with fewer allowed when evidence is thin. Written briefing: target 12-18 stories (maximum 18). Do not force unrelated stories into a shared theme.</p>
             <div className="confirm" style={{ position: "sticky", top: 0, zIndex: 2 }}>
               <strong>{ids.length} / {selectionLimit} selected</strong>
               <div className="actions">
