@@ -18,7 +18,10 @@ This stage adds an authenticated provenance desk for the records introduced in m
 - Editors can submit a publisher-relationship candidate with an HTTPS evidence URL or written rationale. The candidate is always created as `unverified`; no candidate is automatically promoted or counted as independent coverage.
 - Candidate creation uses a narrow `SECURITY INVOKER` Postgres RPC, request hashing, durable idempotency, an append-only audit event and provenance-revision increment in one transaction. Same key + same payload replays; same key + changed payload conflicts; duplicate symmetric same-owner edges are rejected.
 - Editors can now review existing publisher relationships and article-origin records as verified, disputed, rejected or still unverified. Each review requires an evidence URL or written rationale, uses a durable idempotency key, and appends review history and audit data transactionally.
-- Content-policy records remain read-only in the UI and mutation API until the retrieval pipeline enforces those policies. The page explicitly warns that the registry is not yet an enforcement mechanism; `extraction_allowed` is not exposed as an editor action.
+- Content-access policy changes require an HTTPS evidence URL or written rationale and are saved through `review_source_content_policy`, with durable idempotency, append-only policy history, audit event and provenance revision update in one transaction. The UI does not expose direct table writes.
+- A missing policy row defaults to `metadata_only`. Unknown or malformed policy values fail closed as `blocked`. A database error other than a missing pre-migration table stops research instead of bypassing the policy read.
+- `blocked` sources are skipped before the feed request and excluded from clustering and scoring, including previously retrieved rows. `metadata_only` permits feed metadata and short summaries. `extraction_allowed` records a reviewed permission state but does not cause article-text extraction: the current pipeline remains metadata-only.
+- Policy changes apply on the next research stage. Already stored records are preserved for audit/history, but blocked sources are filtered out of downstream editorial candidate generation.
 
 ## Content-access policy enforcement
 
@@ -29,5 +32,6 @@ The research pipeline reads the policy registry before discovery. Missing rows a
 - `extraction_allowed`: record the reviewed state, but still retain metadata only. No full-article fetcher exists in this pipeline stage.
 
 The provenance page exposes an evidence-backed policy review form. Every policy change requires an HTTPS evidence URL or written rationale and uses the existing idempotent Postgres RPC. The policy is applied on the next research stage; historical retrieved rows are not deleted.
+
 ## Deployment generation
 The single Vercel API router is generated from `netlify/functions/*.mts`. The production build and test command now run `npm run build:api` first so a newly added handler is included without adding another Vercel function.
