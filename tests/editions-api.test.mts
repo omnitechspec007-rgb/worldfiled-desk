@@ -103,10 +103,41 @@ const sp = story("Telescope finds exoplanet atmosphere with water signal, resear
 const old = story("Spain republishes old earthquake preparedness guide", "Public policy", [["Madrid Gazette", "Spain preparedness guide", "Old"]]); T("retrieved_sources").filter((r) => r.title === "Spain preparedness guide").forEach((r) => (r.published_at = at(24 * 40)));
 const decide = (sid: string, decision: string) => T("editorial_decisions").push({ id: crypto.randomUUID(), story_id: sid, decision, decided_by: "ed", created_at: new Date(Date.now() + seq++).toISOString() });
 
+// Provenance integration fixtures: reviewed records only; unknown defaults must remain unknown.
+const sourceLinks = (storyId: string) => T("story_source_links").filter((link) => link.story_id === storyId).map((link) => T("retrieved_sources").find((source) => source.id === link.source_id));
+const jpSources = sourceLinks(jp);
+jpSources.forEach((source, i) => {
+  const owner = T("source_registry").find((row) => row.id === source.registry_id);
+  Object.assign(owner, { ownership_status: "verified", publisher_group_key: i === 0 ? "jp-group-a" : "jp-group-b" });
+  T("article_lineage").push({ retrieved_source_id: source.id, origin_type: "original_reporting", review_status: "verified", updated_at: new Date().toISOString() });
+});
+const fiSources = sourceLinks(fi);
+fiSources.forEach((source) => {
+  const owner = T("source_registry").find((row) => row.id === source.registry_id);
+  Object.assign(owner, { ownership_status: "unverified", publisher_group_key: null });
+  T("article_lineage").push({ retrieved_source_id: source.id, origin_type: "original_reporting", review_status: "verified", updated_at: new Date().toISOString() });
+});
+T("publication_relationships").push({ source_id: fiSources[0].registry_id, related_source_id: fiSources[1].registry_id, relationship_type: "same_owner", review_status: "verified" });
+const clSources = sourceLinks(cl);
+const wireOwner = reg("Wire Service");
+Object.assign(wireOwner, { ownership_status: "verified", publisher_group_key: "wire-group" });
+clSources.forEach((source, i) => {
+  const owner = T("source_registry").find((row) => row.id === source.registry_id);
+  Object.assign(owner, { ownership_status: "verified", publisher_group_key: "cl-group-" + i });
+  T("article_lineage").push({ retrieved_source_id: source.id, origin_type: "syndicated", review_status: "verified", upstream_source_registry_id: wireOwner.id, updated_at: new Date().toISOString() });
+});
+
 console.log("Edition Desk API");
 assert.equal((await get(edFn, "", null)).status, 401); assert.equal((await call(edFn, { action: "save" }, null)).status, 401); assert.equal((await get(epFn, "history=1", null)).status, 401); assert.equal((await call(epFn, { editionId: "x" }, null)).status, 401); ok("edition desk and edition prompt require sign-in");
 let d = await (await get(edFn, "")).json();
 assert(d.developments.length >= 5 && d.developments.every((x: any) => x.recommendation && x.evidenceStrength && x.curiosityScore >= 0 && x.hypothesisNote)); ok("desk lists developments with curiosity assessment, evidence strength and recommendation");
+const jpProv = d.developments.find((x: any) => x.id === jp).sourceIndependence;
+const fiProv = d.developments.find((x: any) => x.id === fi).sourceIndependence;
+const clProv = d.developments.find((x: any) => x.id === cl).sourceIndependence;
+assert.equal(jpProv.status, "confirmed_independent"); assert.equal(jpProv.confirmedIndependentOrigins, 2);
+assert.equal(fiProv.status, "known_shared_origin"); assert.equal(fiProv.confirmedIndependentOrigins, 1);
+assert.equal(clProv.status, "known_shared_origin"); assert.equal(clProv.confirmedIndependentOrigins, 0);
+ok("desk derives independent origins from verified publisher groups, verified ownership edges and upstream article lineage");
 const prep = d.suggestions.find((s: any) => s.ids.includes(jp) && s.ids.includes(fi)); assert(prep && prep.structure === "multi_country" && prep.coherence.verdict === "COHERENT" && prep.coherence.components.length === 7); ok("a coherent multi-country edition is suggested with transparent coherence components");
 assert(!prep.ids.includes(rt) && !prep.ids.includes(sp)); ok("unrelated stories are not forced into the edition");
 assert(d.ineligible.some((x: any) => x.id === old && /freshness window/.test(x.reason))); ok("stories outside the freshness window are listed as excluded with a reason");
