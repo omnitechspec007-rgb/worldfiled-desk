@@ -21,6 +21,34 @@ const response = (x: any, status=200) => new Response(x === null ? null : JSON.s
 const filter = (rows: any[], p: URLSearchParams) => rows.filter(row => [...p.entries()].every(([k,v]) => ["select","order","on_conflict"].includes(k) || (v.startsWith("eq.") && String(row[k]) === v.slice(3))));
 globalThis.fetch = (async (input: any, init: any = {}) => {
   const u = new URL(String(input)), table = u.pathname.split("/rest/v1/")[1], method = init.method || "GET", p = u.searchParams;
+  if (table === "rpc/add_claim_evidence" && method === "POST") {
+    const b = JSON.parse(init.body || "{}");
+    const mapKey = "evidence:" + b.p_idempotency_key;
+    const old = idempotency.get(mapKey);
+    if (old) {
+      if (old.hash !== b.p_request_hash) return response({status:409,body:{error:"idempotency_key_reused"}});
+      return response({status:old.status,body:old.body,replayed:true});
+    }
+    if (!claims.some(x=>x.id===b.p_claim_id && x.story_id===b.p_story_id)) return response({status:404,body:{error:"claim_not_found"}});
+    if (!links.some(x=>x.story_id===b.p_story_id && x.source_id===b.p_source_id)) return response({status:400,body:{error:"source_not_linked_to_story"}});
+    const source=sources.find(x=>x.id===b.p_source_id);
+    if (!source) return response({status:404,body:{error:"source_not_found"}});
+    const extraction_status = b.p_passage && b.p_passage.trim() ? "extracted" : "inaccessible";
+    let row=evidence.find(x=>x.claim_id===b.p_claim_id && x.source_id===b.p_source_id && x.passage_hash===b.p_passage_hash);
+    let isNew=false;
+    if (row) {
+      if ((row.passage||"")!==(b.p_passage||"") || (row.passage_location||"")!==(b.p_passage_location||"") || row.is_contradiction!==b.p_is_contradiction || row.extraction_status!==extraction_status)
+        return response({status:409,body:{error:"evidence_fingerprint_conflict"}});
+    } else {
+      row={id:crypto.randomUUID(),claim_id:b.p_claim_id,source_id:b.p_source_id,passage:b.p_passage,passage_hash:b.p_passage_hash,passage_location:b.p_passage_location,source_published_at:source.published_at,extraction_status,is_contradiction:b.p_is_contradiction,created_at:(testClock=Math.max(testClock+1,Date.now()),new Date(testClock).toISOString())};
+      evidence.push(row); isNew=true;
+      stories.find(x=>x.id===b.p_story_id).verification_status="in_progress";
+      auditEvents.push({event_type:"claim_evidence_added",entity_id:b.p_claim_id,detail:{idempotency_key:b.p_idempotency_key}});
+    }
+    const body={evidence:row,note:isNew ? (extraction_status==="extracted" ? "Evidence passage saved atomically. The editor must assess what it supports." : "Source linked without an extracted passage. This is a lead, not supporting evidence.") : "This exact evidence passage was already recorded. No duplicate evidence or audit event was created."};
+    idempotency.set(mapKey,{hash:b.p_request_hash,status:200,body});
+    return response({status:200,body,replayed:false});
+  }
   if (table === "rpc/record_claim_verification_decision" && method === "POST") {
     const b = JSON.parse(init.body || "{}");
     const mapKey = "claim:" + b.p_idempotency_key;
@@ -96,7 +124,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   return response({},405);
 }) as any;
 const req = (method:string, body?:any, authenticated=true, idem?:string) => new Request("https://desk.example/?storyId="+storyId,{method,headers:{origin:"https://desk.example",...(authenticated?{cookie}:{}),...(body?{"content-type":"application/json"}:{}),...(idem?{"idempotency-key":idem}:{})},...(body?{body:JSON.stringify(body)}:{})});
-const post = (body:any, auth=true, idem?:string) => handler(req("POST",body,auth,idem ?? (body?.action==="decide_claim" || body?.action==="complete_story" ? crypto.randomUUID() : undefined)));
+const post = (body:any, auth=true, idem?:string) => handler(req("POST",body,auth,idem ?? (body?.action==="decide_claim" || body?.action==="complete_story" || body?.action==="add_evidence" ? crypto.randomUUID() : undefined)));
 const get = (auth=true) => handler(req("GET",undefined,auth));
 const ok = (s:string) => console.log("PASS "+s);
 
@@ -110,6 +138,17 @@ assert.equal((await post({action:"complete_story",storyId,acknowledged:true})).s
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"x".repeat(4001)})).status,400); ok("overlong evidence passages are rejected without truncation");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"Text",isContradiction:"false"})).status,400); ok("string booleans are rejected and cannot silently become contradiction flags");
 r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"}); assert.equal(r.status,200); assert.equal(evidence.length,1); ok("checked passage is attached to a source already linked to the story");
+const evidenceKey=crypto.randomUUID();
+const evidenceBody={action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"};
+const evidenceFirst=await post(evidenceBody,true,evidenceKey); assert.equal(evidenceFirst.status,200);
+const evidenceCount=evidence.length, evidenceAuditCount=auditEvents.filter(x=>x.event_type==="claim_evidence_added").length;
+const evidenceReplay=await post(evidenceBody,true,evidenceKey); assert.equal(evidenceReplay.status,200); assert.equal((await evidenceReplay.json()).replayed,true);
+assert.equal(evidence.length,evidenceCount); assert.equal(auditEvents.filter(x=>x.event_type==="claim_evidence_added").length,evidenceAuditCount);
+ok("evidence addition replays without duplicate evidence or audit event");
+assert.equal((await post({...evidenceBody,location:"Changed location"},true,evidenceKey)).status,409);
+ok("evidence request key cannot be reused with changed passage metadata");
+assert.equal((await post({...evidenceBody,isContradiction:true})).status,409);
+ok("an existing passage fingerprint cannot be silently reclassified as contradictory");
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"Confirmed against the official notice."})).status,200); ok("editor decision is appended to verification history");
 const replayKey = crypto.randomUUID();
 const decisionBody = {action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED",notes:"Confirmed against the official notice."};
