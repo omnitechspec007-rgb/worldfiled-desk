@@ -99,6 +99,15 @@ export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
   } catch (e) {
     if (!(e instanceof DbError) || (e.upstream !== 400 && e.upstream !== 404)) throw e;
   }
+  const upstreamRegistryIds = [...new Set([...lineage.values()].map((row) => row.upstream_source_registry_id).filter((id): id is string => !!id))];
+  for (const part of chunk(upstreamRegistryIds, 50)) {
+    try {
+      const rows = await db<any[]>(`source_registry?id=in.(${part.join(",")})&select=id,ownership_status,publisher_group_key`);
+      for (const row of rows) registry.set(row.id, row);
+    } catch (e) {
+      if (!(e instanceof DbError) || (e.upstream !== 400 && e.upstream !== 404)) throw e;
+    }
+  }
   try {
     relationships = await db<any[]>("publication_relationships?review_status=eq.verified&select=source_id,related_source_id,relationship_type&limit=1000");
   } catch (e) {
@@ -149,6 +158,9 @@ export async function attachSourceProvenance(loaded: Loaded[]): Promise<void> {
     source.upstreamRetrievedSourceId = origin?.upstream_retrieved_source_id ?? null;
     source.upstreamSourceRegistryId = origin?.upstream_source_registry_id ?? null;
     source.upstreamUrl = origin?.upstream_url ?? null;
+    const upstreamOwner = origin?.upstream_source_registry_id ? registry.get(origin.upstream_source_registry_id) : null;
+    source.upstreamOwnershipStatus = upstreamOwner?.ownership_status ?? null;
+    source.upstreamPublisherGroupKey = upstreamOwner?.publisher_group_key ?? null;
   }
 }
 
