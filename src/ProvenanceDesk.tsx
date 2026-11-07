@@ -12,8 +12,8 @@ type Edge = {
 };
 type Lineage = {
   id: string; origin_type: string; review_status: string; evidence_url: string | null;
-  review_notes: string | null; upstream_url: string | null; article: { title: string; url: string; publisher: string | null; content_status: string } | null;
-  upstreamArticle: { title: string; url: string; publisher: string | null } | null; upstreamPublisher: Source | null;
+  review_notes: string | null; upstream_url: string | null; article: { id: string; title: string; url: string; publisher: string | null; content_status: string } | null;
+  upstreamArticle: { id: string; title: string; url: string; publisher: string | null } | null; upstreamPublisher: Source | null;
 };
 type Payload = {
   installed: boolean; error?: string; detail?: string; revision: number | null;
