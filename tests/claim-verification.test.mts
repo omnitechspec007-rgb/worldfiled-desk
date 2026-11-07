@@ -21,6 +21,26 @@ const response = (x: any, status=200) => new Response(x === null ? null : JSON.s
 const filter = (rows: any[], p: URLSearchParams) => rows.filter(row => [...p.entries()].every(([k,v]) => ["select","order","on_conflict"].includes(k) || (v.startsWith("eq.") && String(row[k]) === v.slice(3))));
 globalThis.fetch = (async (input: any, init: any = {}) => {
   const u = new URL(String(input)), table = u.pathname.split("/rest/v1/")[1], method = init.method || "GET", p = u.searchParams;
+  if (table === "rpc/add_material_claim" && method === "POST") {
+    const b=JSON.parse(init.body||"{}");
+    const mapKey="material-claim:"+b.p_idempotency_key;
+    const old=idempotency.get(mapKey);
+    if(old){if(old.hash!==b.p_request_hash)return response({status:409,body:{error:"idempotency_key_reused"}});return response({status:old.status,body:old.body,replayed:true});}
+    if(!stories.some(x=>x.id===b.p_story_id))return response({status:404,body:{error:"not_found"}});
+    let row=claims.find(x=>x.story_id===b.p_story_id&&x.claim_hash===b.p_claim_hash);
+    let isNew=false;
+    if(row){
+      if(row.claim_text!==b.p_claim_text||(row.category||"")!==(b.p_category||""))return response({status:409,body:{error:"claim_fingerprint_conflict"}});
+    }else{
+      row={id:crypto.randomUUID(),story_id:b.p_story_id,claim_text:b.p_claim_text,claim_hash:b.p_claim_hash,category:b.p_category,created_at:(testClock=Math.max(testClock+1,Date.now()),new Date(testClock).toISOString())};
+      claims.push(row);isNew=true;
+      stories.find(x=>x.id===b.p_story_id).verification_status="in_progress";
+      auditEvents.push({event_type:"material_claim_added",entity_id:row.id,detail:{idempotency_key:b.p_idempotency_key}});
+    }
+    const body={claim:row,note:isNew?"Claim saved atomically. It remains unverified until sources and an editor decision are recorded.":"This exact claim was already recorded. No duplicate claim or audit event was created."};
+    idempotency.set(mapKey,{hash:b.p_request_hash,status:200,body});
+    return response({status:200,body,replayed:false});
+  }
   if (table === "rpc/add_claim_evidence" && method === "POST") {
     const b = JSON.parse(init.body || "{}");
     const mapKey = "evidence:" + b.p_idempotency_key;
@@ -124,7 +144,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   return response({},405);
 }) as any;
 const req = (method:string, body?:any, authenticated=true, idem?:string) => new Request("https://desk.example/?storyId="+storyId,{method,headers:{origin:"https://desk.example",...(authenticated?{cookie}:{}),...(body?{"content-type":"application/json"}:{}),...(idem?{"idempotency-key":idem}:{})},...(body?{body:JSON.stringify(body)}:{})});
-const post = (body:any, auth=true, idem?:string) => handler(req("POST",body,auth,idem ?? (body?.action==="decide_claim" || body?.action==="complete_story" || body?.action==="add_evidence" ? crypto.randomUUID() : undefined)));
+const post = (body:any, auth=true, idem?:string) => handler(req("POST",body,auth,idem ?? (body?.action==="decide_claim" || body?.action==="complete_story" || body?.action==="add_evidence" || body?.action==="add_claim" ? crypto.randomUUID() : undefined)));
 const get = (auth=true) => handler(req("GET",undefined,auth));
 const ok = (s:string) => console.log("PASS "+s);
 
@@ -132,6 +152,17 @@ assert.equal((await get(false)).status,401); assert.equal((await post({action:"a
 assert.equal((await post({action:"add_claim",storyId:"bad",claimText:"A valid claim"})).status,400); ok("invalid story identifiers are rejected");
 assert.equal((await post({action:"add_claim",storyId,claimText:"x".repeat(1201)})).status,400); ok("overlong claims are rejected rather than silently truncated");
 let r=await post({action:"add_claim",storyId,claimText:"The agency announced the policy on 5 November.",category:"date"}); assert.equal(r.status,200); const claim=(await r.json()).claim; assert(claim.id); assert.equal(stories[0].verification_status,"in_progress"); ok("a material claim is stored and story status moves to in progress");
+const claimAddKey=crypto.randomUUID();
+const claimAddBody={action:"add_claim",storyId,claimText:"The agency announced the policy on 5 November.",category:"date"};
+const claimReplay=await post(claimAddBody,true,claimAddKey); assert.equal(claimReplay.status,200); assert.equal((await claimReplay.json()).replayed,true);
+assert.equal(claims.length,1);
+ok("material claim request safely replays without duplicate claim creation");
+assert.equal((await post({...claimAddBody,category:"different"},true,claimAddKey)).status,409);
+ok("material claim idempotency key rejects changed payload");
+const claimDuplicate=await post(claimAddBody); assert.equal(claimDuplicate.status,200); assert.ok((await claimDuplicate.json()).note.includes("already recorded")); assert.equal(claims.length,1);
+ok("same claim fingerprint does not create a duplicate or overwrite");
+assert.equal((await post({...claimAddBody,claimText:"THE AGENCY ANNOUNCED THE POLICY ON 5 NOVEMBER."})).status,409);
+ok("claim fingerprint cannot silently merge different displayed wording");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId:"33333333-3333-4333-8333-333333333333",passage:"Official text"})).status,400); ok("evidence from a source not linked to the story is rejected");
 assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome:"SUPPORTED"})).status,400); ok("SUPPORTED is refused without an extracted passage");
 assert.equal((await post({action:"complete_story",storyId,acknowledged:true})).status,409); ok("story clearance is refused while claims remain unresolved");
