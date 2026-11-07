@@ -291,7 +291,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
           <label>Edition headline<input value={editionTitle} onChange={(e) => setEditionTitle(e.target.value)} maxLength={100} /></label>
           <label>Edition date<input value={date} onChange={(e) => setDate(e.target.value)} maxLength={32} /></label>
         </div>
-        <p className="meta">Balanced layout: up to 7 stories, with room for readable headlines, short context and source labels. Fewer stories are preferable to padding an edition.</p>
+        <p className="meta">Balanced layout: 5–6 stories give the clearest mobile reading; 7 are supported with a tighter type scale. Every card keeps its headline, context and source/date label. Fewer stories are preferable to padding an edition.</p>
         {omittedCount > 0 && <p className="state-warning">{omittedCount} additional candidate{omittedCount === 1 ? " remains" : "s remain"} outside this seven-story composition. They have not been deleted; review them in the Edition Desk.</p>}
       </div>
 
