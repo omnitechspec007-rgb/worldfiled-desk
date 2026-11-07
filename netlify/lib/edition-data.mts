@@ -133,28 +133,47 @@ export function assessStoryVerificationStatus(stories: any[], storyIds: string[]
   return { ready: blocked.length === 0, blocked };
 }
 
+export async function editionClaimClearanceByStory(storyIds: string[]): Promise<Map<string, ClaimClearance>> {
+  const unique = [...new Set(storyIds)];
+  const claims: any[] = [];
+  const stories: any[] = [];
+  for (const part of chunk(unique, 30)) {
+    const [claimRows, storyRows] = await Promise.all([
+      db<any[]>(`claims?story_id=in.(${part.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`),
+      db<any[]>(`stories?id=in.(${part.join(",")})&select=id,verification_status`),
+    ]);
+    claims.push(...claimRows);
+    stories.push(...storyRows);
+  }
+  return new Map(unique.map((storyId) => {
+    const claimClearance = assessClaimClearance(claims, [storyId]);
+    const statusClearance = assessStoryVerificationStatus(stories, [storyId]);
+    const blocked = [...statusClearance.blocked, ...claimClearance.blocked];
+    return [storyId, { ready: blocked.length === 0, blocked }];
+  }));
+}
+
 export async function editionClaimClearance(storyIds: string[]): Promise<ClaimClearance> {
   if (!storyIds.length) return { ready: false, blocked: [{ storyId: "", reason: "The edition has no stories." }] };
-  const [claims, stories] = await Promise.all([
-    db<any[]>(`claims?story_id=in.(${storyIds.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`),
-    db<any[]>(`stories?id=in.(${storyIds.join(",")})&select=id,verification_status`),
-  ]);
-  const claimClearance = assessClaimClearance(claims, storyIds);
-  const statusClearance = assessStoryVerificationStatus(stories, storyIds);
-  const blocked = [...statusClearance.blocked, ...claimClearance.blocked];
+  const byStory = await editionClaimClearanceByStory(storyIds);
+  const unique = [...new Set(storyIds)];
+  const blocked = unique.flatMap((storyId) => byStory.get(storyId)?.blocked ?? [{ storyId, reason: "Claim-register clearance could not be confirmed." }]);
   return { ready: blocked.length === 0, blocked };
 }
 
-export type Validity = { current: boolean; reasons: string[]; approvalCurrent: boolean; membersCurrent: boolean; storiesOk: boolean; evidenceCurrent: boolean | null };
+export type Validity = { current: boolean; reasons: string[]; approvalCurrent: boolean; membersCurrent: boolean; storiesOk: boolean; evidenceCurrent: boolean | null; claimClearanceCurrent: boolean };
 /** Decide whether a saved edition prompt is still valid. Kept history is never deleted; this only controls reuse. */
-export async function promptValidity(p: any, now = Date.now(), checkEvidence = true): Promise<Validity> {
+export async function promptValidity(p: any, now = Date.now(), checkEvidence = true, preloadedClaimClearance?: ClaimClearance, currentMemberIds?: string[]): Promise<Validity> {
   const reasons: string[] = [];
   const dec = await latestEditionDecision(p.edition_id);
   const approvalCurrent = dec?.decision === "approved" && dec.id === p.approval_decision_id;
   if (!approvalCurrent) reasons.push("The edition's approval is no longer current (it was rejected, sent back for changes, or approved again later).");
-  const ids = await memberIds(p.edition_id);
+  const ids = currentMemberIds ?? await memberIds(p.edition_id);
   const membersCurrent = membersKey(ids) === p.members_hash;
   if (!membersCurrent) reasons.push("The edition's developments or their order changed after this prompt was written.");
+  const claimClearance = preloadedClaimClearance ?? await editionClaimClearance(ids);
+  const claimClearanceCurrent = claimClearance.ready;
+  if (!claimClearanceCurrent) reasons.push("One or more story claim registers are no longer complete or current; re-check them before reusing this prompt.");
   const decs = await latestDecisions(p.members ?? []);
   const rej = (p.members as string[]).filter((id) => ["rejected", "needs_research"].includes(decs.get(id)?.decision ?? ""));
   const storiesOk = rej.length === 0;
@@ -167,6 +186,6 @@ export async function promptValidity(p: any, now = Date.now(), checkEvidence = t
       if (!evidenceCurrent) reasons.push("The retrieved evidence for one or more developments has changed since this prompt was written.");
     } else { evidenceCurrent = false; reasons.push("A development in this edition is no longer available in the database."); }
   }
-  return { current: reasons.length === 0, reasons, approvalCurrent, membersCurrent, storiesOk, evidenceCurrent };
+  return { current: reasons.length === 0, reasons, approvalCurrent, membersCurrent, storiesOk, evidenceCurrent, claimClearanceCurrent };
 }
 export { DbError };
