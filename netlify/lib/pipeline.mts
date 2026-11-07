@@ -5,8 +5,8 @@
 // Planned next: evidence (full text) -> claims -> verify
 // An AI provider, when added, plugs in behind the interfaces in ai-provider.mts and is never
 // required for any stage here.
-import { db, DbError } from "./db.mts";
-import { canRetrieveMetadata, policyForSource, retrievalContentStatus, type ContentPolicyRow } from "./source-policy.mts";
+import { db } from "./db.mts";
+import { canRetrieveMetadata, loadContentPolicies, policyForSource, retrievalContentStatus } from "./source-policy.mts";
 import { SEED_SOURCES } from "./seed-sources.mts";
 import { fetchFeed, feedText, urlHash } from "./feeds.mts";
 import { clusterItems } from "./cluster.mts";
@@ -22,17 +22,6 @@ const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length
 type StageResult = { done: boolean; detail: Record<string, any> };
 
 type SourceRow = { id: string; name: string; country_scope: string | null; category: string | null; feed_url: unknown; reliability_note?: string | null };
-
-async function loadContentPolicies(): Promise<ContentPolicyRow[]> {
-  try {
-    return await db<ContentPolicyRow[]>("source_content_policies?select=source_id,policy&limit=1000");
-  } catch (error) {
-    // Before migration 012 exists, no reviewed policy rows can exist. The safe default is
-    // metadata-only; any other database failure stops research rather than bypassing policy.
-    if (error instanceof DbError && error.upstream === 404) return [];
-    throw error;
-  }
-}
 
 export async function stagePrepare(): Promise<StageResult> {
   // Built-in list is the source of truth. Existing rows keep their recorded health, unless the
