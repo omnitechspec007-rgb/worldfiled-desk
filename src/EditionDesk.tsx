@@ -39,7 +39,7 @@ type PromptResult = { creative?: { pronunciationCheckRequired: string[]; runtime
 
 const STRUCTS = [["multi_country", "Multi-country synthesis"], ["single_country", "Single-country deep dive"], ["event_roundup", "Event-driven thematic roundup"], ["news_roundup", "Multi-topic news roundup (no shared theme)"]];
 type AutoPick = { story: Dev; score: number; reasons: string[] };
-function buildAutomaticPicks(stories: Dev[]): { picks: AutoPick[]; held: { story: Dev; reason: string }[] } {
+function buildAutomaticPicks(stories: Dev[]): { picks: AutoPick[]; held: { story: Dev; reason: string }[]; notSelected: { story: Dev; reason: string }[] } {
   const eligible: AutoPick[] = [];
   const held: { story: Dev; reason: string }[] = [];
   for (const story of stories) {
@@ -72,7 +72,11 @@ function buildAutomaticPicks(stories: Dev[]): { picks: AutoPick[]; held: { story
     const chosen = remaining.splice(bestIndex, 1)[0]; picks.push(chosen); types.add(chosen.story.type);
     const place = chosen.story.locations[0]?.country; if (place) places.add(place);
   }
-  return { picks, held };
+  const notSelected = remaining.map((candidate) => ({
+    story: candidate.story,
+    reason: "Eligible, but ranked below the seven-story balanced-roundup cap. It remains available in Review all developments."
+  }));
+  return { picks, held, notSelected };
 }
 const api = "/.netlify/functions/";
 const post = (fn: string, body: unknown) => fetch(api + fn, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -393,6 +397,10 @@ export default function EditionDesk() {
             <p className="meta">Held stories remain available in Review all developments. Reasons are screening rules, not a judgement that the underlying event is unimportant.</p>
             <ul className="comps">{automatic.held.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reason}</li>)}</ul>
           </details>
+          {automatic.notSelected.length > 0 && <details><summary>Eligible, but outside the top 7 ({automatic.notSelected.length})</summary>
+            <p className="meta">These stories passed the screen but were not placed in this balanced roundup. They have not been rejected or deleted; find them in Review all developments.</p>
+            <ul className="comps">{automatic.notSelected.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reason}</li>)}</ul>
+          </details>}
           <p className="caution">Two outlet names do not prove independent reporting. Syndication and shared-source relationships must be checked in the Source Provenance Desk. Research currently relies primarily on headlines and snippets, not full article text. Open the source links and check the underlying claims before publication.</p>
         </div>
       )}
