@@ -142,12 +142,15 @@ async function detail(id: string) {
 
 async function save(b: any) {
   const ids = Array.isArray(b.ids) ? parseIds(b.ids.map(String).join(",")) : null;
-  const title = typeof b.title === "string" ? b.title.trim().slice(0, 300) : "";
+  if (typeof b.title !== "string" || b.title.trim().length > 300) return json({ error: "bad_title", detail: "Edition title is required and limited to 300 characters. Nothing was truncated or saved." }, 400);
+  if (b.angle !== undefined && b.angle !== null && typeof b.angle !== "string") return json({ error: "bad_angle" }, 400);
+  if (typeof b.angle === "string" && b.angle.trim().length > 1000) return json({ error: "field_too_long", detail: "Editorial angle is limited to 1,000 characters. Nothing was truncated or saved." }, 400);
+  const title = b.title.trim();
   const editionKind = b.editionKind === "text" ? "text" : "video";
   const limit = editionKind === "text" ? 18 : 12;
   if (!ids || !title || ids.length > limit) return json({ error: "bad_request", detail: "A title and 1 to " + limit + " distinct developments are required for this edition type. New video selections are capped at 8 in the editor; the API retains compatibility with older saved editions up to 12." }, 400);
   const id = typeof b.id === "string" && UUID.test(b.id) ? b.id : null;
-  const angle = typeof b.angle === "string" ? b.angle.trim().slice(0, 1000) : "";
+  const angle = typeof b.angle === "string" ? b.angle.trim() : "";
   const r = await evaluateIds(ids, typeof b.structure === "string" ? b.structure : undefined);
   if ("missing" in r) return json({ error: "not_found", detail: "Some developments are no longer available.", missing: r.missing }, 404);
   const structure = r.out.structure as Structure;
