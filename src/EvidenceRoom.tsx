@@ -30,7 +30,7 @@ export default function EvidenceRoom() {
     try {
       const raw = sessionStorage.getItem("wf:pending-claim-decision");
       const value = raw ? JSON.parse(raw) as PendingClaimDecision : null;
-      return value && typeof value.storyId === "string" && (value.body?.action === "decide_claim" || value.body?.action === "complete_story" || value.body?.action === "add_evidence") && typeof value.key === "string" ? value : null;
+      return value && typeof value.storyId === "string" && (value.body?.action === "decide_claim" || value.body?.action === "complete_story" || value.body?.action === "add_evidence" || value.body?.action === "add_claim") && typeof value.key === "string" ? value : null;
     } catch { return null; }
   });
   const [decisionUncertain, setDecisionUncertain] = useState(() => Boolean(pendingDecision));
@@ -53,7 +53,7 @@ export default function EvidenceRoom() {
 
   const act = async (body: Record<string,unknown>, retryOperation?: PendingClaimDecision) => {
     if (!id) return null;
-    const isDecision = body.action === "decide_claim" || body.action === "complete_story" || body.action === "add_evidence";
+    const isDecision = body.action === "decide_claim" || body.action === "complete_story" || body.action === "add_evidence" || body.action === "add_claim";
     if (decisionUncertain && !retryOperation) {
       setError("A previous claim decision has an uncertain result. Retry that exact decision before starting another action.");
       return null;
