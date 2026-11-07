@@ -17,6 +17,7 @@ const { stageCluster } = await import(`${root}lib/pipeline.mts`);
 const decideFn = (await import(`${root}functions/decide.mts`)).default;
 const creativeFn = (await import(`${root}functions/creative.mts`)).default;
 const referenceFn = (await import(`${root}functions/reference.mts`)).default;
+const storiesFn = (await import(`${root}functions/stories.mts`)).default;
 const cookie = session.makeSessionCookie().split(";")[0];
 
 // ---------- fake PostgREST ----------
@@ -312,6 +313,8 @@ assert.equal(hist.prompts.length, 2); assert(hist.prompts.every((h: any) => h.ap
 const one = await (await get(creativeFn, `id=${g1.id}`)).json(); assert(one.prompt && one.prompt.includes(firstUrl)); ok("a current prompt can be opened and copied");
 const linkedEvidence = T("retrieved_sources").find((row) => T("story_source_links").some((link) => link.story_id === sid && link.source_id === row.id));
 T("source_content_policies").push({ source_id: linkedEvidence.registry_id, policy: "blocked" });
+const storyView = await (await get(storiesFn, `id=${sid}`)).json();
+assert(!storyView.story.sources.some((source: any) => source.url === linkedEvidence.url)); ok("blocked source is removed from the story evidence view");
 const withheldByPolicy = await (await get(creativeFn, `id=${g1.id}`)).json();
 assert.equal(withheldByPolicy.prompt, null); assert.equal(withheldByPolicy.evidenceAccessible, false); ok("saved prompt is withheld when any source in its evidence snapshot becomes blocked");
 T("source_content_policies").length = 0;
