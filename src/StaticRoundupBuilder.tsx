@@ -211,7 +211,6 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
   const downloadPoster = () => {
     if (!exportReady) { setNotice("Export blocked: " + preflightNote); return; }
     if (!allCardsReviewed) { setNotice("Export blocked: review every card's headline and supporting text against its source first."); return; }
-    if (!allCardsReviewed) { setNotice("Export blocked: review every card's headline and supporting text against its source first."); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const a = document.createElement("a");
@@ -226,6 +225,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
 
   const exportVideo = async () => {
     if (!exportReady) { setNotice("Export blocked: " + preflightNote); return; }
+    if (!allCardsReviewed) { setNotice("Export blocked: review every card's headline and supporting text against its source first."); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     if (!("MediaRecorder" in window) || !canvas.captureStream) {
