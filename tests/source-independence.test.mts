@@ -18,6 +18,12 @@ const sameOwner = summarizeSourceIndependence([
 ]);
 check("two outlets in one verified ownership group do not count as independent", sameOwner.namedOutlets === 2 && sameOwner.confirmedIndependentOrigins === 1 && sameOwner.status === "known_shared_origin");
 
+const sameOwnerUnknownLineage = summarizeSourceIndependence([
+  { outlet: "North News", ownershipStatus: "verified", publisherGroupKey: "group-one", originStatus: "unverified", originType: "unknown" },
+  { outlet: "North Daily", ownershipStatus: "verified", publisherGroupKey: "group-one", originStatus: "unverified", originType: "unknown" },
+]);
+check("verified common ownership is enough to avoid treating two outlets as independent when article lineage is unknown", sameOwnerUnknownLineage.status === "known_shared_origin");
+
 const wire = summarizeSourceIndependence([
   { outlet: "North News", ownershipStatus: "verified", publisherGroupKey: "group-one", originStatus: "verified", originType: "wire_copy", upstreamSourceRegistryId: "wire-registry" },
   { outlet: "South Journal", ownershipStatus: "verified", publisherGroupKey: "group-two", originStatus: "verified", originType: "syndicated", upstreamSourceRegistryId: "wire-registry" },
