@@ -24,7 +24,9 @@ export default async (req: Request) => {
   if (typeof body.storyId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.storyId)) return json({ error: "bad_request" }, 400);
   if (typeof body.decision !== "string" || !(body.decision in STATUS)) return json({ error: "bad_decision" }, 400);
   if (body.decision === "approved" && body.acknowledged !== true) return json({ error: "acknowledgement_required" }, 400);
-  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 1000) : "";
+  if (body.notes !== undefined && body.notes !== null && typeof body.notes !== "string") return json({ error: "bad_notes" }, 400);
+  if (typeof body.notes === "string" && body.notes.trim().length > 1000) return json({ error: "field_too_long", detail: "Editor notes are limited to 1,000 characters. Nothing was truncated or saved." }, 400);
+  const notes = typeof body.notes === "string" ? body.notes.trim() : "";
 
   try {
     const found = await db<any[]>(`stories?id=eq.${body.storyId}&select=id,editorial_status`);
