@@ -12,7 +12,7 @@ type Source = {
   retrieval_status: string; last_checked_at: string | null; last_success_at: string | null;
   last_error: string | null;
 };
-const UUID = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i;
+const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const chunks = <T,>(values: T[], size: number) =>
   Array.from({ length: Math.ceil(values.length / size) }, (_, i) => values.slice(i * size, (i + 1) * size));
 
@@ -23,7 +23,6 @@ export default async (req: Request) => {
     const sources = await db<Source[]>(
       "source_registry?select=id,name,publisher,country_scope,category,feed_url,source_type,retrieval_status,last_checked_at,last_success_at,last_error&order=name.asc&limit=250"
     );
-    const sourceIds = sources.map((s) => s.id).filter((id) => UUID.test(id));
     const [policies, relationships, lineage, revisionRows] = await Promise.all([
       db<any[]>("source_content_policies?select=source_id,policy,policy_reason,evidence_url,reviewed_at,reviewed_by,updated_at&limit=500"),
       db<any[]>("publication_relationships?select=id,source_id,related_source_id,relationship_type,review_status,evidence_url,review_notes,reviewed_at,reviewed_by,updated_at&order=updated_at.desc&limit=500"),
