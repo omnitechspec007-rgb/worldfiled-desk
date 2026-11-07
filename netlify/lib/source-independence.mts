@@ -39,17 +39,15 @@ export function summarizeSourceIndependence(sources: IndependenceSource[]): Inde
   for (const source of sources) {
     const ownershipVerified = source.ownershipStatus === "verified" && !!source.publisherGroupKey?.trim();
     const originVerified = source.originStatus === "verified" && !!source.originType && source.originType !== "unknown";
-    if (!ownershipVerified) {
-      ownershipUnknown++;
-      continue;
-    }
-    publisherGroups.add(source.publisherGroupKey!.trim());
+    if (!ownershipVerified) ownershipUnknown++;
+    else publisherGroups.add(source.publisherGroupKey!.trim());
     if (!originVerified) {
       originUnknown++;
       continue;
     }
     if (source.originType === "original_reporting") {
-      independent.add("publisher:" + source.publisherGroupKey!.trim());
+      if (ownershipVerified) independent.add("publisher:" + source.publisherGroupKey!.trim());
+      else originUnknown++;
       continue;
     }
     const upstream = source.upstreamSourceRegistryId?.trim()
@@ -77,7 +75,7 @@ export function summarizeSourceIndependence(sources: IndependenceSource[]): Inde
   } else if (confirmedIndependentOrigins === 1 && (ownershipUnknown > 0 || originUnknown > 0 || confirmedSharedOrigins > 0)) {
     status = "partially_verified";
     explanation = "At least one independent reporting origin is verified, but the remaining sources are unknown or trace to other shared origins. Do not describe this as multi-outlet independent corroboration.";
-  } else if (confirmedIndependentOrigins === 0 && confirmedSharedOrigins > 0 && ownershipUnknown === 0 && originUnknown === 0) {
+  } else if (confirmedIndependentOrigins === 0 && confirmedSharedOrigins === 1 && originUnknown === 0) {
     status = "known_shared_origin";
     explanation = "The reviewed article lineage traces these reports to upstream sources; outlet count must not be treated as independent corroboration.";
   }
