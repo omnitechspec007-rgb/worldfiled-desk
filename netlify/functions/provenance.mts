@@ -40,7 +40,6 @@ export default async (req: Request) => {
     if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same operation with the same key." }, 400);
     const statusSet = new Set(["unverified","verified","disputed","rejected"]);
     const originSet = new Set(["original_reporting","wire_copy","syndicated","republished","press_release","official_document","aggregator","other","unknown"]);
-    const policySet = new Set(["blocked","metadata_only","extraction_allowed"]);
     const optionalText = (field: string, max: number) => {
       const value = body[field];
       if (value !== undefined && value !== null && typeof value !== "string") throw new Error("invalid_" + field);
