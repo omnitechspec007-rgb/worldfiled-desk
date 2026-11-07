@@ -167,7 +167,9 @@ $function$;
 revoke all on function public.record_claim_verification_decision(uuid,text,uuid,uuid,text,text,text) from public, anon, authenticated;
 grant execute on function public.record_claim_verification_decision(uuid,text,uuid,uuid,text,text,text) to service_role;
 grant select, update on public.stories to service_role;
-grant select on public.claims, public.claim_evidence to service_role;
+-- SELECT FOR UPDATE on a claim requires UPDATE privilege; the RPC uses it only to serialize evidence inserts.
+grant select, update on public.claims to service_role;
+grant select on public.claim_evidence to service_role;
 grant insert on public.verification_results, public.audit_events to service_role;
 grant usage, select on sequence public.audit_events_id_seq to service_role;
 
