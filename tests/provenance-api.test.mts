@@ -92,10 +92,10 @@ try {
   assert.equal(candidateResult.reviewStatus, "unverified");
   assert.equal(candidateResult.replayed, false);
   assert.equal(rpcBodies.length, 1);
-  assert.equal(rpcBodies[0].p_idempotency_key, candidateKey);
-  assert.equal(rpcBodies[0].p_source_id, candidateBody.sourceId);
-  assert.equal(rpcBodies[0].p_relationship_type, "same_owner");
-  assert.match(rpcBodies[0].p_request_hash, /^[0-9a-f]{64}$/);
+  assert.equal(rpcBodies[0].payload.p_idempotency_key, candidateKey);
+  assert.equal(rpcBodies[0].payload.p_source_id, candidateBody.sourceId);
+  assert.equal(rpcBodies[0].payload.p_relationship_type, "same_owner");
+  assert.match(rpcBodies[0].payload.p_request_hash, /^[0-9a-f]{64}$/);
 
 
   const reviewResponse = await provenance(new Request("https://desk.test/.netlify/functions/provenance", {
