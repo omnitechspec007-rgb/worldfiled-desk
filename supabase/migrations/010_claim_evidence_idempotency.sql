@@ -96,8 +96,7 @@ begin
   from public.claim_evidence
   where claim_id = p_claim_id
     and source_id = p_source_id
-    and passage_hash = p_passage_hash
-  for update;
+    and passage_hash = p_passage_hash;
 
   if found then
     if coalesce(existing_evidence.passage, '') is distinct from coalesce(p_passage, '')
