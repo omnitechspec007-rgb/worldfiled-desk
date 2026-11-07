@@ -24,7 +24,6 @@ try {
   const key = randomUUID();
   const payload = JSON.stringify({ storyId, decision: "approved", notes: "Reviewed sources", acknowledged: true });
   const digest = hash(payload);
-  const actor = admin;
   await admin.query("grant usage on schema public to service_role");
   await admin.query("set role service_role");
   const invoke = (idempotencyKey, requestHash, decision = "approved", notes = "Reviewed sources", acknowledged = true) =>
@@ -35,10 +34,12 @@ try {
   ok("same key and payload replays original success", replay.status === 200 && replay.replayed === true && JSON.stringify(replay.body) === JSON.stringify(first.body));
   const mismatch = (await invoke(key, hash(payload + "changed"), "rejected", "Changed", false)).rows[0].result;
   ok("same key with changed payload is rejected", mismatch.status === 409 && mismatch.body.error === "idempotency_key_reused");
+  await admin.query("reset role");
   const counts = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [storyId, key]);
   ok("replay and conflict create no duplicate decision or audit", Number(counts.rows[0].decisions) === 1 && Number(counts.rows[0].audits) === 1 && Number(counts.rows[0].keys) === 1);
   const status = (await admin.query("select editorial_status from stories where id=$1", [storyId])).rows[0].editorial_status;
   ok("story status and appended decision agree", status === "approved");
+  await admin.query("set role service_role");
 
   const invalidKey = randomUUID();
   const invalid = (await invoke(invalidKey, hash("invalid"), "approved", "x", false)).rows[0].result;
