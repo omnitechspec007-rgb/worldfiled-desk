@@ -110,7 +110,7 @@ export default function EvidenceRoom() {
 
   return <section>
     <h1>Evidence Room</h1>
-    {error && <div className={decisionUncertain ? "panel state-warning" : "status bad"} role={decisionUncertain ? "status" : "alert"}><p>{error}</p>{decisionUncertain && pendingDecision && (pendingDecision.storyId === id ? <button className="primary" disabled={busy} onClick={()=>void act(pendingDecision.body,pendingDecision)}>{busy ? "CHECKING…" : "RETRY SAME OPERATION"}</button> : <p><Link to={"/evidence/"+pendingDecision.storyId}>Return to the story with the pending decision to retry it safely.</Link></p>)}</div>}
+    {decisionUncertain && pendingDecision ? <div className="panel state-warning" role="status"><p>{error || "A previous save could not be confirmed. Your exact request is preserved; retry it safely before starting another action."}</p>{pendingDecision.storyId === id ? <button className="primary" disabled={busy} onClick={()=>void act(pendingDecision.body,pendingDecision)}>{busy ? "CHECKING…" : "RETRY SAME OPERATION"}</button> : <p><Link to={"/evidence/"+pendingDecision.storyId}>Return to the story with the pending operation to retry it safely.</Link></p>}</div> : error && <div className="status bad" role="alert"><p>{error}</p></div>}
     {message && <p className="status good" role="status">{message}</p>}
     {!story && !error && <p className="status">Loading story and verification record…</p>}
     {story && <>
