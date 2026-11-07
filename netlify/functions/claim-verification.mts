@@ -97,23 +97,22 @@ export default async (req: Request) => {
 
     if (b.action === "complete_story") {
       if (b.acknowledged !== true) return json({ error: "acknowledgement_required" }, 400);
-      const claims = await db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`);
-      if (!claims.length) return json({ error: "no_material_claims_recorded" }, 400);
-      const latest = (items: any[]) => [...(items ?? [])].sort((a,b)=>String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? "")))[0];
-      const unresolved = claims.filter(c => {
-        const decision = latest(c.verification_results ?? []);
-        const extracted = (c.claim_evidence ?? []).filter((e:any)=>e.passage && e.extraction_status === "extracted");
-        const hasSupportingPassage = extracted.some((e:any)=>!e.is_contradiction);
-        const hasContradiction = extracted.some((e:any)=>e.is_contradiction);
-        const latestEvidenceAt = Math.max(0, ...(c.claim_evidence ?? []).map((e:any) => Date.parse(e.created_at ?? "") || 0));
-        const decisionAt = Date.parse(decision?.created_at ?? "") || 0;
-        const decisionIsCurrent = decisionAt >= latestEvidenceAt;
-        const contradictionReconciled = !hasContradiction || hasContradictionReconciliation(decision?.reviewer_notes);
-        return !decision || decision.outcome !== "SUPPORTED" || !hasSupportingPassage || !contradictionReconciled || !decisionIsCurrent;
+      const key = req.headers.get("idempotency-key") ?? "";
+      if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same clearance request with the same key." }, 400);
+      const canonical = JSON.stringify({ storyId, acknowledged: true });
+      const requestHash = createHash("sha256").update(canonical).digest("hex");
+      const result: any = await db<any>("rpc/complete_story_verification", {
+        method: "POST",
+        body: {
+          p_idempotency_key: key,
+          p_request_hash: requestHash,
+          p_story_id: storyId,
+          p_acknowledged: true,
+        },
       });
-      if (unresolved.length) return json({ error: "claims_unresolved", unresolvedCount: unresolved.length, note: "Every recorded material claim needs an editor decision of SUPPORTED and at least one extracted evidence passage. Contradicted or incomplete claims block clearance." }, 409);
-      await db("stories?id=eq." + storyId, { method: "PATCH", body: { verification_status: "verified", updated_at: new Date().toISOString() }, prefer: "return=minimal" });
-      return json({ verificationStatus: "verified", note: "Story marked verified for the claims recorded. The editor confirmed the material-claim list is complete." });
+      const status = Number(result?.status ?? 500);
+      const responseBody = result?.body ?? { error: "invalid_rpc_response" };
+      return json({ ...responseBody, replayed: result?.replayed === true }, status);
     }
 
     return json({ error: "unknown_action" }, 400);
