@@ -15,7 +15,9 @@ This stage adds a read-only, authenticated explorer for the provenance records i
 - The endpoint is read-only and uses the existing server-side service-role helper.
 - All responses are `Cache-Control: no-store`.
 - If the new provenance schema is absent, the page explains that migrations are not installed. It does not run them.
-- This stage does not yet create candidate relationships or mutate review decisions. Evidence-backed, idempotent editor actions are a separate next stage.
+- Editors can submit a publisher-relationship candidate with an HTTPS evidence URL or written rationale. The candidate is always created as `unverified`; no candidate is automatically promoted or counted as independent coverage.
+- Candidate creation uses a narrow `SECURITY INVOKER` Postgres RPC, request hashing, durable idempotency, an append-only audit event and provenance-revision increment in one transaction. Same key + same payload replays; same key + changed payload conflicts; duplicate symmetric same-owner edges are rejected.
+- Existing relationship/lineage review decisions and content-policy changes remain read-only in this stage; their evidence-backed review forms are the next increment.
 
 ## Deployment generation
 The single Vercel API router is generated from `netlify/functions/*.mts`. The production build and test command now run `npm run build:api` first so a newly added handler is included without adding another Vercel function.
