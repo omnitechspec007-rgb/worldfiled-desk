@@ -32,10 +32,12 @@ check("stylesheet does not use the logo's off-palette navy #07223e", !css.includ
 // Static roundup evidence labels must preserve the source's publication date and disclose gaps.
 const roundup = readFileSync("src/StaticRoundupBuilder.tsx", "utf8");
 const editionDesk = readFileSync("src/EditionDesk.tsx", "utf8");
-check("roundup cards carry publication dates from the selected source record", /publishedAt\?: string \| null/.test(roundup) && /publishedAt: d\.sources\[0\]\?\.publishedAt \?\? null/.test(editionDesk));
+const editionPromptApi = readFileSync("netlify/functions/edition-prompt.mts", "utf8");
+check("roundup cards carry publication dates from the selected source record", /publishedAt\?: string \| null/.test(roundup) && /publishedAt: attributedSource\?\.publishedAt \?\? null/.test(editionDesk));
 check("roundup source stamps render a publication date or explicitly say DATE UNKNOWN", /DATE UNKNOWN/.test(roundup) && /toLocaleDateString\("en-GB"/.test(roundup));
 check("missing source metadata is disclosed instead of implying a linked source is present", /SOURCE NOT PROVIDED/.test(roundup) && !/SOURCE DETAILS: OPEN LINKED STORY/.test(roundup));
-check("roundup fallback text uses a retrieved source snippet rather than an unverified curiosity inference", /d\.whatChanged \|\| d\.sources\[0\]\?\.snippet/.test(editionDesk) && !/d\.whyInteresting\[0\]/.test(editionDesk));
+check("roundup fallback text uses a retrieved source snippet rather than an unverified curiosity inference", /d\.whatChanged \|\| attributedSource\?\.snippet/.test(editionDesk) && !/d\.whyInteresting\[0\]/.test(editionDesk));
+check("static roundup export is blocked if any selected story lacks a named, dated source", /missingAttribution/.test(editionPromptApi) && /source\.outlet\.trim\(\)\.length > 0/.test(editionPromptApi) && /source\.publishedAt/.test(editionPromptApi) && /exportReady: r\.ed\.edition_kind !== "text" && attributionReady/.test(editionPromptApi));
 
 
 console.log(`\n${fail ? "FAILURES: " + fail : "ALL " + pass + " BRAND CHECKS PASSED"}`);
