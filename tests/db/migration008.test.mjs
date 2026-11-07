@@ -33,6 +33,10 @@ try {
   await admin.query(migration10);
   await admin.query(migration10);
   ok("migration 010 applies twice without duplicating or failing", true);
+  const migration11 = fs.readFileSync(root + "migrations/011_material_claim_idempotency.sql", "utf8");
+  await admin.query(migration11);
+  await admin.query(migration11);
+  ok("migration 011 applies twice without duplicating or failing", true);
 
   const storyId = (await admin.query("insert into stories(headline,cluster_key) values('Test decision','test-decision-1') returning id")).rows[0].id;
   const key = randomUUID();
@@ -171,6 +175,45 @@ try {
   const concurrentClaimState=await admin.query("select (select count(*) from verification_results where claim_id=$1 and outcome='PARTIALLY_SUPPORTED') decisions,(select count(*) from audit_events where entity_id=$1::text and event_type='claim_verification_partially_supported') audits,(select count(*) from idempotency_records where idempotency_key=$2) keys",[claim3,concurrentClaimKey]);
   ok("concurrent claim retry creates exactly one decision, audit and key", Number(concurrentClaimState.rows[0].decisions)===1 && Number(concurrentClaimState.rows[0].audits)===1 && Number(concurrentClaimState.rows[0].keys)===1);
   await secondClaim.end();
+
+  // Material claim intake RPC: insert, status invalidation, duplicate protection and audit are atomic.
+  const story8=(await admin.query("insert into stories(headline,cluster_key) values('Material claim intake test','test-material-claim') returning id")).rows[0].id;
+  await admin.query("update stories set verification_status='verified' where id=$1",[story8]);
+  const claimText8="The regulator published the notice on 7 November.";
+  const claimHash8=hash(claimText8.trim().toLowerCase());
+  const claimKey8=randomUUID();
+  const claimRequestHash8=hash(JSON.stringify({storyId:story8,claimText:claimText8,category:"date"}));
+  await admin.query("set role service_role");
+  const claimAddCall=(client,key=claimKey8,digest=claimRequestHash8,textValue=claimText8,category="date",fingerprint=claimHash8)=>
+    client.query("select public.add_material_claim($1,$2,$3,$4,$5,$6) as result",[key,digest,story8,textValue,fingerprint,category]);
+  const claimAddFirst=(await claimAddCall(admin)).rows[0].result;
+  ok("material claim intake inserts claim and invalidates prior story clearance",claimAddFirst.status===200 && claimAddFirst.body.claim.extraction_status===undefined && (await admin.query("select verification_status from stories where id=$1",[story8])).rows[0].verification_status==="in_progress");
+  const claimAddReplay=(await claimAddCall(admin)).rows[0].result;
+  ok("material claim intake replays the original result",claimAddReplay.status===200 && claimAddReplay.replayed===true && claimAddReplay.body.claim.id===claimAddFirst.body.claim.id);
+  const claimAddMismatch=(await claimAddCall(admin,claimKey8,hash("changed claim"),claimText8,"other")).rows[0].result;
+  ok("material claim idempotency key rejects changed request",claimAddMismatch.status===409);
+  const duplicateClaim=(await claimAddCall(admin,randomUUID(),hash("same claim duplicate"))).rows[0].result;
+  ok("same claim fingerprint does not create a duplicate",duplicateClaim.status===200 && duplicateClaim.body.note.includes("already recorded"));
+  const claimFingerprintConflict=(await claimAddCall(admin,randomUUID(),hash("different case wording"),claimText8.toUpperCase(),"date")).rows[0].result;
+  ok("normalized claim fingerprint cannot silently overwrite different displayed wording",claimFingerprintConflict.status===409);
+  await admin.query("reset role");
+  const claimAddCounts=await admin.query("select (select count(*) from claims where story_id=$1) claims,(select count(*) from audit_events where entity_id=(select id::text from claims where story_id=$1 limit 1) and event_type='material_claim_added') audits,(select count(*) from idempotency_records where endpoint_key='material_claim_add' and idempotency_key=$2) keys",[story8,claimKey8]);
+  ok("claim replay and duplicate create one claim and one audit event",Number(claimAddCounts.rows[0].claims)===1 && Number(claimAddCounts.rows[0].audits)===1 && Number(claimAddCounts.rows[0].keys)===1);
+
+  // Material claim audit failure rolls back both the new claim and status invalidation.
+  const story9=(await admin.query("insert into stories(headline,cluster_key) values('Claim rollback test','test-claim-rollback') returning id")).rows[0].id;
+  await admin.query("update stories set verification_status='verified' where id=$1",[story9]);
+  await admin.query(`create function public.test_fail_material_claim_audit() returns trigger language plpgsql as $test$ begin if new.event_type='material_claim_added' then raise exception 'injected material claim audit failure'; end if; return new; end $test$;`);
+  await admin.query("create trigger test_fail_material_claim_audit before insert on audit_events for each row execute function public.test_fail_material_claim_audit()");
+  await admin.query("set role service_role");
+  const rollbackClaimAddKey=randomUUID();
+  let claimAddRolledBack=false;
+  try { await admin.query("select public.add_material_claim($1,$2,$3,$4,$5,$6)",[rollbackClaimAddKey,hash("rollback claim"),story9,"A sufficiently long rollback claim.",hash("a sufficiently long rollback claim."),"factual"]); } catch { claimAddRolledBack=true; }
+  ok("material claim audit failure propagates instead of reporting success",claimAddRolledBack);
+  await admin.query("reset role");
+  await admin.query("drop trigger test_fail_material_claim_audit on audit_events; drop function public.test_fail_material_claim_audit()");
+  const claimAddRollbackState=await admin.query("select (select count(*) from claims where story_id=$1) claims,(select verification_status from stories where id=$1) status,(select count(*) from idempotency_records where idempotency_key=$2) keys",[story9,rollbackClaimAddKey]);
+  ok("material claim audit failure rolls back claim, status and idempotency record",Number(claimAddRollbackState.rows[0].claims)===0 && claimAddRollbackState.rows[0].status==="verified" && Number(claimAddRollbackState.rows[0].keys)===0);
 
   // Evidence intake RPC: source ownership, exact fingerprint, story invalidation and audit are atomic.
   const story6=(await admin.query("insert into stories(headline,cluster_key) values('Evidence intake test','test-evidence-intake') returning id")).rows[0].id;
