@@ -41,7 +41,7 @@ try {
   const mismatch = (await invoke(key, hash(payload + "changed"), "rejected", "Changed", false)).rows[0].result;
   ok("same key with changed payload is rejected", mismatch.status === 409 && mismatch.body.error === "idempotency_key_reused");
   await admin.query("reset role");
-  const counts = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [storyId, key]);
+  const counts = await admin.query("select (select count(*) from editorial_decisions where story_id=$1) decisions, (select count(*) from audit_events where entity_id=$1::text) audits, (select count(*) from idempotency_records where idempotency_key=$2) keys", [storyId, key]);
   ok("replay and conflict create no duplicate decision or audit", Number(counts.rows[0].decisions) === 1 && Number(counts.rows[0].audits) === 1 && Number(counts.rows[0].keys) === 1);
   const audit = await admin.query("select detail from audit_events where entity_id=$1 order by id desc limit 1", [storyId]);
   ok("audit event includes the idempotency key for traceability", audit.rows[0].detail.idempotency_key === key);
