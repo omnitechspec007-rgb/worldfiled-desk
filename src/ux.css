@@ -92,3 +92,20 @@
   .provenance-filters { align-items: stretch; }
   .provenance-filters label { min-width: 0; width: 100%; }
 }
+
+
+/* Evidence-backed publisher relationship intake */
+.provenance-candidate { border-top-color: var(--teal); }
+.provenance-candidate h2 { margin-bottom: 5px; }
+.provenance-candidate form { display: grid; gap: 12px; margin-top: 14px; }
+.candidate-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.provenance-candidate select, .provenance-candidate input, .provenance-candidate textarea { width: 100%; max-width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--line); background: #fffefa; color: var(--navy); }
+.provenance-candidate textarea { resize: vertical; line-height: 1.5; }
+.candidate-submit { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.candidate-submit button { flex-shrink: 0; }
+.state-message { border-left: 3px solid var(--teal); padding: 8px 12px; margin: 10px 0; background: rgba(76,201,176,.08); }
+.state-warning { border-left: 3px solid var(--gold); padding: 8px 12px; margin: 10px 0; background: rgba(255,200,87,.12); }
+@media (max-width: 700px) {
+  .candidate-fields { grid-template-columns: 1fr; }
+  .candidate-submit { align-items: stretch; flex-direction: column; }
+}
