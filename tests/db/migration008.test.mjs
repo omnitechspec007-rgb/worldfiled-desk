@@ -37,6 +37,10 @@ try {
   await admin.query(migration11);
   await admin.query(migration11);
   ok("migration 011 applies twice without duplicating or failing", true);
+  const migration12 = fs.readFileSync(root + "migrations/012_source_provenance.sql", "utf8");
+  await admin.query(migration12);
+  await admin.query(migration12);
+  ok("migration 012 applies twice without duplicating or failing", true);
 
   const storyId = (await admin.query("insert into stories(headline,cluster_key) values('Test decision','test-decision-1') returning id")).rows[0].id;
   const key = randomUUID();
@@ -175,6 +179,41 @@ try {
   const concurrentClaimState=await admin.query("select (select count(*) from verification_results where claim_id=$1 and outcome='PARTIALLY_SUPPORTED') decisions,(select count(*) from audit_events where entity_id=$1::text and event_type='claim_verification_partially_supported') audits,(select count(*) from idempotency_records where idempotency_key=$2) keys",[claim3,concurrentClaimKey]);
   ok("concurrent claim retry creates exactly one decision, audit and key", Number(concurrentClaimState.rows[0].decisions)===1 && Number(concurrentClaimState.rows[0].audits)===1 && Number(concurrentClaimState.rows[0].keys)===1);
   await secondClaim.end();
+
+  // Source provenance schema: no inferred ownership/origin, reviewed relationships require a basis.
+  const sourceRegistryA=(await admin.query("insert into source_registry(name,publisher,source_url) values('Example News','Example Group','https://example.org') returning id")).rows[0].id;
+  const sourceRegistryB=(await admin.query("insert into source_registry(name,publisher,source_url) values('Example Daily','Example Group','https://daily.example.org') returning id")).rows[0].id;
+  const sourceRegistryC=(await admin.query("insert into source_registry(name,publisher,source_url) values('Independent Review','Independent Media','https://review.example.net') returning id")).rows[0].id;
+  const relationship=(await admin.query("insert into source_relationships(source_id,related_source_id,relationship_type) values($1,$2,'same_owner') returning id,review_status",[sourceRegistryA,sourceRegistryB])).rows[0];
+  ok("new source relationships default to unverified, never assumed independent",relationship.review_status==="unverified");
+  let selfRelationshipRejected=false;
+  try { await admin.query("insert into source_relationships(source_id,related_source_id,relationship_type) values($1,$1,'same_owner')",[sourceRegistryA]); } catch { selfRelationshipRejected=true; }
+  ok("source relationship cannot point to itself",selfRelationshipRejected);
+  let unsubstantiatedReviewRejected=false;
+  try { await admin.query("update source_relationships set review_status='verified',reviewed_at=now(),reviewed_by='editor' where id=$1",[relationship.id]); } catch { unsubstantiatedReviewRejected=true; }
+  ok("verified source relationship requires evidence URL or review rationale",unsubstantiatedReviewRejected);
+  await admin.query("update source_relationships set review_status='verified',evidence_url='https://example.org/about/ownership',reviewed_at=now(),reviewed_by='editor' where id=$1",[relationship.id]);
+  await admin.query("insert into source_relationship_review_events(relationship_id,previous_status,new_status,evidence_url,reviewed_by) values($1,'unverified','verified','https://example.org/about/ownership','editor')",[relationship.id]);
+  ok("verified source relationship records its evidence and append-only review event");
+
+  const articleA=(await admin.query("insert into retrieved_sources(url,url_hash,title,registry_id) values($1,$2,'Original report',$3) returning id",["https://example.org/story",hash("https://example.org/story"),sourceRegistryA])).rows[0].id;
+  const articleB=(await admin.query("insert into retrieved_sources(url,url_hash,title,registry_id) values($1,$2,'Syndicated report',$3) returning id",["https://daily.example.org/story",hash("https://daily.example.org/story"),sourceRegistryB])).rows[0].id;
+  const unknownLineage=(await admin.query("insert into article_lineage(retrieved_source_id) values($1) returning id,origin_type,review_status",[articleB])).rows[0];
+  ok("new article lineage defaults to unknown and unverified",unknownLineage.origin_type==="unknown" && unknownLineage.review_status==="unverified");
+  let unlinkedSyndicationRejected=false;
+  try { await admin.query("update article_lineage set origin_type='syndicated',review_status='verified',reviewed_at=now(),reviewed_by='editor',evidence_url='https://example.org/source' where id=$1",[unknownLineage.id]); } catch { unlinkedSyndicationRejected=true; }
+  ok("verified syndicated origin requires an upstream article or source reference",unlinkedSyndicationRejected);
+  await admin.query("update article_lineage set origin_type='syndicated',upstream_retrieved_source_id=$2,review_status='verified',reviewed_at=now(),reviewed_by='editor',evidence_url='https://example.org/original' where id=$1",[unknownLineage.id,articleA]);
+  await admin.query("insert into article_lineage_review_events(lineage_id,previous_status,new_status,evidence_url,reviewed_by) values($1,'unverified','verified','https://example.org/original','editor')",[unknownLineage.id]);
+  ok("verified syndicated article links to its upstream article and records review history");
+  const originalLineage=(await admin.query("insert into article_lineage(retrieved_source_id,origin_type,review_status,evidence_url,reviewed_at,reviewed_by) values($1,'original_reporting','verified','https://example.org/byline',now(),'editor') returning id",[articleA])).rows[0].id;
+  ok("verified original reporting can be recorded with review evidence and no upstream copy");
+  let selfArticleLineageRejected=false;
+  try { await admin.query("insert into article_lineage(retrieved_source_id,upstream_retrieved_source_id,origin_type) values($1,$1,'republished')",[articleA]); } catch { selfArticleLineageRejected=true; }
+  ok("article lineage cannot identify itself as its upstream article",selfArticleLineageRejected);
+
+  const lineageSecurity=await admin.query("select c.relname, c.relrowsecurity, has_table_privilege('service_role',c.oid,'select') service_select, has_table_privilege('anon',c.oid,'select') anon_select, has_table_privilege('authenticated',c.oid,'insert') auth_insert from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('source_relationships','source_relationship_review_events','article_lineage','article_lineage_review_events') order by c.relname");
+  ok("source lineage tables have RLS and are not directly exposed to browser roles",lineageSecurity.rows.length===4 && lineageSecurity.rows.every(x=>x.relrowsecurity && x.service_select && !x.anon_select && !x.auth_insert));
 
   // Material claim intake RPC: insert, status invalidation, duplicate protection and audit are atomic.
   const story8=(await admin.query("insert into stories(headline,cluster_key) values('Material claim intake test','test-material-claim') returning id")).rows[0].id;
