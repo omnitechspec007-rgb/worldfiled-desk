@@ -23,15 +23,13 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     rpcBodies.push({ path, payload });
     const isCreate = path.endsWith("create_publication_relationship_candidate");
     const isLineage = path.endsWith("review_article_lineage");
-      return new Response(JSON.stringify({
+    return new Response(JSON.stringify({
       status: isCreate ? 201 : 200,
       body: isCreate
         ? { relationshipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", relationshipType: "same_owner", reviewStatus: "unverified", provenanceRevision: 1 }
         : isLineage
           ? { lineageId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", originType: payload.p_origin_type, reviewStatus: payload.p_review_status, provenanceRevision: 2 }
-          : isPolicy
-            ? { sourceId: payload.p_source_id, policy: payload.p_policy, provenanceRevision: 3 }
-            : { relationshipId: payload.p_relationship_id, reviewStatus: payload.p_review_status, provenanceRevision: 2 },
+          : { relationshipId: payload.p_relationship_id, reviewStatus: payload.p_review_status, provenanceRevision: 2 },
       replayed: false,
     }), { status: 200, headers: { "content-type": "application/json" } });
   }
