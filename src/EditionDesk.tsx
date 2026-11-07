@@ -379,7 +379,8 @@ export default function EditionDesk() {
       summary: d.whatChanged || attributedSource?.snippet || "Summary unavailable — review the evidence before export.",
       location: d.locations.map((x) => x.country).join(", "),
       source: attributedSource?.outlet ?? "",
-      publishedAt: attributedSource?.publishedAt ?? null
+      publishedAt: attributedSource?.publishedAt ?? null,
+      sourceUrl: attributedSource?.url ?? ""
     };
   }).filter((x) => x !== null);
   return (
