@@ -184,7 +184,7 @@ try {
   const sourceRegistryA=(await admin.query("insert into source_registry(name,publisher,source_url) values('Example News','Example Group','https://example.org') returning id")).rows[0].id;
   const sourceRegistryB=(await admin.query("insert into source_registry(name,publisher,source_url) values('Example Daily','Example Group','https://daily.example.org') returning id")).rows[0].id;
   const sourceRegistryC=(await admin.query("insert into source_registry(name,publisher,source_url) values('Independent Review','Independent Media','https://review.example.net') returning id")).rows[0].id;
-  const relationship=(await admin.query("insert into source_relationships(source_id,related_source_id,relationship_type) values($1,$2,'same_owner') returning id,review_status",[sourceRegistryA,sourceRegistryB])).rows[0];
+  const relationship=(await admin.query("insert into source_relationships(source_id,related_source_id,relationship_type) values(least($1::uuid,$2::uuid),greatest($1::uuid,$2::uuid),'same_owner') returning id,review_status",[sourceRegistryA,sourceRegistryB])).rows[0];
   ok("new source relationships default to unverified, never assumed independent",relationship.review_status==="unverified");
   let selfRelationshipRejected=false;
   try { await admin.query("insert into source_relationships(source_id,related_source_id,relationship_type) values($1,$1,'same_owner')",[sourceRegistryA]); } catch { selfRelationshipRejected=true; }
