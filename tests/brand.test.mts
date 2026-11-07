@@ -41,6 +41,8 @@ check("static roundup export is blocked if any selected story lacks a named, dat
 check("roundup typography scales with story count and keeps source/date labels visible", /const headlineSize = cards\.length >= 7 \? 30 : cards\.length === 6 \? 34 : 38/.test(roundup) && /const summarySize = cards\.length >= 7 \? 20 : cards\.length === 6 \? 22 : 25/.test(roundup) && /ctx\.font = "600 20px Inter, Arial, sans-serif"/.test(roundup));
 check("roundup explains that five or six stories provide the clearest mobile reading while seven remain supported", /5–6 stories give the clearest mobile reading; 7 are supported/.test(roundup));
 check("the narrated runtime selector is hidden for the fixed six-second static roundup", /deliverable !== "static_roundup_6s" && <label>Length<select/.test(editionDesk));
+check("every static roundup card requires an explicit source review before either export", /reviewed: false/.test(roundup) && /I checked this headline and supporting text against the source/.test(roundup) && /const allCardsReviewed = cards\.length > 0 && cards\.every/.test(roundup) && (roundup.match(/if \(!allCardsReviewed\)/g) ?? []).length === 2 && /disabled={!canExport}/.test(roundup));
+check("the card editor exposes the exact source link used for review", /sourceUrl\?: string/.test(roundup) && /Open source/.test(roundup) && /sourceUrl: attributedSource\?\.url/.test(editionDesk));
 
 
 console.log(`\n${fail ? "FAILURES: " + fail : "ALL " + pass + " BRAND CHECKS PASSED"}`);
