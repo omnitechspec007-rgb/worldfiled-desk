@@ -19,7 +19,7 @@ const idempotency = new Map<string,any>();
 const auditEvents: any[] = [];
 let testClock = Date.now();
 const response = (x: any, status=200) => new Response(x === null ? null : JSON.stringify(x), { status });
-const filter = (rows: any[], p: URLSearchParams) => rows.filter(row => [...p.entries()].every(([k,v]) => ["select","order","on_conflict"].includes(k) || (v.startsWith("eq.") && String(row[k]) === v.slice(3))));
+const filter = (rows: any[], p: URLSearchParams) => rows.filter(row => [...p.entries()].every(([k,v]) => ["select","order","on_conflict","limit"].includes(k) || (v.startsWith("eq.") && String(row[k]) === v.slice(3)) || (v.startsWith("in.(") && v.slice(4,-1).split(",").includes(String(row[k])))));
 globalThis.fetch = (async (input: any, init: any = {}) => {
   const u = new URL(String(input)), table = u.pathname.split("/rest/v1/")[1], method = init.method || "GET", p = u.searchParams;
   if (table === "rpc/add_material_claim" && method === "POST") {
@@ -128,7 +128,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
     if (table === "claims") return response(filter(claims,p).map(c=>({...c,claim_evidence:evidence.filter(e=>e.claim_id===c.id).map(e=>({...e,retrieved_sources:sources.find(s=>s.id===e.source_id)})),verification_results:decisions.filter(d=>d.claim_id===c.id)})));
     if (table === "claim_evidence") return response(filter(evidence,p));
     if (table === "verification_results") return response(filter(decisions,p));
-    if (table === "story_source_links") return response(filter(links,p).map(l=>({...l,retrieved_sources:sources.find(s=>s.id===l.source_id)})));
+    if (table === "story_source_links") return response(filter(links,p).map(l=>{const rs=sources.find(s=>s.id===l.source_id);return {...l,retrieved_sources:rs?{...rs,source_registry:{id:rs.registry_id}}:null};}));
     if (table === "retrieved_sources") return response(filter(sources,p));
     if (table === "source_content_policies") return response(policies);
     return response([]);
