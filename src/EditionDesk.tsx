@@ -373,7 +373,7 @@ export default function EditionDesk() {
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
     if (!d) return null;
-    const attributedSource = d.sources.find((x) => x.outlet.trim() && x.publishedAt) ?? d.sources[0];
+    const attributedSource = d.sources.find((x) => x.outlet.trim() && x.url.startsWith("http") && x.publishedAt && /^\d{4}-\d{2}-\d{2}/.test(x.publishedAt) && Number.isFinite(Date.parse(x.publishedAt))) ?? d.sources[0];
     return {
       id: d.id, headline: d.headline,
       summary: d.whatChanged || attributedSource?.snippet || "Summary unavailable — review the evidence before export.",
