@@ -39,6 +39,7 @@ function postgrest(url: URL, init: any) {
     if (table === "stories") out = out.map((st) => ({ ...st, story_source_links: T("story_source_links").filter((l) => l.story_id === st.id).map((l) => { const rs = T("retrieved_sources").find((r) => r.id === l.source_id); return { retrieved_sources: rs ? { ...rs, source_registry: T("source_registry").find((g) => g.id === rs.registry_id) } : null }; }) }));
     // Synthetic, current claim registers keep this edition workflow test focused on editions.
     // Claim-level edge cases are covered by claim-clearance and claim-verification tests.
+    if (table === "source_content_policies") out = T("stories").map((st) => ({ source_id: "registry-" + st.id, policy: "extraction_allowed" }));
     if (table === "claims") out = T("stories").filter((st) => matches({ story_id: st.id }, p)).map((st) => ({
       id: "claim-" + st.id, story_id: st.id,
       claim_evidence: [{ id: "evidence-" + st.id, source_id: "source-" + st.id, passage: "Checked synthetic supporting passage for edition workflow test.", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60000).toISOString(), retrieved_sources: { registry_id: "registry-" + st.id } }],
