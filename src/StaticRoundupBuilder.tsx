@@ -13,6 +13,7 @@ type Props = { title: string; stories: RoundupStory[]; exportReady: boolean; pre
 const W = 1080;
 const H = 1920;
 const DURATION_MS = 6000;
+const MAX_BALANCED_STORIES = 7;
 
 function rounded(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
@@ -20,7 +21,7 @@ function rounded(ctx: CanvasRenderingContext2D, x: number, y: number, w: number,
 }
 
 function linesFor(ctx: CanvasRenderingContext2D, value: string, maxWidth: number, maxLines: number) {
-  const words = value.trim().split(/\s+/).filter(Boolean);
+  const words = value.trim().split(/\\s+/).filter(Boolean);
   const lines: string[] = [];
   let line = "";
   for (const word of words) {
@@ -48,7 +49,8 @@ function drawText(ctx: CanvasRenderingContext2D, value: string, x: number, y: nu
   return lines.length;
 }
 
-function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, cards: RoundupStory[], image?: HTMLImageElement | null) {
+/** Presenter-free WorldFiled editorial poster: all visual information is typographic. */
+function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, cards: RoundupStory[]) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   canvas.width = W;
@@ -56,28 +58,21 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
 
   const gradient = ctx.createLinearGradient(0, 0, W, H);
   gradient.addColorStop(0, "#0B1F38");
-  gradient.addColorStop(0.55, "#122E4D");
+  gradient.addColorStop(0.56, "#122E4D");
   gradient.addColorStop(1, "#071728");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, W, H);
 
-  if (image && image.complete && image.naturalWidth > 0) {
-    const scale = Math.max(W / image.naturalWidth, H / image.naturalHeight);
-    const sw = W / scale, sh = H / scale;
-    ctx.save();
-    ctx.globalAlpha = 0.28;
-    ctx.drawImage(image, (image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, 0, 0, W, H);
-    ctx.restore();
-    ctx.fillStyle = "rgba(5, 19, 34, 0.62)";
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // Restrained archival grid and corner marks.
-  ctx.strokeStyle = "rgba(247,244,237,0.07)";
+  // Quiet archival framing; intentionally lower contrast than the story text.
+  ctx.strokeStyle = "rgba(247,244,237,0.055)";
   ctx.lineWidth = 1;
-  for (let x = 54; x < W; x += 72) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 54; y < H; y += 72) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  for (let x = 54; x < W; x += 90) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  ctx.fillStyle = "rgba(76,201,176,0.08)";
+  ctx.beginPath();
+  ctx.arc(1010, 240, 190, 0, Math.PI * 2);
+  ctx.fill();
 
+  // Brand masthead.
   ctx.fillStyle = "#FFC857";
   ctx.fillRect(64, 62, 8, 82);
   ctx.fillStyle = "#F7F4ED";
@@ -87,110 +82,99 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
   ctx.font = "600 18px Inter, Arial, sans-serif";
   ctx.fillText("WHAT HAPPENED. WHAT CHANGED. WHAT MATTERS.", 94, 128);
 
-  ctx.fillStyle = "#FFC857";
-  ctx.font = "700 20px Inter, Arial, sans-serif";
-  ctx.fillText("INTERNATIONAL NEWS", 64, 218);
+  // Edition headline panel.
+  rounded(ctx, 48, 178, 984, 248, 18);
   ctx.fillStyle = "#F7F4ED";
-  ctx.font = "700 58px Georgia, serif";
-  const titleLines = linesFor(ctx, title.toUpperCase(), 950, 2);
-  titleLines.forEach((line, i) => ctx.fillText(line, 64, 292 + i * 68));
-  ctx.fillStyle = "rgba(247,244,237,0.76)";
-  ctx.font = "500 21px Inter, Arial, sans-serif";
-  ctx.fillText(date.toUpperCase(), 66, 330 + (titleLines.length - 1) * 68);
-  ctx.fillStyle = "#4CC9B0";
-  ctx.fillRect(64, 365 + (titleLines.length - 1) * 68, 94, 5);
+  ctx.fill();
+  ctx.fillStyle = "#0B1F38";
+  ctx.font = "800 19px Inter, Arial, sans-serif";
+  ctx.fillText("THE WORLD, IN BRIEF", 82, 222);
+  ctx.fillStyle = "#B17A16";
+  ctx.fillRect(82, 242, 72, 5);
+  ctx.fillStyle = "#0B1F38";
+  ctx.font = "700 54px Georgia, serif";
+  const titleLines = linesFor(ctx, title.toUpperCase(), 900, 2);
+  titleLines.forEach((line, i) => ctx.fillText(line, 82, 310 + i * 62));
+  ctx.fillStyle = "#52677D";
+  ctx.font = "600 19px Inter, Arial, sans-serif";
+  ctx.fillText(date.toUpperCase(), 82, 397);
 
-  const top = 410 + (titleLines.length - 1) * 68;
-  const bottom = 1788;
-  const gap = cards.length > 8 ? 10 : 13;
+  // Balanced 5–7 story stack. Story cards retain generous gutters and source labels.
+  const top = 456;
+  const bottom = 1744;
+  const gap = cards.length >= 7 ? 10 : 14;
   const cardH = (bottom - top - gap * Math.max(0, cards.length - 1)) / Math.max(1, cards.length);
-  // Fit typography to available card height, not just the number of stories.
-  // This keeps seven- and eight-story editions from colliding with source labels.
-  const compact = cardH < 230;
+  const compact = cards.length >= 7;
   cards.forEach((story, index) => {
     const y = top + index * (cardH + gap);
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.22)";
-    ctx.shadowBlur = 14;
-    ctx.shadowOffsetY = 5;
+    ctx.shadowColor = "rgba(0,0,0,0.20)";
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
     rounded(ctx, 48, y, 984, cardH, 13);
     ctx.fillStyle = "#F7F4ED";
     ctx.fill();
     ctx.restore();
 
     ctx.fillStyle = index % 3 === 1 ? "#4CC9B0" : "#FFC857";
-    ctx.fillRect(48, y, 12, cardH);
+    ctx.fillRect(48, y, 11, cardH);
 
     const padX = 82;
-    const labelY = y + (compact ? 28 : 31);
     ctx.fillStyle = "#52677D";
-    ctx.font = "700 17px Inter, Arial, sans-serif";
-    const label = story.location ? story.location.toUpperCase().slice(0, 34) : "WORLD UPDATE";
-    ctx.fillText(String(index + 1).padStart(2, "0") + "  /  " + label, padX, labelY);
+    ctx.font = "700 16px Inter, Arial, sans-serif";
+    const label = story.location ? story.location.toUpperCase().slice(0, 38) : "WORLD UPDATE";
+    ctx.fillText(String(index + 1).padStart(2, "0") + "  /  " + label, padX, y + 29);
 
-    const headlineSize = compact ? 25 : 32;
+    const headlineSize = compact ? 25 : 30;
     ctx.fillStyle = "#0B1F38";
     ctx.font = "700 " + headlineSize + "px Inter, Arial, sans-serif";
-    const headlineY = y + (compact ? 57 : 68);
-    const titleCount = drawText(ctx, story.headline, padX, headlineY, 900, headlineSize * 1.12, compact ? 1 : 2);
+    const headlineY = y + 65;
+    const titleCount = drawText(ctx, story.headline, padX, headlineY, 900, headlineSize * 1.12, 2);
 
-    const summarySize = compact ? 19 : 23;
+    const summarySize = compact ? 18 : 21;
     ctx.fillStyle = "#31465B";
     ctx.font = "500 " + summarySize + "px Inter, Arial, sans-serif";
-    const summaryY = headlineY + titleCount * headlineSize * 1.12 + (compact ? 16 : 22);
-    const maxSummaryLines = compact ? 1 : 2;
-    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.2, maxSummaryLines);
-    if (story.source) {
-      ctx.fillStyle = "#68798A";
-      ctx.font = "500 14px Inter, Arial, sans-serif";
-      ctx.fillText("SOURCE: " + story.source.toUpperCase().slice(0, 54), padX, y + cardH - 13);
-    }
+    const summaryY = headlineY + titleCount * headlineSize * 1.12 + (compact ? 10 : 14);
+    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.18, compact ? 1 : 2);
+
+    ctx.fillStyle = "#68798A";
+    ctx.font = "600 13px Inter, Arial, sans-serif";
+    const sourceLabel = story.source ? "SOURCE: " + story.source.toUpperCase().slice(0, 58) : "SOURCE DETAILS: OPEN LINKED STORY";
+    ctx.fillText(sourceLabel, padX, y + cardH - 13);
   });
 
+  // Branded close / follow prompt.
   ctx.fillStyle = "#FFC857";
-  ctx.fillRect(64, 1830, 56, 4);
+  ctx.fillRect(64, 1802, 58, 5);
   ctx.fillStyle = "#F7F4ED";
-  ctx.font = "700 20px Inter, Arial, sans-serif";
-  ctx.fillText("THE WORLD, FILED.", 64, 1872);
-  ctx.fillStyle = "rgba(247,244,237,0.7)";
-  ctx.font = "500 17px Inter, Arial, sans-serif";
+  ctx.font = "700 23px Inter, Arial, sans-serif";
+  ctx.fillText("FOLLOW THE WORLD, FILED.", 64, 1850);
+  ctx.fillStyle = "rgba(247,244,237,0.76)";
+  ctx.font = "500 18px Inter, Arial, sans-serif";
   ctx.textAlign = "right";
-  ctx.fillText("WHAT MATTERS, IN CONTEXT.", 1016, 1872);
+  ctx.fillText("WHAT MATTERS, IN CONTEXT.", 1016, 1850);
   ctx.textAlign = "left";
 }
 
 export default function StaticRoundupBuilder({ title, stories, exportReady, preflightNote }: Props) {
   const storySignature = JSON.stringify(stories);
-  const initial = useMemo(() => stories.slice(0, 10).map((s) => ({
+  const initial = useMemo(() => stories.slice(0, MAX_BALANCED_STORIES).map((s) => ({
     ...s,
     headline: s.headline.slice(0, 150),
     summary: (s.summary || s.headline).slice(0, 190),
   })), [storySignature]);
+  const omittedCount = Math.max(0, stories.length - MAX_BALANCED_STORIES);
   const [cards, setCards] = useState<RoundupStory[]>(initial);
   const [editionTitle, setEditionTitle] = useState(title || "The World You Probably Missed");
   const [date, setDate] = useState(new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }));
-  const [imageUrl, setImageUrl] = useState("");
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [rendering, setRendering] = useState(false);
   const [notice, setNotice] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fileUrlRef = useRef<string | null>(null);
 
   useEffect(() => { setCards(initial); }, [initial]);
   useEffect(() => {
-    if (!imageUrl) { setImage(null); return; }
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => setImage(img);
-    img.onerror = () => { setImage(null); setNotice("That image could not be loaded. Try a direct image URL or upload a local image."); };
-    img.src = imageUrl;
-  }, [imageUrl]);
-
-  useEffect(() => {
-    if (canvasRef.current) renderPoster(canvasRef.current, editionTitle, date, cards, image);
-  }, [editionTitle, date, cards, image]);
-
-  useEffect(() => () => { if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current); }, []);
+    if (canvasRef.current) renderPoster(canvasRef.current, editionTitle, date, cards);
+  }, [editionTitle, date, cards]);
 
   const updateCard = (id: string, key: "headline" | "summary", value: string) => {
     setCards((current) => current.map((c) => c.id === id ? { ...c, [key]: value } : c));
@@ -211,12 +195,12 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
     const canvas = canvasRef.current;
     if (!canvas) return;
     const a = document.createElement("a");
-    a.download = "the-world-filed-roundup.png";
+    a.download = "worldfiled-news-roundup.png";
     try {
       a.href = canvas.toDataURL("image/png");
       a.click();
     } catch {
-      setNotice("The background image blocks browser export. Upload the image locally or use an image URL that permits cross-origin access.");
+      setNotice("The poster could not be exported by this browser. Try the latest Chrome or Edge desktop browser.");
     }
   };
 
@@ -250,7 +234,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
       await audio.resume();
       recorder.start(250);
 
-      // A quiet two-note editorial signature; no music bed or narration.
+      // Quiet two-note editorial signature; no music bed or narration.
       const playNote = (frequency: number, start: number, length: number) => {
         const oscillator = audio!.createOscillator();
         const gain = audio!.createGain();
@@ -273,10 +257,10 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "the-world-filed-six-second-roundup.webm";
+      a.download = "worldfiled-six-second-roundup.webm";
       a.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      setNotice("Six-second video exported as WebM with a subtle two-note sound signature. The visual remains still throughout.");
+      setNotice("Six-second static video exported as WebM with the subtle WorldFiled sound signature.");
       tracks.forEach((track) => track.stop());
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not export the video.");
@@ -289,31 +273,24 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
   return (
     <div className="roundup-builder">
       <div className="confirm">
-        <h3>Static six-second news roundup</h3>
-        <p className="meta">One vertical editorial composition. It appears immediately, stays completely still for six seconds, and ends. No presenter, voiceover, animation, camera movement or transitions.</p>
+        <h3>WorldFiled static news roundup</h3>
+        <p className="meta">Presenter-free editorial design in WorldFiled navy, archive cream, gold and teal. One vertical composition, completely still for six seconds: no photographs, voiceover, animation, camera movement or transitions.</p>
         <div className="row">
           <label>Edition headline<input value={editionTitle} onChange={(e) => setEditionTitle(e.target.value)} maxLength={100} /></label>
           <label>Edition date<input value={date} onChange={(e) => setDate(e.target.value)} maxLength={32} /></label>
         </div>
-        <label>Optional background photograph URL<input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://… (optional)" /></label>
-        <label className="inline">Or use a local photograph<input type="file" accept="image/*" onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
-          fileUrlRef.current = URL.createObjectURL(file);
-          setImageUrl(fileUrlRef.current);
-          setNotice("");
-        }} /></label>
+        <p className="meta">Balanced layout: up to 7 stories, with room for readable headlines, short context and source labels. Fewer stories are preferable to padding an edition.</p>
+        {omittedCount > 0 && <p className="state-warning">{omittedCount} additional candidate{omittedCount === 1 ? " remains" : "s remain"} outside this seven-story composition. They have not been deleted; review them in the Edition Desk.</p>}
       </div>
 
       <div className="roundup-preview">
-        <div className="roundup-preview-head"><strong>LIVE COMPOSITION PREVIEW</strong><span>9:16 · 1080 × 1920</span></div>
-        <canvas ref={canvasRef} aria-label="Static six-second news roundup preview" />
+        <div className="roundup-preview-head"><strong>LIVE WORLD FILED COMPOSITION</strong><span>9:16 · 1080 × 1920</span></div>
+        <canvas ref={canvasRef} aria-label="Presenter-free WorldFiled static news roundup preview" />
       </div>
 
       <div className="panel">
         <h3>Story cards ({cards.length})</h3>
-        <p className="meta">Edit, reorder or remove stories. Keep each one factual and short; the preview shows the actual final layout. Source names are included where available. A shorter edition is acceptable when fewer stories merit inclusion.</p>
+        <p className="meta">Edit, reorder or remove stories. The preview shows the actual final layout. Source names appear on each strip when available; open the linked story to inspect the underlying evidence.</p>
         {cards.map((card, index) => (
           <div className="roundup-card-editor" key={card.id}>
             <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
@@ -326,7 +303,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
             </div>
             <label>Headline<input value={card.headline} maxLength={150} onChange={(e) => updateCard(card.id, "headline", e.target.value)} /></label>
             <label>Supporting text<textarea value={card.summary} maxLength={190} rows={2} onChange={(e) => updateCard(card.id, "summary", e.target.value)} /></label>
-            <p className="meta">{card.source ? "Source: " + card.source : "No source label available; verify the evidence in the edition before export."}</p>
+            <p className="meta">{card.source ? "Source: " + card.source : "No source label available; inspect the linked story and evidence before export."}</p>
           </div>
         ))}
       </div>
@@ -336,7 +313,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
         <button disabled={!exportReady} onClick={downloadPoster}>Download static poster (PNG)</button>
         <button className="primary" disabled={!exportReady || rendering || cards.length === 0} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
       </div>
-      <p className="meta">Export currently uses WebM, which is supported by modern Chrome and Edge. MP4 conversion is not performed in this browser-only release. The poster is the same single frame used for all six seconds.</p>
+      <p className="meta">Export uses WebM in modern Chrome and Edge. MP4 conversion is not performed in this browser-only release. The same single frame remains visible for all six seconds.</p>
     </div>
   );
 }
