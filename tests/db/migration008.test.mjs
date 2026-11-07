@@ -212,8 +212,17 @@ try {
   try { await admin.query("insert into article_lineage(retrieved_source_id,upstream_retrieved_source_id,origin_type) values($1,$1,'republished')",[articleA]); } catch { selfArticleLineageRejected=true; }
   ok("article lineage cannot identify itself as its upstream article",selfArticleLineageRejected);
 
-  const lineageSecurity=await admin.query("select c.relname, c.relrowsecurity, has_table_privilege('service_role',c.oid,'select') service_select, has_table_privilege('anon',c.oid,'select') anon_select, has_table_privilege('authenticated',c.oid,'insert') auth_insert from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('source_relationships','source_relationship_review_events','article_lineage','article_lineage_review_events') order by c.relname");
-  ok("source lineage tables have RLS and are not directly exposed to browser roles",lineageSecurity.rows.length===4 && lineageSecurity.rows.every(x=>x.relrowsecurity && x.service_select && !x.anon_select && !x.auth_insert));
+  const defaultPolicy=(await admin.query("insert into source_content_policies(source_id) values($1) returning policy",[sourceRegistryC])).rows[0].policy;
+  ok("new source content policy defaults to metadata_only",defaultPolicy==="metadata_only");
+  let extractionWithoutBasisRejected=false;
+  try { await admin.query("update source_content_policies set policy='extraction_allowed' where source_id=$1",[sourceRegistryC]); } catch { extractionWithoutBasisRejected=true; }
+  ok("full-text extraction cannot be allowed without a reviewed basis",extractionWithoutBasisRejected);
+  await admin.query("update source_content_policies set policy='extraction_allowed',evidence_url='https://review.example.net/terms',policy_reason='Publisher terms reviewed for permitted extraction.',reviewed_at=now(),reviewed_by='editor' where source_id=$1",[sourceRegistryC]);
+  await admin.query("insert into source_content_policy_events(source_id,previous_policy,new_policy,evidence_url,policy_reason,reviewed_by) values($1,'metadata_only','extraction_allowed','https://review.example.net/terms','Publisher terms reviewed for permitted extraction.','editor')",[sourceRegistryC]);
+  ok("content policy changes require review evidence and preserve an event record");
+
+  const lineageSecurity=await admin.query("select c.relname, c.relrowsecurity, has_table_privilege('service_role',c.oid,'select') service_select, has_table_privilege('anon',c.oid,'select') anon_select, has_table_privilege('authenticated',c.oid,'insert') auth_insert from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('source_relationships','source_relationship_review_events','article_lineage','article_lineage_review_events','source_content_policies','source_content_policy_events') order by c.relname");
+  ok("source lineage tables have RLS and are not directly exposed to browser roles",lineageSecurity.rows.length===6 && lineageSecurity.rows.every(x=>x.relrowsecurity && x.service_select && !x.anon_select && !x.auth_insert));
 
   // Material claim intake RPC: insert, status invalidation, duplicate protection and audit are atomic.
   const story8=(await admin.query("insert into stories(headline,cluster_key) values('Material claim intake test','test-material-claim') returning id")).rows[0].id;
