@@ -197,7 +197,7 @@ const day = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 
 /** Text block placed inside the prompt. Source text is fenced as untrusted data. */
 export function renderEvidence(p: EvidencePack): string {
   const src = p.sources
-    .map((s) => `[${s.ref}] ${s.outlet} | ${s.type} | published: ${day(s.published_at)}\n     title: ${s.title}\n     snippet: ${s.snippet || "(none collected)"}\n     link: ${s.url}`)
+    .map((s) => `[${s.ref}] ${s.outlet} | ${s.type} | published: ${day(s.published_at)}\n     content depth: ${s.content_depth}\n     title: ${s.title}\n     snippet: ${s.snippet || "(none collected)"}\n     link: ${s.url}`)
     .join("\n");
   const cls = p.claim_classes
     .map((c) => `${c.id} [${c.class}] ${c.statement}\n     basis: ${c.basis}${c.refs.length ? `\n     sources: ${c.refs.join(", ")}` : ""}`)
