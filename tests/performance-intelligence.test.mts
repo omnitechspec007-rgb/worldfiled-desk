@@ -18,6 +18,12 @@ assert.ok(Math.abs((yt.metrics.shareRate.median ?? 0) - (7 / 300)) < 1e-10);
 const fb = result.find((x) => x.platform === "facebook")!;
 assert.equal(fb.sampleLabel, "too_few_to_interpret");
 assert.equal(fb.metrics.completionRate.measured, 0);
+const noViews = summarizePerformanceCohorts(Array.from({ length: 8 }, (_, i) => ({
+  publicationId: "empty-" + i, platform: "tiktok", contentFormat: "text_card",
+  views: null, averageViewDurationSeconds: null, completionRate: null, shares: null, saves: null,
+})));
+assert.equal(noViews[0].publicationCount, 8);
+assert.equal(noViews[0].sampleLabel, "too_few_to_interpret", "missing view counts must not inflate sample confidence");
 assert.equal(fb.metrics.shareRate.median, 0.04);
 assert.match(fb.note, /Too few/);
 assert.throws(() => summarizePerformanceCohorts([], 1), /at least 2/);
