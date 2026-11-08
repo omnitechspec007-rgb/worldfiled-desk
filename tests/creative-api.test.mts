@@ -131,7 +131,7 @@ assert(/Voice: Laomedeia/.test(g1.prompt) && /Controls verified for this engine 
 assert.match(g1.prompt, /CURRENT HUMAN CLAIM-VERIFICATION REGISTER/);
 assert.match(g1.prompt, /Synthetic verified claim for creative workflow test/);
 assert.match(g1.prompt, /Checked synthetic supporting passage for creative workflow test/);
-assert.match(g1.prompt, /Use ONLY entries in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/i);
+assert.match(g1.prompt, /Use ONLY facts recorded in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/i);
 ok("edition prompt uses the recorded claim register and exact extracted passages as its factual source");
 let hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts[0].current === true); ok("history: current");
 await call(cfn, { action: "save-lexicon", entry: { name: "Unrelatedname", status: "PROPOSED", pronunciation: "x" } }); hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts[0].current === true); ok("a lexicon entry for a name this prompt does not use does not invalidate it");
