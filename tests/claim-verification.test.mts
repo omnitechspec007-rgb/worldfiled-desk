@@ -132,6 +132,8 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
     if (table === "verification_results") return response(filter(decisions,p));
     if (table === "story_source_links") return response(filter(links,p).map(l=>({...l,retrieved_sources:sources.find(s=>s.id===l.source_id)})));
     if (table === "retrieved_sources") return response(filter(sources,p));
+    if (table === "source_registry") return response(filter([registry],p));
+    if (table === "source_content_policies") return response(filter(contentPolicies,p));
     return response([]);
   }
   const body = JSON.parse(init.body || "{}");
