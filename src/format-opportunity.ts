@@ -50,7 +50,7 @@ export function recommendFormatOpportunity(input: FormatOpportunityInput): Forma
   let reason = "Current curiosity and evidence signals do not justify allocating this story to a production format yet.";
   let suggestedRuntimeMinutes: FormatOpportunity["suggestedRuntimeMinutes"] = null;
 
-  if (!sensational && input.fresh && curiosity >= 35) {
+  if (!sensational && input.fresh && curiosity >= 35 && evidence >= 2 && sourceCount >= 1) {
     lane = "static_text_card";
     label = "Static text-card candidate";
     score = cardScore;
