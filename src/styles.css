@@ -379,3 +379,35 @@ label.pick { padding: 6px 0; }
     flex-wrap: wrap;
   }
 }
+
+
+/* Research coverage report */
+.research-report {
+  margin-top: 1rem;
+  border-top: 3px solid var(--teal);
+}
+.research-report .grid {
+  margin: 1rem 0;
+}
+.research-report details {
+  margin-top: 0.75rem;
+  border-top: 1px solid rgba(11, 31, 56, 0.14);
+  padding-top: 0.75rem;
+}
+.research-report summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.research-source-list {
+  max-height: 420px;
+  overflow: auto;
+  margin-top: 0.75rem;
+}
+.source-ok {
+  color: #147d64;
+  font-weight: 650;
+}
+.source-issue {
+  color: #9b5a13;
+  font-weight: 650;
+}
