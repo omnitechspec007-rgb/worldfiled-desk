@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; newItems: number | null; refreshedItems: number | null; stories: number | null; multiSource: number | null; shortlisted: number | null; candidates: number | null };
+type ResearchSource = { name: string; status: string; items: number; newItems: number; refreshedItems: number; error: string | null; policy: string | null };
+type ResearchReport = { coverage: "complete" | "limited" | "incomplete"; checked: number; total: number; reachable: number; needsAttention: number; policyBlocked: number; items: number; newItems: number; refreshedItems: number; sources: ResearchSource[]; note: string };
+type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; newItems: number | null; refreshedItems: number | null; stories: number | null; multiSource: number | null; shortlisted: number | null; candidates: number | null; blocked?: number | null; researchReport?: ResearchReport | null };
 type RunHistory = { id: string; status: string; created_at: string; completed_at: string | null; config: { windowDays?: number; region?: string }; newItems: number; refreshedItems: number; stories: number; newStories: number; shortlisted: number };
 type Status = {
   history: RunHistory[];
@@ -138,6 +140,38 @@ export default function Dashboard() {
             ))}
           </ol>
         )}
+        {!viewCleared && stages.find((s) => s.stage === "discover")?.researchReport && (() => {
+          const report = stages.find((s) => s.stage === "discover")!.researchReport!;
+          return (
+            <div className="panel research-report">
+              <div className="row" style={{ alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                <h2>Research coverage report</h2>
+                <span className={report.coverage === "complete" ? "status" : "status bad"}>{report.coverage === "complete" ? "All configured sources checked" : report.coverage === "limited" ? "Limited coverage" : "Incomplete coverage"}</span>
+              </div>
+              <p>{report.note}</p>
+              <div className="grid">
+                <div className="stat"><span className="stat-label">Sources checked</span><span className="stat-value">{report.checked}/{report.total}</span></div>
+                <div className="stat"><span className="stat-label">Reachable</span><span className="stat-value">{report.reachable}</span></div>
+                <div className="stat"><span className="stat-label">Need attention</span><span className="stat-value">{report.needsAttention}</span></div>
+                <div className="stat"><span className="stat-label">Skipped by policy</span><span className="stat-value">{report.policyBlocked}</span></div>
+                <div className="stat"><span className="stat-label">Feed items</span><span className="stat-value">{report.items}</span></div>
+                <div className="stat"><span className="stat-label">New / refreshed</span><span className="stat-value">{report.newItems} / {report.refreshedItems}</span></div>
+              </div>
+              <details>
+                <summary>See source-by-source results ({report.sources.length})</summary>
+                <div className="research-source-list">
+                  {report.sources.map((source) => (
+                    <div className="source" key={source.name}>
+                      <strong>{source.name}</strong> · <span className={source.status === "healthy" ? "source-ok" : "source-issue"}>{source.status.replaceAll("_", " ")}</span>
+                      <p className="meta">{source.items} items · {source.newItems} new · {source.refreshedItems} refreshed{source.policy ? " · policy: " + source.policy : ""}</p>
+                      {source.error && <p className="meta">{source.error}</p>}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          );
+        })()}
         {!viewCleared && status?.latest?.error_summary && !busy && <p className="status bad">Last run note: {status.latest.error_summary}</p>}
         {!viewCleared && (msg + (status?.latest?.error_summary ?? "")).includes("002_scoring.sql") && (
           <p className="caution">One-time setup needed: open Supabase, go to SQL Editor, paste the contents of supabase/migrations/002_scoring.sql from your repo, run it, then click Resume.</p>
