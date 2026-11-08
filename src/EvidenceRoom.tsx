@@ -134,6 +134,11 @@ export default function EvidenceRoom() {
     } finally { setBusy(false); }
   };
 
+  const eligibleSourceIds = new Set((story?.sources ?? [])
+    .filter(source => source.contentPolicy === "extraction_allowed" && source.enabled && source.retrievalStatus === "healthy")
+    .map(source => source.id));
+  const hasEligibleEvidenceSource = eligibleSourceIds.size > 0;
+
   if (!id) return <section><h1>Evidence Room</h1><div className="panel"><p>Pick a story in the <Link to="/stories">Story Desk</Link> to inspect its sources.</p></div></section>;
 
   return <section>
@@ -146,7 +151,18 @@ export default function EvidenceRoom() {
       <div className="panel">
         <h2>Sources ({story.sources.length} items from {story.outlets} publisher labels)</h2>
         <p className="caution">The research importer collected headlines and short summaries, not full article text. Open sources yourself and record the relevant passage below. Publisher-label count is not proof of independent corroboration. Shared ownership, syndication and common original reporting are not fully traced.</p>
-        {story.sources.map(s=><div className="source" key={s.id}><a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a><p className="meta">{s.outlet} · {s.scope || s.region} · {s.tier === "primary" ? "official or primary source" : "news reporting"}</p><p className="meta">Published: {dateText(s.publishedAt)} · Retrieved: {dateText(s.retrievedAt)} · {s.depth}</p>{s.summary && <p className="summary">{s.summary}</p>}</div>)}
+        {!story.sourceContentPolicyInstalled && <div className="status bad" role="status"><strong>Passage evidence is currently disabled.</strong><p>{story.sourcePolicyNote || "The source content-policy table is not installed. Sources default to metadata-only until a human reviews their access policy."}</p></div>}
+        {story.sources.map(s=><div className="source" key={s.id}>
+          {s.url && s.title ? <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a> : <strong>Source metadata withheld by content policy</strong>}
+          <p className="meta">{s.outlet} · {s.scope || s.region} · {s.tier === "primary" ? "official or primary source" : "news reporting"}</p>
+          <p className="meta">Published: {dateText(s.publishedAt)} · Retrieved: {dateText(s.retrievedAt)} · {s.depth}</p>
+          <p className="meta">Content policy: <strong>{s.contentPolicy.replace(/_/g," ")}</strong> · Feed: {s.retrievalStatus} · {s.enabled ? "enabled" : "disabled"}</p>
+          {s.contentPolicy === "metadata_only" && <p className="caution">Discovery lead only. This source cannot supply a stored claim passage until a human reviewer approves extraction access.</p>}
+          {s.contentPolicy === "blocked" && <p className="caution">Blocked by source content policy. Metadata and passages are not available for this source.</p>}
+          {s.contentPolicy === "extraction_allowed" && (!s.enabled || s.retrievalStatus !== "healthy") && <p className="caution">Passage access is approved, but the source is not currently enabled and healthy. It cannot support a new verified claim until source health is restored.</p>}
+          {s.summary && <p className="summary">{s.summary}</p>}
+        </div>)}
+        {!hasEligibleEvidenceSource && <p className="caution">No linked source is currently eligible to provide claim passage evidence. Add or review sources with an explicit extraction_allowed policy and a healthy, enabled feed before attempting story clearance.</p>}
       </div>
       <div className="panel">
         <h2>Claim register ({claims.length})</h2>
@@ -162,12 +178,19 @@ export default function EvidenceRoom() {
             <p className="rank">CLAIM {String(i+1).padStart(2,"0")} · {c.category || "factual"} · <strong>{latest?.outcome || "UNVERIFIED"}</strong></p>
             <p>{c.claim_text}</p>
             <h3>Evidence ({(c.claim_evidence||[]).length})</h3>
-            {(c.claim_evidence||[]).map(ev=><div className="source" key={ev.id}><p><strong>{ev.is_contradiction ? "Potential contradiction" : "Supporting / contextual evidence"}</strong> · {ev.extraction_status}</p>{ev.retrieved_sources && <a href={ev.retrieved_sources.url} target="_blank" rel="noopener noreferrer">{ev.retrieved_sources.title}</a>}{ev.passage && <blockquote>{ev.passage}</blockquote>}{ev.passage_location && <p className="meta">Location: {ev.passage_location}</p>}</div>)}
-            <label>Linked source<select value={sourceChoice[c.id]||""} onChange={e=>setSourceChoice(p=>({...p,[c.id]:e.target.value}))}><option value="">Choose source</option>{story.sources.map(s=><option key={s.id} value={s.id}>{s.outlet} — {s.title}</option>)}</select></label>
+            {(c.claim_evidence||[]).map(ev=><div className="source" key={ev.id}>
+              <p><strong>{ev.is_contradiction ? "Potential contradiction" : "Supporting / contextual evidence"}</strong> · {ev.extraction_status}</p>
+              {ev.retrieved_sources?.url && <a href={ev.retrieved_sources.url} target="_blank" rel="noopener noreferrer">{ev.retrieved_sources.title}</a>}
+              {ev.passageWithheld && <p className="caution">Passage withheld by source content policy ({ev.contentPolicy || "metadata_only"}). This historical record cannot be used as claim support.</p>}
+              {ev.policyBlocked && <p className="caution">This source is blocked. Its identity and passage are withheld.</p>}
+              {ev.passage && <blockquote>{ev.passage}</blockquote>}
+              {ev.passage_location && <p className="meta">Location: {ev.passage_location}</p>}
+            </div>)}
+            <label>Linked source<select value={sourceChoice[c.id]||""} onChange={e=>setSourceChoice(p=>({...p,[c.id]:e.target.value}))}><option value="">Choose source</option>{story.sources.map(s=><option key={s.id} value={s.id} disabled={!eligibleSourceIds.has(s.id)}>{s.outlet} — {s.title || "metadata withheld"} · {s.contentPolicy.replace(/_/g," ")}</option>)}</select></label>
             <label>Relevant passage<textarea rows={3} maxLength={4000} value={passage[c.id]||""} onChange={e=>setPassage(p=>({...p,[c.id]:e.target.value}))} placeholder="Paste the short passage you personally checked." /></label>
             <label>Passage location<input maxLength={300} value={location[c.id]||""} onChange={e=>setLocation(p=>({...p,[c.id]:e.target.value}))} placeholder="Paragraph, page, section or timestamp" /></label>
             <label className="inline"><input type="checkbox" checked={Boolean(contradiction[c.id])} onChange={e=>setContradiction(p=>({...p,[c.id]:e.target.checked}))}/> This passage challenges or contradicts the claim</label>
-            <button disabled={busy || decisionUncertain || !sourceChoice[c.id] || !passage[c.id]?.trim()} onClick={()=>void act({action:"add_evidence",claimId:c.id,sourceId:sourceChoice[c.id],passage:passage[c.id]||"",location:location[c.id]||"",isContradiction:Boolean(contradiction[c.id])})}>ADD EVIDENCE</button>
+            <button disabled={busy || decisionUncertain || !eligibleSourceIds.has(sourceChoice[c.id]) || !passage[c.id]?.trim()} onClick={()=>void act({action:"add_evidence",claimId:c.id,sourceId:sourceChoice[c.id],passage:passage[c.id]||"",location:location[c.id]||"",isContradiction:Boolean(contradiction[c.id])})}>ADD EVIDENCE</button>
             <label>Editor decision<select value={outcome[c.id]||"UNVERIFIED"} onChange={e=>setOutcome(p=>({...p,[c.id]:e.target.value}))}>{outcomes.map(o=><option key={o} value={o}>{o.replace(/_/g," ")}</option>)}</select></label>
             {needsReconciliation && <label>Specific contradiction reconciliation (required)<textarea rows={3} maxLength={1000} value={contradictionResolution[c.id]||""} onChange={e=>setContradictionResolution(p=>({...p,[c.id]:e.target.value}))} placeholder="Address the conflicting passage directly. Explain what it says, why it conflicts, and what evidence justifies your conclusion." /></label>}
             <label>General reviewer notes<textarea rows={2} maxLength={400} value={reason[c.id]||""} onChange={e=>setReason(p=>({...p,[c.id]:e.target.value}))} placeholder="What does the evidence establish? What remains uncertain?" /></label>
