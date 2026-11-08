@@ -84,7 +84,7 @@ const conf = build(single, { conflict: "Outlet X says 12 dead, the ministry says
 check("editor conflict note => CONFLICTING entry labelled as the editor's", conf.pack.claim_classes.some((c) => c.class === "CONFLICTING" && /Entered by the editor/.test(c.basis)) && /do not choose/.test(conf.out.prompt));
 check("no conflict class unless the editor entered one", !sp.pack.claim_classes.some((c) => c.class === "CONFLICTING"));
 check("UNKNOWN always present", [sp, multi, off].every((x) => x.pack.claim_classes.some((c) => c.class === "UNKNOWN")));
-check("evidence limits stated in every prompt", [sp, multi, off].every((x) => /full articles were NOT read/.test(x.out.prompt)));
+check("evidence limits stated in every prompt", [sp, multi, off].every((x) => /feed metadata and short snippets/.test(x.out.prompt) && /NOT full-article review/.test(x.out.prompt) && /claim register/.test(x.out.prompt)));
 check("every source URL, outlet and date is in the prompt", multi.pack.sources.every((s) => multi.out.prompt.includes(s.url) && multi.out.prompt.includes(s.outlet)) && /published: 2026-10-30/.test(multi.out.prompt));
 check("rule: creative treatment may not promote unsupported claims", /may never turn a SINGLE_SOURCE, CONFLICTING or UNKNOWN item into an asserted fact/.test(sp.out.prompt));
 check("rule: illustrative elements must be labelled", /framed as illustrative/.test(sp.out.prompt));
