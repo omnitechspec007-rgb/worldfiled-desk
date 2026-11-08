@@ -44,7 +44,7 @@ export default async (req: Request) => {
       if (!stories[0]) return json({ error: "not_found" }, 404);
       const [claims, sources, policies] = await Promise.all([
         db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_text,category,created_at,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,retrieved_sources(id,registry_id,title,url,publisher,content_status)),verification_results(id,outcome,determined_by,reviewer_notes,created_at)&order=created_at.asc`),
-        db<any[]>(`story_source_links?story_id=eq.${storyId}&select=role,retrieved_sources(id,registry_id,title,url,publisher,published_at,content_status,source_registry(id,name,publisher))`),
+        db<any[]>(`story_source_links?story_id=eq.${storyId}&select=role,retrieved_sources(id,registry_id,title,url,publisher,published_at,content_status,source_registry(id,name,publisher,enabled,retrieval_status))`),
         loadContentPolicies(),
       ]);
       const safeClaims = claims.map((claim) => ({
@@ -70,6 +70,8 @@ export default async (req: Request) => {
           ...row.retrieved_sources,
           linkRole: row.role,
           contentPolicy: policyForSource(policies.rows, row.retrieved_sources.registry_id),
+          enabled: row.retrieved_sources.source_registry?.enabled === true,
+          retrievalStatus: row.retrieved_sources.source_registry?.retrieval_status ?? "unknown",
         })),
         sourceContentPolicyInstalled: policies.installed,
         sourcePolicyNote: policies.installed ? null : "Source content policies are not installed. All publishers default to metadata-only; passages remain unavailable for claim verification until a human approves extraction_allowed.",
