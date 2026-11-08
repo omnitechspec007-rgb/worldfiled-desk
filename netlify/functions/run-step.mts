@@ -4,6 +4,7 @@
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { STAGES, stageCluster, stageDiscover, stagePrepare, stageRank } from "../lib/pipeline.mts";
+import { buildResearchReport } from "../lib/research-report.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -36,6 +37,7 @@ export const summarize = (rows: any[]) =>
       blocked: d.blocked ?? null,
       metadataOnly: d.metadataOnly ?? null,
       extractionAllowed: d.extractionAllowed ?? null,
+      researchReport: name === "discover" ? buildResearchReport(d) : null,
     };
   });
 
@@ -118,7 +120,8 @@ export default async (req: Request) => {
     const allDone = STAGES.every((s) => stages.find((x) => x.stage === s)?.status === "completed");
     if (allDone) {
       const disc = stages.find((x) => x.stage === "discover")?.detail ?? {};
-      const note = disc.problems ? `${disc.problems} of ${disc.total} sources had problems (see System Health).` : null;
+      const report = buildResearchReport(disc);
+      const note = report.coverage === "complete" ? null : report.note;
       await db(`research_runs?id=eq.${runId}`, {
         method: "PATCH",
         prefer: "return=minimal",
