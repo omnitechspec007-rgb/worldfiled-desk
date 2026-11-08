@@ -15,9 +15,10 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 const STRUCTS = Object.keys(STRUCTURE_LABEL) as Structure[];
 
-const devSummary = (d: Dev, decision: string | null, flag?: { fresh: boolean; why: string | null; ageHours: number | null }) => ({
+const devSummary = (d: Dev, decision: string | null, flag?: { fresh: boolean; why: string | null; ageHours: number | null }, verificationStatus = "unverified") => ({
   fresh: flag?.fresh ?? true, notFreshWhy: flag?.why ?? null, ageHours: flag?.ageHours ?? null,
-  sources: d.sources.map((x) => ({ outlet: x.outlet, region: x.region, tier: x.tier, title: x.title, url: x.url, publishedAt: x.publishedAt ?? null, snippet: (x.summary ?? "").slice(0, 300) })),
+  sources: d.sources.map((x) => ({ outlet: x.outlet, region: x.region, tier: x.tier, title: x.title, url: x.url, publishedAt: x.publishedAt ?? null, snippet: (x.summary ?? "").slice(0, 300), depth: x.contentStatus ?? "unknown" })),
+  verificationStatus,
   id: d.id, headline: d.headline, category: d.category, decision,
   type: d.a.typeLabel, recommendation: d.a.recommendation, recommendationWhy: d.a.recommendationWhy,
   curiosityScore: d.a.curiosityScore, evidenceStrength: d.a.evidenceStrength, corroborated: d.a.corroborated,
@@ -79,7 +80,7 @@ async function desk() {
   return json({
     generatedAt: new Date(now).toISOString(),
     note: "Suggestions use fixed, visible rules on headlines and feed snippets only. The connection between developments is an editorial inference for you to judge; it is not verified.",
-    developments: all.map((l) => devSummary(l.dev, decisions.get(l.dev.id)?.decision ?? null, flags.get(l.dev.id))).sort((a, b) => Number(b.fresh) - Number(a.fresh) || b.curiosityScore - a.curiosityScore),
+    developments: all.map((l) => devSummary(l.dev, decisions.get(l.dev.id)?.decision ?? null, flags.get(l.dev.id), l.verificationStatus)).sort((a, b) => Number(b.fresh) - Number(a.fresh) || b.curiosityScore - a.curiosityScore),
     suggestions: sug.editions.map(stripped),
     weakConnections: sug.weakConnections.map(stripped),
     unmatched: sug.unmatched,
@@ -114,7 +115,7 @@ async function evaluate(u: URL) {
   const r = await evaluateIds(ids, u.searchParams.get("structure") ?? undefined);
   if ("missing" in r) return json({ error: "not_found", detail: "Some developments are no longer available.", missing: r.missing }, 404);
   const decs = await latestDecisions(ids);
-  return json({ evaluation: r.out, developments: ids.map((i) => devSummary(r.loaded.get(i)!.dev, decs.get(i)?.decision ?? null)) });
+  return json({ evaluation: r.out, developments: ids.map((i) => devSummary(r.loaded.get(i)!.dev, decs.get(i)?.decision ?? null, undefined, r.loaded.get(i)!.verificationStatus)) });
 }
 
 async function detail(id: string) {
@@ -134,7 +135,7 @@ async function detail(id: string) {
     approval: { decision: dec?.decision ?? null, notes: dec?.notes ?? null, decidedAt: dec?.created_at ?? null, current: dec?.decision === "approved" && dec.members_hash === membersKey(ids) && blocked.length === 0, membersChangedSinceApproval: dec?.decision === "approved" && dec.members_hash !== membersKey(ids), blockedMembers: blocked },
     decisions,
     evaluation: "out" in r ? r.out : null,
-    developments: "loaded" in r ? ids.map((i) => devSummary(r.loaded.get(i)!.dev, memberDecs.get(i)?.decision ?? null)) : [],
+    developments: "loaded" in r ? ids.map((i) => devSummary(r.loaded.get(i)!.dev, memberDecs.get(i)?.decision ?? null, undefined, r.loaded.get(i)!.verificationStatus)) : [],
     missing: "missing" in r ? r.missing : [],
     savedAssessment: { coherence: e.coherence, curiosity: e.curiosity },
   });
