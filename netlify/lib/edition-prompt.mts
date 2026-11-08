@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { INTEGRITY_POLICY } from "./integrity-policy.mts";
 import { brandBlock, brandChecklist, BRAND_VERSION } from "./brand.mts";
-import { CLASS_MEANING, cleanField, classCounts, renderEvidence, type EvidencePack } from "./evidence-pack.mts";
+import { claimRegisterFingerprint, CLASS_MEANING, cleanField, classCounts, renderEvidence, sourceSnapshotFingerprint, type EvidencePack } from "./evidence-pack.mts";
 import { DELIVERABLES, selectTools, type Deliverable, type ToolPlan } from "./production-tools.mts";
 import { distanceKm } from "./geo.mts";
 import type { Dev, Evaluation } from "./editions.mts";
