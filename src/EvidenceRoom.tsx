@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Scores, type Score } from "./Scores";
 
-type Source = { id: string; title: string; url: string; outlet: string; scope: string | null; region: string; tier: string; publishedAt: string | null; retrievedAt: string | null; depth: string; summary?: string | null };
-type Claim = { id: string; claim_text: string; category: string | null; claim_evidence: { id: string; passage: string | null; passage_location: string | null; is_contradiction: boolean; extraction_status: string; retrieved_sources?: { title: string; url: string } }[]; verification_results: { id: string; outcome: string; determined_by: string; reviewer_notes: string | null; created_at: string }[] };
+type Source = { id: string; title: string | null; url: string | null; outlet: string; scope: string | null; region: string; tier: string; publishedAt: string | null; retrievedAt: string | null; depth: string; summary?: string | null; contentPolicy: "blocked" | "metadata_only" | "extraction_allowed"; enabled: boolean; retrievalStatus: string };
+type Claim = { id: string; claim_text: string; category: string | null; claim_evidence: { id: string; passage: string | null; passage_location: string | null; is_contradiction: boolean; extraction_status: string; passageWithheld?: boolean; policyBlocked?: boolean; contentPolicy?: string; retrieved_sources?: { title: string; url: string } | null }[]; verification_results: { id: string; outcome: string; determined_by: string; reviewer_notes: string | null; created_at: string }[] };
 type PendingClaimDecision = { storyId: string; body: Record<string,unknown>; key: string };
-type Story = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; sources: Source[]; scores?: Score[]; decisions?: { decision: string; notes: string | null; created_at: string }[]; verificationStatus?: string };
+type Story = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; sources: Source[]; scores?: Score[]; decisions?: { decision: string; notes: string | null; created_at: string }[]; verificationStatus?: string; sourceContentPolicyInstalled?: boolean; sourcePolicyNote?: string | null };
 const outcomes = ["SUPPORTED", "PARTIALLY_SUPPORTED", "CONTRADICTED", "INSUFFICIENT_EVIDENCE", "UNVERIFIED", "NOT_APPLICABLE"];
 const dateText = (v: string | null) => v ? new Date(v).toLocaleString() : "date not given by source";
 
@@ -42,10 +42,38 @@ export default function EvidenceRoom() {
       const a = await fetch("/.netlify/functions/stories?id=" + encodeURIComponent(id));
       if (!a.ok) throw new Error("Could not load this story.");
       const storyData = await a.json();
-      setStory(storyData.story);
       const b = await fetch("/.netlify/functions/claim-verification?storyId=" + encodeURIComponent(id));
       const data = await b.json();
       if (!b.ok) throw new Error(data.detail || data.error || "Could not load the verification register.");
+      const policyById = new Map<string, any>((data.sources || []).map((source: any) => [source.id, source]));
+      const sources: Source[] = (storyData.story.sources || []).map((source: any) => {
+        const policy = policyById.get(source.id);
+        if (!policy || policy.contentPolicy === "blocked") {
+          return {
+            ...source,
+            title: null,
+            url: null,
+            outlet: "Blocked source",
+            depth: "metadata withheld",
+            summary: null,
+            contentPolicy: "blocked",
+            enabled: false,
+            retrievalStatus: "unknown",
+          };
+        }
+        return {
+          ...source,
+          contentPolicy: policy.contentPolicy,
+          enabled: policy.enabled === true,
+          retrievalStatus: policy.retrievalStatus ?? "unknown",
+        };
+      });
+      setStory({
+        ...storyData.story,
+        sources,
+        sourceContentPolicyInstalled: data.sourceContentPolicyInstalled === true,
+        sourcePolicyNote: data.sourcePolicyNote ?? null,
+      });
       setClaims(data.claims || []);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load this story."); }
   }, [id]);
