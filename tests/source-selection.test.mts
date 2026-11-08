@@ -12,6 +12,7 @@ assert.equal(shouldProbeSource(source("healthy", { enabled: true, retrieval_stat
 assert.equal(shouldProbeSource(source("manually-disabled", { enabled: false, retrieval_status: "healthy" })), false);
 assert.equal(shouldProbeSource(source("degraded-retry", { enabled: false, retrieval_status: "degraded" })), true, "a later research run should retry a previously degraded feed");
 assert.equal(shouldProbeSource(source("failing-retry", { enabled: false, retrieval_status: "failing" })), true, "a later research run should retry a previously failing feed");
+assert.equal(shouldProbeSource(source("manually-disabled-failing", { enabled: false, retrieval_status: "failing", reliability_note: "tier:reporting; manually disabled by editor" })), false, "manual source disablement must not be overridden by retry logic");
 assert.equal(shouldProbeSource(source("retired", { enabled: false, retrieval_status: "disabled" })), false);
 assert.equal(shouldProbeSource(source("unreviewed-custom", { reliability_note: "new source", retrieval_status: "untested" })), false);
 assert.equal(shouldProbeSource(source("no-feed", { feed_url: null })), false);
