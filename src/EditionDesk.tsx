@@ -29,7 +29,7 @@ type Desk = {
   saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
 };
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
-type WorkflowStatus = { storyEditorialReview: { ready: boolean; awaitingApproval: string[]; rejectedOrReturned: string[] }; editorialApproval: { current: boolean; decision?: string | null; membersCurrent?: boolean }; factualVerification: { ready: boolean; blocked: { storyId?: string; claimId?: string; reason: string }[] }; verificationBriefAllowed: boolean; productionPromptAllowed: boolean; blockers: string[]; note: string };
+type WorkflowStatus = { storyEditorialReview: { ready: boolean; awaitingApproval: string[]; rejectedOrReturned: string[] }; editorialApproval: { current: boolean; decision?: string | null; membersCurrent?: boolean }; factualVerification: { ready: boolean; blocked: { storyId?: string; claimId?: string; reason: string }[] }; verifiedClaimsByStory: Record<string, { claimId: string; statement: string; sources: { publisher?: string | null; url?: string | null; title?: string | null }[] }[]>; verificationBriefAllowed: boolean; productionPromptAllowed: boolean; blockers: string[]; note: string };
 type VerificationBrief = { prompt: string; storyCount: number; sourceCount: number; directoryReviewedOn: string; note: string };
 type CreativePreview = {
   format: { key: string; label: string; why: string; overridden: boolean }; formats: { key: string; label: string; description: string }[];
@@ -355,7 +355,18 @@ export default function EditionDesk() {
   const canBuild = !!editionId && workflow?.productionPromptAllowed === true;
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
-    return d ? { id: d.id, headline: d.headline, summary: d.whatChanged || d.whyInteresting[0] || "Consult the linked source material for the verified details.", location: d.locations.map((x) => x.country).join(", "), source: d.sources[0]?.outlet ?? "" } : null;
+    const claims = workflow?.verifiedClaimsByStory?.[id] ?? [];
+    const primary = claims[0];
+    const supporting = primary?.sources?.[0];
+    return d && primary ? {
+      id: d.id,
+      // The public-facing card is built from a claim statement the editor actually cleared,
+      // never from the earlier headline/snippet-based research summary.
+      headline: primary.statement,
+      summary: claims.slice(1, 3).map((claim) => claim.statement).join(" ") || "See the linked verified source passage for the supporting detail.",
+      location: d.locations.map((x) => x.country).join(", "),
+      source: supporting?.publisher ?? "Verified source in Evidence Room",
+    } : null;
   }).filter((x) => x !== null);
   return (
     <section>
