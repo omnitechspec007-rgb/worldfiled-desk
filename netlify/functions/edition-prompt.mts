@@ -76,6 +76,7 @@ export default async (req: Request) => {
   } catch (e) {
     if (e instanceof DbError) return json({ error: "database", detail: e.message }, e.status);
     if (e instanceof PackTooLarge || e instanceof EditionPromptTooLarge || e instanceof VerificationBriefTooLarge) return json({ error: "too_large", detail: (e as Error).message }, 413);
+    console.error("Edition Prompt API failure", e instanceof Error ? { name: e.name, message: e.message } : "unknown error");
     return json({ error: "server_error" }, 500);
   }
 };
