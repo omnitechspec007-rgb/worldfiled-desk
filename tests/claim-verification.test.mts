@@ -10,15 +10,18 @@ const { hasContradictionReconciliation } = await import(root + "lib/claim-cleara
 const cookie = makeSessionCookie().split(";")[0];
 const storyId = "11111111-1111-4111-8111-111111111111";
 const sourceId = "22222222-2222-4222-8222-222222222222";
+const registryId = "33333333-3333-4333-8333-333333333333";
+const registry = { id: registryId, name: "Example", publisher: "Example", enabled: true, retrieval_status: "healthy" };
+const contentPolicies: any[] = [{ source_id: registryId, policy: "extraction_allowed" }];
 const claims: any[] = [], evidence: any[] = [], decisions: any[] = [];
 const stories: any[] = [{ id: storyId, headline: "Test story", verification_status: "unverified", editorial_status: "pending" }];
-const sources: any[] = [{ id: sourceId, title: "Primary source", url: "https://example.org/report", publisher: "Example", published_at: new Date().toISOString() }];
+const sources: any[] = [{ id: sourceId, registry_id: registryId, source_registry: registry, title: "Primary source", url: "https://example.org/report", publisher: "Example", published_at: new Date().toISOString() }];
 const links = [{ story_id: storyId, source_id: sourceId, role: "primary" }];
 const idempotency = new Map<string,any>();
 const auditEvents: any[] = [];
 let testClock = Date.now();
 const response = (x: any, status=200) => new Response(x === null ? null : JSON.stringify(x), { status });
-const filter = (rows: any[], p: URLSearchParams) => rows.filter(row => [...p.entries()].every(([k,v]) => ["select","order","on_conflict"].includes(k) || (v.startsWith("eq.") && String(row[k]) === v.slice(3))));
+const filter = (rows: any[], p: URLSearchParams) => rows.filter(row => [...p.entries()].every(([k,v]) => ["select","order","on_conflict","limit"].includes(k) || (v.startsWith("eq.") && String(row[k]) === v.slice(3))));
 globalThis.fetch = (async (input: any, init: any = {}) => {
   const u = new URL(String(input)), table = u.pathname.split("/rest/v1/")[1], method = init.method || "GET", p = u.searchParams;
   if (table === "rpc/add_material_claim" && method === "POST") {
@@ -120,11 +123,11 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
     idempotency.set(mapKey,{hash:b.p_request_hash,status:200,body});
     return response({status:200,body,replayed:false});
   }
-  const tableRows: Record<string,any[]> = { stories, claims, claim_evidence:evidence, verification_results:decisions, story_source_links:links, retrieved_sources:sources };
+  const tableRows: Record<string,any[]> = { stories, claims, claim_evidence:evidence, verification_results:decisions, story_source_links:links, retrieved_sources:sources, source_registry:[registry], source_content_policies:contentPolicies };
   const rows = tableRows[table] || [];
   if (method === "GET") {
     if (table === "stories") return response(filter(stories,p));
-    if (table === "claims") return response(filter(claims,p).map(c=>({...c,claim_evidence:evidence.filter(e=>e.claim_id===c.id).map(e=>({...e,retrieved_sources:sources.find(s=>s.id===e.source_id)})),verification_results:decisions.filter(d=>d.claim_id===c.id)})));
+    if (table === "claims") return response(filter(claims,p).map(claim=>({...claim,claim_evidence:evidence.filter(e=>e.claim_id===claim.id).map(e=>({...e,retrieved_sources:sources.find(s=>s.id===e.source_id)})),verification_results:decisions.filter(d=>d.claim_id===claim.id)})));
     if (table === "claim_evidence") return response(filter(evidence,p));
     if (table === "verification_results") return response(filter(decisions,p));
     if (table === "story_source_links") return response(filter(links,p).map(l=>({...l,retrieved_sources:sources.find(s=>s.id===l.source_id)})));
@@ -168,7 +171,14 @@ assert.equal((await post({action:"decide_claim",storyId,claimId:claim.id,outcome
 assert.equal((await post({action:"complete_story",storyId,acknowledged:true})).status,409); ok("story clearance is refused while claims remain unresolved");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"x".repeat(4001)})).status,400); ok("overlong evidence passages are rejected without truncation");
 assert.equal((await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"Text",isContradiction:"false"})).status,400); ok("string booleans are rejected and cannot silently become contradiction flags");
-r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"}); assert.equal(r.status,200); assert.equal(evidence.length,1); ok("checked passage is attached to a source already linked to the story");
+contentPolicies[0].policy = "metadata_only";
+const metadataOnlyPassage = await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"});
+assert.equal(metadataOnlyPassage.status,409);
+assert.equal((await metadataOnlyPassage.json()).error,"source_not_approved_for_passage_evidence");
+assert.equal(evidence.length,0);
+ok("metadata-only sources cannot supply stored claim passages");
+contentPolicies[0].policy = "extraction_allowed";
+r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"}); assert.equal(r.status,200); assert.equal(evidence.length,1); ok("extraction-approved source can supply a checked passage");
 const evidenceKey=crypto.randomUUID();
 const evidenceBody={action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"};
 const evidenceFirst=await post(evidenceBody,true,evidenceKey); assert.equal(evidenceFirst.status,200);
