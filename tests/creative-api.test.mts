@@ -162,7 +162,7 @@ await call(cfn, { action: "save-voice", voice: { ...(await (await get(cfn, "")).
 const g3 = await (await call(pfn, { editionId: E, deliverable: "narrated_video", durationSeconds: 120, format: "global_roundup", sound: "minimal", visual: "typographic" })).json();
 assert(g3.saved && /No music bed/.test(g3.prompt) && g3.creative.format.key === "global_roundup"); ok("editor options (format, sound, visual) are applied");
 const legacy = { id: crypto.randomUUID(), edition_id: E, version: 9, members: [jp, al, rt], members_hash: hashNow(), approval_decision_id: T("edition_decisions")[0].id, rationale: { structure: "news_roundup" }, prompt_text: "x".repeat(300), title: "legacy", structure: "news_roundup", deliverable: "script_storyboard", created_at: new Date(Date.now() + 99999).toISOString() };
-T("edition_prompts").push(legacy); hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts.find((p: any) => p.version === 9).current === true); ok("a prompt saved before this feature (no config hash) is left as it was");
+T("edition_prompts").push(legacy); hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts.find((p: any) => p.version === 9).current === false); ok("legacy prompt without evidence snapshot remains history only");
 decide(al, "rejected"); hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts.every((p: any) => p.current === false)); ok("existing invalidation still works: a rejected member makes prompts not current");
 assert.equal((await call(pfn, { editionId: E })).status, 409); ok("and a new prompt is refused while a member is rejected");
 console.log("\nALL CREATIVE API CHECKS PASSED");
