@@ -68,7 +68,7 @@ const get = (q: string, c: string | null = cookie) => fn(new Request("https://x/
 
 // ---------- seed ----------
 const H = 3600_000; const NOW = Date.now(); const at = (h: number) => new Date(NOW - h * H).toISOString();
-const reg = (name: string) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: "" }; T("source_registry").push(r); } return r; };
+const reg = (name: string) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: "", enabled: true, retrieval_status: "healthy" }; T("source_registry").push(r); T("source_content_policies").push({ source_id: r.id, policy: "extraction_allowed" }); } return r; };
 function story(headline: string, ageH: number | string, nSources = 2) {
   const st = { id: crypto.randomUUID(), headline, category: "Public policy", created_at: typeof ageH === "number" ? at(ageH) : ageH, editorial_status: "pending" }; T("stories").push(st);
   for (let i = 0; i < nSources; i++) { const rs = { id: crypto.randomUUID(), registry_id: reg(`${headline.split(" ")[0]} Outlet ${i}`).id, title: `${headline} report ${i}`, url: `https://o${i}.example/${st.id.slice(0, 6)}`, published_at: typeof ageH === "number" ? at(ageH) : ageH, retrieved_at: at(0.5), extract: "Officials said the measure takes effect." }; T("retrieved_sources").push(rs); T("story_source_links").push({ story_id: st.id, source_id: rs.id }); }
@@ -81,9 +81,18 @@ const D = story("Delta board approves harbour plan", 6);
 for (const storyId of [A, D]) {
   const row = T("stories").find((story) => story.id === storyId)!;
   row.verification_status = "verified";
+  const sourceLink = T("story_source_links").find((link) => link.story_id === storyId);
+  const retrieved = sourceLink ? T("retrieved_sources").find((source) => source.id === sourceLink.source_id) : null;
+  const sourceRegistry = retrieved ? T("source_registry").find((source) => source.id === retrieved.registry_id) : null;
   T("claims").push({
     id: crypto.randomUUID(), story_id: storyId,
-    claim_evidence: [{ id: crypto.randomUUID(), passage: "Checked supporting passage for the planner fixture.", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60_000).toISOString() }],
+    claim_evidence: [{
+      id: crypto.randomUUID(), source_id: retrieved?.id ?? null,
+      passage: "Checked supporting passage for the planner fixture.",
+      extraction_status: "extracted", is_contradiction: false,
+      created_at: new Date(Date.now() - 60_000).toISOString(),
+      retrieved_sources: retrieved ? { ...retrieved, source_registry: sourceRegistry } : null,
+    }],
     verification_results: [{ id: crypto.randomUUID(), outcome: "SUPPORTED", reviewer_notes: "Planner fixture editor decision.", created_at: new Date().toISOString() }],
   });
 }
