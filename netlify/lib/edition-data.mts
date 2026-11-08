@@ -46,10 +46,11 @@ function toLoaded(st: any, now: number, includeInactiveSources = false, claimReg
 async function claimRegistersByStory(ids: string[]): Promise<Map<string, ClaimRegisterEntry[]>> {
   const out = new Map<string, ClaimRegisterEntry[]>();
   for (const id of ids) out.set(id, []);
+  const policies = await loadContentPolicies();
   for (const part of chunk(ids, 30)) {
     let rows: any[];
     try {
-      rows = await db<any[]>("claims?story_id=in.(" + part.join(",") + ")&select=id,story_id,claim_text,category,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,created_at,retrieved_sources(id,title,url,publisher,published_at,content_status,source_registry(name,publisher,enabled,retrieval_status))),verification_results(id,outcome,reviewer_notes,created_at)");
+      rows = await db<any[]>("claims?story_id=in.(" + part.join(",") + ")&select=id,story_id,claim_text,category,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,created_at,retrieved_sources(id,registry_id,title,url,publisher,published_at,content_status,source_registry(name,publisher,enabled,retrieval_status))),verification_results(id,outcome,reviewer_notes,created_at)");
     } catch (error) {
       // Keep the research-only verification assignment available before claim tables are installed.
       // Public production separately fails closed through editionClaimClearance().
@@ -62,10 +63,15 @@ async function claimRegistersByStory(ids: string[]): Promise<Map<string, ClaimRe
         String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? ""))
       )[0];
       const extracted = evidence.filter((e: any) => e.passage && e.extraction_status === "extracted");
+      const policyForEvidence = (e: any) => {
+        const registryId = e.retrieved_sources?.registry_id;
+        return typeof registryId === "string" ? policyForSource(policies.rows, registryId) : "blocked";
+      };
       const hasSupport = extracted.some((e: any) =>
         !e.is_contradiction
         && e.retrieved_sources?.source_registry?.enabled === true
         && e.retrieved_sources?.source_registry?.retrieval_status === "healthy"
+        && canUsePassageEvidence(policyForEvidence(e))
       );
       const hasContradiction = extracted.some((e: any) => e.is_contradiction);
       const latestEvidenceAt = Math.max(0, ...evidence.map((e: any) => Date.parse(e.created_at ?? "") || 0));
@@ -80,6 +86,7 @@ async function claimRegistersByStory(ids: string[]): Promise<Map<string, ClaimRe
           publishedAt: e.retrieved_sources?.published_at ?? null, contentDepth: e.retrieved_sources?.content_status ?? null,
           sourceEnabled: typeof e.retrieved_sources?.source_registry?.enabled === "boolean" ? e.retrieved_sources.source_registry.enabled : null,
           retrievalStatus: typeof e.retrieved_sources?.source_registry?.retrieval_status === "string" ? e.retrieved_sources.source_registry.retrieval_status : null,
+          contentPolicy: policyForEvidence(e),
           passage: e.passage ?? null, passageLocation: e.passage_location ?? null, extractionStatus: e.extraction_status ?? "unknown",
           isContradiction: e.is_contradiction === true, createdAt: e.created_at ?? null,
         })),
