@@ -37,6 +37,13 @@ export default async (req: Request) => {
   const requestHash = createHash("sha256").update(canonical).digest("hex");
 
   try {
+    if (body.decision === "approved") {
+      const stories = await db<any[]>(`stories?id=eq.${body.storyId}&select=id,verification_status&limit=1`);
+      if (!stories[0]) return json({ error: "not_found", detail: "This story no longer exists." }, 404);
+      if (stories[0].verification_status !== "verified") {
+        return json({ error: "verification_incomplete", detail: "Factual verification must be completed in the Evidence Room before editorial approval. Editorial approval and factual verification are separate human decisions." }, 409);
+      }
+    }
     const result: any = await db<any>("rpc/record_story_editorial_decision", {
       method: "POST",
       body: {
