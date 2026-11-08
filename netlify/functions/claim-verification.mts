@@ -124,9 +124,12 @@ export default async (req: Request) => {
 
       const linked = await db<any[]>(`story_source_links?story_id=eq.${storyId}&source_id=eq.${sourceId}&select=source_id&limit=1`);
       if (!linked[0]) return json({ error: "source_not_linked_to_story" }, 400);
-      const retrieved = await db<any[]>(`retrieved_sources?id=eq.${sourceId}&select=id,registry_id&limit=1`);
+      const retrieved = await db<any[]>(`retrieved_sources?id=eq.${sourceId}&select=id,registry_id,source_registry(enabled,retrieval_status)&limit=1`);
       if (!retrieved[0] || typeof retrieved[0].registry_id !== "string") {
         return json({ error: "source_registry_missing", detail: "The source has no registered publisher record, so its passage policy cannot be confirmed." }, 409);
+      }
+      if (retrieved[0].source_registry?.enabled !== true || retrieved[0].source_registry?.retrieval_status !== "healthy") {
+        return json({ error: "source_not_currently_eligible", detail: "This source is disabled or its feed health is not current. Check the source registry before adding new claim evidence." }, 409);
       }
       const policies = await loadContentPolicies();
       const policy = policyForSource(policies.rows, retrieved[0].registry_id);
