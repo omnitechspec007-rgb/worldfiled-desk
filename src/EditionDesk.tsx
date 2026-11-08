@@ -66,7 +66,9 @@ function DevDetail({ d }: { d: Dev }) {
       <h3>Editorial reasoning</h3>
       <p className="why"><strong>What changed:</strong> {d.whatChanged}</p>
       <p className="why"><strong>Why it may be interesting:</strong> {d.whyInteresting.join("; ") || "nothing specific found"}</p>
-      <p className="why"><strong>Audience question:</strong> {d.audienceQuestion}</p>\n      {d.keyQuestions?.length ? <><h3>Questions to answer before scripting</h3><ul className="comps">{d.keyQuestions.map((question) => <li key={question}>{question}</li>)}</ul></> : null}\n      {d.accountability?.length ? <p className="why"><strong>Accountability signals to investigate:</strong> {d.accountability.join(", ")}</p> : null}
+      <p className="why"><strong>Audience question:</strong> {d.audienceQuestion}</p>
+      {d.keyQuestions?.length ? <><h3>Questions to answer before scripting</h3><ul className="comps">{d.keyQuestions.map((question) => <li key={question}>{question}</li>)}</ul></> : null}
+      {d.accountability?.length ? <p className="why"><strong>Accountability signals to investigate:</strong> {d.accountability.join(", ")}</p> : null}
       {d.surprisingElement && <p className="why"><strong>Surprising element:</strong> {d.surprisingElement}</p>}
       {d.humanConsequences && <p className="why"><strong>Human consequences:</strong> {d.humanConsequences}</p>}
       {d.possibleImplications && <p className="why"><strong>Possible implications (not established):</strong> {d.possibleImplications}</p>}
@@ -223,7 +225,7 @@ export default function EditionDesk() {
     lastEv.current = null; autoPromptKey.current = null; setPrevScore(null);
     const kind = s.editionKind ?? editionKind;
     setEditionKind(kind); setSelections((prev) => ({ ...prev, [kind]: s.ids }));
-    setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setAck(false); setNotes(""); setMsg("");
+    setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setRoundupPreflight(null); setAck(false); setNotes(""); setMsg("");
     setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
     setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
@@ -326,13 +328,13 @@ export default function EditionDesk() {
     } catch { setMsg("Could not create the prompt."); }
     setBusy(false);
   };
-  const autoPromptSignature = [editionId ?? "", editionKind, deliverable, duration, fmt, sound, visual].join("|");
+  const autoPromptSignature = [editionId ?? "", editionKind, deliverable, duration, fmt, sound, visual, pAngle, conflicts.join(";")].join("|");
   useEffect(() => {
     const preflightReady = editionKind !== "video" || deliverable !== "static_roundup_6s" || roundupPreflight?.ready === true;
     if (!canBuild || !editionId || res || !preflightReady || autoPromptKey.current === autoPromptSignature) return;
     autoPromptKey.current = autoPromptSignature;
     void build();
-  }, [canBuild, editionId, editionKind, deliverable, duration, fmt, sound, visual, roundupPreflight?.ready, res]);
+  }, [canBuild, editionId, editionKind, deliverable, duration, fmt, sound, visual, pAngle, conflicts, roundupPreflight?.ready, res]);
 
   const copy = async () => { try { await navigator.clipboard.writeText(res!.prompt); setCopied(true); } catch { setMsg("Copy was blocked by the browser. Select the text and copy it manually."); } };
 
