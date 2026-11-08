@@ -39,7 +39,7 @@ export function buildResearchReport(detail: Record<string, any> = {}): ResearchR
   const reachable = sources.filter((source) => source.status === "healthy").length;
   const policyBlocked = sources.filter((source) => source.status === "blocked").length;
   const needsAttention = sources.filter((source) => !["healthy", "blocked"].includes(source.status)).length;
-  const coverage = checked < total
+  const coverage = total === 0 || checked < total
     ? "incomplete"
     : needsAttention > 0 || policyBlocked > 0
       ? "limited"
