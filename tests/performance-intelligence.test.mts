@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { summarizePerformanceCohorts } from "../netlify/lib/performance-intelligence.mts";
+import { summarizePerformanceCohorts, type PublicationMetric } from "../netlify/lib/performance-intelligence.mts";
 
-const rows = Array.from({ length: 5 }, (_, i) => ({
+const rows: PublicationMetric[] = Array.from({ length: 5 }, (_, i) => ({
   publicationId: "p" + i, platform: "youtube", contentFormat: "narrated_video",
   views: 100 + i * 100, averageViewDurationSeconds: 20 + i,
   completionRate: 0.4 + i * 0.05, shares: 5 + i, saves: 2 + i,
@@ -14,7 +14,7 @@ assert.equal(yt.sampleLabel, "usable_pattern");
 assert.equal(yt.publicationCount, 5);
 assert.equal(yt.metrics.views.median, 300);
 assert.equal(yt.metrics.completionRate.median, 0.5);
-assert.equal(yt.metrics.shareRate.median, 0.03);
+assert.ok(Math.abs((yt.metrics.shareRate.median ?? 0) - (7 / 300)) < 1e-10);
 const fb = result.find((x) => x.platform === "facebook")!;
 assert.equal(fb.sampleLabel, "too_few_to_interpret");
 assert.equal(fb.metrics.completionRate.measured, 0);
