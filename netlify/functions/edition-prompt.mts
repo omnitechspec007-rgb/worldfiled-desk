@@ -80,10 +80,12 @@ export default async (req: Request) => {
   }
 };
 
+const STRICT_STORY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function parseStoryIds(raw: unknown): string[] | null {
   const ids = Array.isArray(raw) ? raw.map((x) => typeof x === "string" ? x.trim() : "") :
     typeof raw === "string" ? raw.split(",").map((x) => x.trim()) : [];
-  if (!ids.length || ids.length > MAX_MEMBERS || ids.some((id) => !UUID.test(id)) || new Set(ids).size !== ids.length) return null;
+  if (!ids.length || ids.length > MAX_MEMBERS || ids.some((id) => !STRICT_STORY_UUID.test(id)) || new Set(ids).size !== ids.length) return null;
   return ids;
 }
 
