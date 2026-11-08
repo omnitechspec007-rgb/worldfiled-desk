@@ -83,8 +83,8 @@ alter table public.publication_story_attributions enable row level security;
 alter table public.performance_snapshots enable row level security;
 
 revoke all on public.publication_records, public.publication_story_attributions, public.performance_snapshots from public, anon, authenticated;
-grant select, insert, update on public.publication_records to service_role;
-grant select, insert on public.publication_story_attributions to service_role;
+grant select, insert, update, delete on public.publication_records to service_role;
+grant select, insert, delete on public.publication_story_attributions to service_role;
 grant select, insert on public.performance_snapshots to service_role;
 
 commit;
