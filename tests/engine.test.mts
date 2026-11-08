@@ -15,6 +15,7 @@ const stepFn = (await import(`${root}functions/run-step.mts`)).default;
 const { clusterItems } = await import(`${root}lib/cluster.mts`);
 const { stageCluster } = await import(`${root}lib/pipeline.mts`);
 const decideFn = (await import(`${root}functions/decide.mts`)).default;
+const claimVerificationFn = (await import(`${root}functions/claim-verification.mts`)).default;
 const creativeFn = (await import(`${root}functions/creative.mts`)).default;
 const referenceFn = (await import(`${root}functions/reference.mts`)).default;
 const storiesFn = (await import(`${root}functions/stories.mts`)).default;
@@ -48,6 +49,18 @@ function matches(row: any, params: URLSearchParams) {
 function postgrest(url: URL, init: any) {
   const table = url.pathname.split("/rest/v1/")[1];
   const m = init.method ?? "GET";
+  if (table === "rpc/complete_story_verification" && m === "POST") {
+    const b = JSON.parse(init.body);
+    const story = T("stories").find((x) => x.id === b.p_story_id);
+    const claims = T("claims").filter((x) => x.story_id === b.p_story_id);
+    const supported = claims.length > 0 && claims.every((claim) =>
+      T("claim_evidence").some((e) => e.claim_id === claim.id && e.extraction_status === "extracted" && !e.is_contradiction) &&
+      T("verification_results").some((v) => v.claim_id === claim.id && v.outcome === "SUPPORTED")
+    );
+    if (!story || !supported || b.p_acknowledged !== true) return new Response(JSON.stringify({ status: 409, body: { error: "claim_clearance_incomplete" } }), { status: 200 });
+    story.verification_status = "verified";
+    return new Response(JSON.stringify({ status: 200, body: { ok: true, verification_status: "verified" }, replayed: false }), { status: 200 });
+  }
   if (table === "rpc/record_story_editorial_decision" && m === "POST") {
     const b = JSON.parse(init.body);
     const records = T("idempotency_records");
@@ -71,6 +84,17 @@ function postgrest(url: URL, init: any) {
   if (missing.has(table)) return new Response("{}", { status: 404 });
   const rows = T(table);
   const p = url.searchParams;
+  if (table === "claims" && m === "GET") {
+    const joined = rows.filter((row) => matches(row, p)).map((claim) => ({
+      ...claim,
+      claim_evidence: T("claim_evidence").filter((e) => e.claim_id === claim.id).map((e) => {
+        const source = T("retrieved_sources").find((r) => r.id === e.source_id);
+        return { ...e, retrieved_sources: source ? { registry_id: source.registry_id } : null };
+      }),
+      verification_results: T("verification_results").filter((v) => v.claim_id === claim.id),
+    }));
+    return new Response(JSON.stringify(joined), { status: 200 });
+  }
   const prefer = init.headers?.Prefer ?? "";
   if (m === "GET") {
     let out = rows.filter((r) => matches(r, p));
@@ -291,6 +315,18 @@ assert.equal((await call(decideFn, { storyId: sid, decision: "publish", acknowle
 assert.equal(T("editorial_decisions").length, 0); ok("refused attempts leave no decision record");
 assert.equal((await call(creativeFn, { storyId: sid })).status, 409); assert.equal(T("creative_prompts").length, 0); assert.equal((await get(creativeFn, `storyId=${sid}`)).status, 409); ok("unapproved story: no prompt and no recommendation");
 assert.equal((await call(creativeFn, { storyId: sid }, null)).status, 401); assert.equal((await get(creativeFn, "history=1", null)).status, 401); assert.equal((await call(referenceFn, { action: "seed" }, null)).status, 401); ok("architect, history and reference library require sign-in");
+const blockedApproval = await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" }, cookie, crypto.randomUUID());
+assert.equal(blockedApproval.status, 409); ok("unverified story cannot be editorially approved");
+const sourceLink = T("story_source_links").find((x) => x.story_id === sid);
+const sourceRecord = T("retrieved_sources").find((x) => x.id === sourceLink.source_id);
+const claimId = crypto.randomUUID();
+const evidenceAt = new Date(Date.now() - 1000).toISOString();
+T("source_content_policies").push({ source_id: sourceRecord.registry_id, policy: "extraction_allowed" });
+T("claims").push({ id: claimId, story_id: sid, claim_text: "A specific, material fact to verify.", category: "event", claim_hash: createHash("sha256").update("A specific, material fact to verify.").digest("hex"), created_at: evidenceAt });
+T("claim_evidence").push({ id: crypto.randomUUID(), claim_id: claimId, source_id: sourceLink.source_id, passage: "The source passage directly supports the material fact.", extraction_status: "extracted", is_contradiction: false, created_at: evidenceAt });
+T("verification_results").push({ id: crypto.randomUUID(), claim_id: claimId, outcome: "SUPPORTED", reviewer_notes: "Checked against the permitted source passage.", created_at: new Date(Date.now() + 1000).toISOString() });
+const cleared = await call(claimVerificationFn, { action: "complete_story", storyId: sid, acknowledged: true }, cookie, crypto.randomUUID());
+assert.equal(cleared.status, 200); ok("human claim-register completion marks the story factually verified");
 assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" }, cookie, crypto.randomUUID())).status, 200);
 assert.equal(T("stories").find((x) => x.id === sid).editorial_status, "approved"); assert.equal(T("editorial_decisions").length, 1); assert(T("audit_events").some((a) => a.event_type === "story_approved" && a.entity_id === sid)); ok("approval saved with notes, status updated and audit event written");
 console.log("Creative Prompt Architect (approved story)");
