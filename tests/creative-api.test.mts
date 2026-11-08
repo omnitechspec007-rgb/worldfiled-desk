@@ -83,7 +83,7 @@ const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("h
 
 // ---------- seed ----------
 const H = 3600_000; const NOW = Date.now(); const at = (h: number) => new Date(NOW - h * H).toISOString();
-const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "", enabled: true, retrieval_status: "healthy" }; T("source_registry").push(r); } return r; };
+const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "", enabled: true, retrieval_status: "healthy" }; T("source_registry").push(r); T("source_content_policies").push({ source_id: r.id, policy: "extraction_allowed" }); } return r; };
 function story(headline: string, category: string, srcs: [string, string, string, boolean?][]) {
   // Synthetic fixture: claim and story-level clearance are both complete.
   const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending", verification_status: "verified" };
