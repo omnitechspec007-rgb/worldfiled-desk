@@ -324,6 +324,7 @@ async function history() {
   for (const r of rows) if (!currentIdsByEdition.has(r.edition_id)) currentIdsByEdition.set(r.edition_id, await memberIds(r.edition_id));
   const allCurrentIds = [...new Set([...currentIdsByEdition.values()].flat())];
   const clearanceByStory = await editionClaimClearanceByStory(allCurrentIds);
+  const loadedCurrent = await loadStories(allCurrentIds);
   const out = [];
   for (const r of rows) {
     const currentIds = currentIdsByEdition.get(r.edition_id) ?? [];
@@ -332,8 +333,15 @@ async function history() {
       ? { ready: blocked.length === 0, blocked }
       : { ready: false, blocked: [{ storyId: "", reason: "The edition has no stories." }] };
     const v = await promptValidity(r, Date.now(), false, claimClearance, currentIds);
+    const sourcesLoaded = currentIds.length > 0 && currentIds.every((id) => loadedCurrent.has(id));
+    const evidenceCurrent = sourcesLoaded && evidenceHash(packsFor(currentIds, loadedCurrent)) === r.evidence_hash;
     const stale = await creativeStale(r);
-    out.push({ id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.current && !stale, reasons: stale ? [...v.reasons, stale] : v.reasons });
+    const reasons = [
+      ...v.reasons,
+      ...(!sourcesLoaded ? ["One or more story/source records are no longer available for this prompt."] : !evidenceCurrent ? ["Source metadata, source health or the verified claim register changed after this prompt was written."] : []),
+      ...(stale ? [stale] : []),
+    ];
+    out.push({ id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.current && evidenceCurrent && !stale, reasons });
   }
   return json({ prompts: out });
 }
