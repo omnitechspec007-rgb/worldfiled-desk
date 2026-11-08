@@ -13,7 +13,7 @@ import { DELIVERABLES, type Deliverable } from "../lib/production-tools.mts";
 import { buildArchitectPrompt, PromptTooLarge, type StyleRuleIn } from "../lib/prompt-architect.mts";
 import { brandChecklist, BRAND_VERSION } from "../lib/brand.mts";
 import { scoreStory, type StoryInput } from "../lib/scoring.mts";
-import { editionClaimClearance, editionClaimClearanceByStory } from "../lib/edition-data.mts";
+import { editionClaimClearance, editionClaimClearanceByStory, loadStories } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -44,10 +44,13 @@ async function loadStory(storyId: string) {
       publishedAt: (s.published_at ?? null) as string | null,
       retrievedAt: (s.retrieved_at ?? null) as string | null,
       contentStatus: (s.content_status ?? null) as string | null,
+      enabled: typeof s.source_registry?.enabled === "boolean" ? s.source_registry.enabled : undefined,
+      retrievalStatus: typeof s.source_registry?.retrieval_status === "string" ? s.source_registry.retrieval_status : null,
     }));
   const story: EvStory = { headline: st.headline, category: st.category, sources };
   const scoringInput: StoryInput = { id: st.id, headline: st.headline, category: st.category, createdAt: st.created_at, sources };
-  return { story, scoringInput };
+  const verifiedLoaded = await loadStories([storyId]);
+  return { story, scoringInput, claimRegister: verifiedLoaded.get(storyId)?.claimRegister ?? [] };
 }
 
 async function approvedRules(): Promise<{ rules: StyleRuleIn[]; installed: boolean }> {
@@ -115,6 +118,7 @@ async function preview(storyId: string) {
   if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "No currently enabled and healthy source remains attached to this story. It cannot be used for public news output." }, 409);
   const rec = recommendTreatment(loaded.story);
   const pack = buildEvidencePack(loaded.story, { decisionNote: dec.notes });
+  pack.claim_register = loaded.claimRegister;
   return json({
     storyId,
     headline: loaded.story.headline,
@@ -151,6 +155,7 @@ async function generate(req: Request) {
   const rec = recommendTreatment(loaded.story);
   const treatment = (typeof b.treatmentKey === "string" && getTreatment(b.treatmentKey)) || rec.treatment;
   const pack = buildEvidencePack(loaded.story, { conflictNote: typeof b.conflictNote === "string" ? b.conflictNote : null, decisionNote: dec.notes });
+  pack.claim_register = loaded.claimRegister;
   const { rules, installed: rulesInstalled } = await approvedRules();
   const out = buildArchitectPrompt({
     pack,
