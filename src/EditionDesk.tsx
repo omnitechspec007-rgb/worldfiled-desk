@@ -263,6 +263,20 @@ export default function EditionDesk() {
     setBusy(false);
   };
   useEffect(() => {
+    if (!editionId) { setWorkflow(null); return; }
+    let active = true;
+    setWorkflow(null);
+    fetch(`${api}edition-prompt?mode=workflow_status&editionId=${encodeURIComponent(editionId)}`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail ?? "Could not check clearance.");
+        if (active) setWorkflow(data);
+      })
+      .catch(() => { if (active) setWorkflow(null); });
+    return () => { active = false; };
+  }, [editionId, ids.join(","), approval?.current]);
+
+  useEffect(() => {
     if (!editionId || editionKind !== "video" || deliverable !== "static_roundup_6s") { setRoundupPreflight(null); return; }
     let active = true;
     setRoundupPreflight(null);
@@ -295,6 +309,28 @@ export default function EditionDesk() {
     setBusy(false);
   };
   const copy = async () => { try { await navigator.clipboard.writeText(res!.prompt); setCopied(true); } catch { setMsg("Copy was blocked by the browser. Select the text and copy it manually."); } };
+  const prepareVerificationBrief = async () => {
+    if (!ids.length) return;
+    setBusy(true); setMsg(""); setVerificationBrief(null);
+    try {
+      const r = await post("edition-prompt", { mode: "verification_brief", ids, title, angle, conflictNotes: conflicts });
+      const data = await r.json();
+      if (!r.ok) setMsg(data.detail ?? "Could not prepare the verification assignment.");
+      else setVerificationBrief(data);
+    } catch {
+      setMsg("Could not prepare the verification assignment. Your selection is preserved.");
+    }
+    setBusy(false);
+  };
+  const copyVerificationBrief = async () => {
+    if (!verificationBrief) return;
+    try {
+      await navigator.clipboard.writeText(verificationBrief.prompt);
+      setMsg("Verification assignment copied. It contains research instructions only, not news copy.");
+    } catch {
+      setMsg("Copy was blocked by the browser. Select the verification prompt and copy it manually.");
+    }
+  };
 
   const shown = (s: Sug) => !rejectedLinks.includes(s.key);
   const devById = (id: string) => desk?.developments.find((d) => d.id === id);
@@ -315,7 +351,7 @@ export default function EditionDesk() {
     </div>
   );
 
-  const canBuild = !!editionId && !!approval?.current;
+  const canBuild = !!editionId && workflow?.productionPromptAllowed === true;
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
     return d ? { id: d.id, headline: d.headline, summary: d.whatChanged || d.whyInteresting[0] || "Consult the linked source material for the verified details.", location: d.locations.map((x) => x.country).join(", "), source: d.sources[0]?.outlet ?? "" } : null;
