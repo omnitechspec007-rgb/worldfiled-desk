@@ -18,7 +18,13 @@ export function buildVerificationBrief(input: {
   if (input.members.length > 18) throw new Error("Verification briefs support at most 18 developments.");
   const title = cleanField(input.title, 180) || "WorldFiled research verification queue";
   const angle = cleanField(input.angle, 500);
-  const regions = input.members.flatMap((m) => m.pack.regions);
+  // Only event locations explicitly located in retrieved text determine the jurisdiction.
+  // Publisher/registry geography is not evidence of where an event occurred.
+  const regions = input.members.flatMap((m) =>
+    m.dev.a.locations
+      .filter((location) => location.basis === "mentioned in the retrieved text")
+      .map((location) => location.country)
+  );
   const starters = verificationStartersFor(regions);
   const sourceDirectory = starters.map((s) =>
     `- ${s.region} — ${s.name} (${s.class}) — ${s.url}\n  Use: ${s.purpose}${s.standardsUrl ? `\n  Published standards: ${s.standardsUrl}` : ""}`
