@@ -278,7 +278,9 @@ const evidenceAt = new Date(Date.now() - 60_000).toISOString();
 T("claims").push({
   id: crypto.randomUUID(),
   story_id: sid,
-  claim_evidence: [{ id: crypto.randomUUID(), source_id: linkedSource, passage: "Synthetic extracted passage checked against the source record for this test.", extraction_status: "extracted", is_contradiction: false, created_at: evidenceAt }],
+  claim_text: "Synthetic claim statement for this engine test.",
+  category: "factual",
+  claim_evidence: [{ id: crypto.randomUUID(), source_id: linkedSource, passage: "Synthetic extracted passage checked against the source record for this test.", passage_location: "test paragraph", extraction_status: "extracted", is_contradiction: false, created_at: evidenceAt, retrieved_sources: { ...T("retrieved_sources").find((x) => x.id === linkedSource), source_registry: T("source_registry").find((x) => x.id === T("retrieved_sources").find((y) => y.id === linkedSource)?.registry_id) } }],
   verification_results: [{ id: crypto.randomUUID(), outcome: "SUPPORTED", reviewer_notes: "Synthetic test-only claim review.", created_at: new Date().toISOString() }],
 });
 console.log("Creative Prompt Architect (approved and factually cleared story)");
