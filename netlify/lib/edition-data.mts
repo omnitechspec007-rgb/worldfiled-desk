@@ -241,10 +241,12 @@ export async function promptValidity(p: any, now = Date.now(), checkEvidence = t
   const claimClearance = preloadedClaimClearance ?? await editionClaimClearance(ids);
   const claimClearanceCurrent = claimClearance.ready;
   if (!claimClearanceCurrent) reasons.push("One or more story claim registers are no longer complete or current; re-check them before reusing this prompt.");
-  const decs = await latestDecisions(p.members ?? []);
-  const rej = (p.members as string[]).filter((id) => ["rejected", "needs_research"].includes(decs.get(id)?.decision ?? ""));
-  const storiesOk = rej.length === 0;
-  if (!storiesOk) reasons.push(`${rej.length} development${rej.length > 1 ? "s were" : " was"} rejected or sent back for research after this prompt was written.`);
+  const decs = await latestDecisions(ids);
+  const rejectedOrReturned = ids.filter((id) => ["rejected", "needs_research"].includes(decs.get(id)?.decision ?? ""));
+  const awaitingStoryApproval = ids.filter((id) => decs.get(id)?.decision !== "approved");
+  const storiesOk = rejectedOrReturned.length === 0 && awaitingStoryApproval.length === 0;
+  if (rejectedOrReturned.length) reasons.push(`${rejectedOrReturned.length} development${rejectedOrReturned.length > 1 ? "s were" : " was"} rejected or sent back for research after this prompt was written.`);
+  if (awaitingStoryApproval.length) reasons.push(`${awaitingStoryApproval.length} development${awaitingStoryApproval.length > 1 ? "s do" : " does"} not have a current explicit story-level Editorial Review approval.`);
   let evidenceCurrent: boolean | null = null;
   if (membersCurrent && checkEvidence) {
     const loaded = await loadStories(ids, now);
