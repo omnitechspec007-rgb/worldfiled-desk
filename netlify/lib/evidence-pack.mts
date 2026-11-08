@@ -95,10 +95,11 @@ export const CLASS_MEANING: Record<ClaimClass, string> = {
 };
 
 export const EVIDENCE_LIMITS =
-  "Only headlines and short feed snippets (at most 400 characters) were retrieved; full articles were NOT read. " +
+  "The research-source block contains feed metadata and short snippets (at most 400 characters); those snippets are NOT full-article review and must never be used as verified factual support. " +
+  "The separate claim register contains passages attached by the editor, extraction status, source record, human decision and rationale. Only a current SUPPORTED decision linked to a current extracted passage from an enabled, healthy source can support public-facing factual copy. " +
   "Publisher labels are not an ownership or editorial-independence map; shared ownership, syndication, wire services and original reporting chains are not fully traced. " +
-  "The app does not extract individual claims, trace original sources or detect conflicts automatically. " +
-  "Classes below apply to what the headline and snippet state, not to the full reporting.";
+  "Source health is a technical feed check, not proof of accuracy. Each claim still requires its own evidence and human assessment. " +
+  "The app does not automatically discover every material claim, independently fetch every original record or guarantee that a passage entails the whole claim.";
 
 /** Canonical fingerprints used to invalidate saved prompts when their factual inputs change. */
 export function sourceSnapshotFingerprint(sources: PackSource[]): string {
