@@ -195,7 +195,10 @@ assert(T("audit_events").some((a) => a.event_type === "edition_prompt_created" &
 const g2 = await (await call(epFn, { editionId: eid, deliverable: "narrated_video", durationSeconds: 120, parentId: g1.id, conflictNotes: ["Sources differ on the date."] })).json(); assert.equal(g2.version, 2); assert(/Sources differ on the date/.test(g2.prompt) && /\[CONFLICTING\]/.test(g2.prompt)); assert.equal(T("edition_prompts")[1].parent_id, g1.id); ok("second version keeps history, links its parent, and carries the editor's conflict note");
 assert.equal(T("edition_prompts")[0].prompt_text, g1.prompt); ok("earlier version is preserved unchanged");
 const g3 = await (await call(epFn, { editionId: eid, deliverable: "nonsense", durationSeconds: 5000 })).json(); assert.equal(g3.saved, true); ok("unknown options fall back to safe defaults");
-let hist = await (await get(epFn, "history=1")).json(); assert(hist.prompts.length === 3 && hist.prompts.every((h: any) => h.current && h.title)); ok("history lists versions, all current");
+const historyResponse = await get(epFn, "history=1");
+let hist = await historyResponse.json();
+assert.ok(Array.isArray(hist.prompts), "Edition prompt history failed: " + JSON.stringify(hist));
+assert(hist.prompts.length === 3 && hist.prompts.every((h: any) => h.current && h.title)); ok("history lists versions, all current and checks source/claim snapshots");
 assert((await (await get(epFn, `id=${g1.id}`)).json()).prompt.includes(urlJp)); ok("a current prompt can be opened and copied");
 
 console.log("Invalidation");
