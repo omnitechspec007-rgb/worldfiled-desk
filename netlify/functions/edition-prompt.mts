@@ -6,7 +6,7 @@
 // Gates: approval, member list, member decisions and current claim clearance are checked before prompt use or generation; the database trigger rechecks approval and membership at insert time.
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
-import { buildEditionPrompt, EditionPromptTooLarge, MAX_EDITION_PROMPT_CHARS } from "../lib/edition-prompt.mts";
+import { buildEditionPrompt, evidenceHash, EditionPromptTooLarge, MAX_EDITION_PROMPT_CHARS } from "../lib/edition-prompt.mts";
 import { buildTextEditionPrompt } from "../lib/text-edition-prompt.mts";
 import { buildVerificationBrief, VerificationBriefTooLarge } from "../lib/verification-brief.mts";
 import { evaluateEdition, membersKey, STRUCTURE_LABEL, type Structure } from "../lib/editions.mts";
