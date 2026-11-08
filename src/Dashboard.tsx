@@ -162,7 +162,7 @@ export default function Dashboard() {
                 <div className="research-source-list">
                   {report.sources.map((source) => (
                     <div className="source" key={source.name}>
-                      <strong>{source.name}</strong> · <span className={source.status === "healthy" ? "source-ok" : "source-issue"}>{source.status.replaceAll("_", " ")}</span>
+                      <strong>{source.name}</strong> · <span className={source.status === "healthy" ? "source-ok" : "source-issue"}>{source.status.replace(/_/g, " ")}</span>
                       <p className="meta">{source.items} items · {source.newItems} new · {source.refreshedItems} refreshed{source.policy ? " · policy: " + source.policy : ""}</p>
                       {source.error && <p className="meta">{source.error}</p>}
                     </div>
