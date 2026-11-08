@@ -129,7 +129,7 @@ export default async (req: Request) => {
       return json({ stories: rows.map((r) => shape(r, false, policies)).map(({ sources, ...rest }) => rest) });
     }
     const rows = await db<any[]>(`stories?select=${FIELDS}&order=created_at.desc&limit=250`);
-    const list = rows.map((r) => shape(r, false)).map(({ sources, ...rest }) => rest);
+    const list = rows.map((r) => shape(r, false, policies)).map(({ sources, ...rest }) => rest);
     list.sort((a, b) => b.outlets - a.outlets || b.newest.localeCompare(a.newest));
     return json({ stories: list.slice(0, 80), total: rows.length, ordering: "provisional" });
   } catch (e) {
