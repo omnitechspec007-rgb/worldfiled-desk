@@ -39,7 +39,7 @@ export function buildTextEditionPrompt(input: {
     "",
     "=== NON-NEGOTIABLE EVIDENCE RULES ===",
     INTEGRITY_POLICY,
-    "- Use ONLY entries in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER in section 5 where the latest editor outcome is SUPPORTED and current supported decision is YES. Each factual sentence must be supported by the exact recorded supporting passage from a currently enabled, healthy source.",
+    "- Use ONLY entries in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER in section 5 where the latest editor outcome is SUPPORTED and current supported decision is YES. Each factual sentence must be supported by a specific recorded passage whose individual evidence row is extracted, non-contradictory, and marked source enabled=yes and feed health=healthy. Other passage rows are not publishable support.",
     "- Headlines, feed snippets, publisher counts, heuristic evidence classes and editorial scores are research context only. They are never permission to state a fact in public copy.",
     "- If a selected development has no current-supported claim-register entry, omit it from the briefing and list it under 'What we could not verify'. Never substitute its research headline, summary or snippet, and never pad the edition.",
     "- Do not invent context, dates, numbers, names, quotes, causes, legal details, locations or consequences.",
