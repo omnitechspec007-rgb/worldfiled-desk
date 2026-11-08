@@ -29,6 +29,7 @@ assert.equal(limited.coverage, "limited");
 assert.equal(limited.needsAttention, 1);
 assert.equal(limited.policyBlocked, 1);
 assert.match(limited.note, /limited coverage/);
+assert.match(limited.note, /sources had problems/);
 
 const incomplete = buildResearchReport({
   total: 5,

@@ -48,9 +48,9 @@ export function buildResearchReport(detail: Record<string, any> = {}): ResearchR
   const newItems = sources.reduce((sum, source) => sum + source.newItems, 0);
   const refreshedItems = sources.reduce((sum, source) => sum + source.refreshedItems, 0);
   const note = coverage === "incomplete"
-    ? `Only ${checked} of ${total} configured sources have been checked. This research coverage is incomplete.`
+    ? `Only ${checked} of ${total} configured sources have been checked. This research coverage is incomplete; ${needsAttention} of the checked sources had problems.`
     : coverage === "limited"
-      ? `${needsAttention} sources need attention and ${policyBlocked} were skipped by source policy. Treat this as limited coverage, not a complete view of the news.`
+      ? `${needsAttention} of ${checked} checked sources had problems; ${policyBlocked} were skipped by source policy. Treat this as limited coverage, not a complete view of the news.`
       : "All configured sources were checked successfully. This does not mean every news source or every event worldwide was covered.";
 
   return { coverage, checked, total, reachable, needsAttention, policyBlocked, items, newItems, refreshedItems, sources, note };

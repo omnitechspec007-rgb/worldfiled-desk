@@ -413,7 +413,7 @@ export default function EditionDesk() {
           <div className="confirm">
             <strong>{intelligence.roundupPicks.length} stories selected for the roundup · maximum 7</strong>
             <div className="actions">
-              <button className="primary" disabled={!intelligence.roundupPicks.length} onClick={() => void prepareSet({ ids: intelligence.roundupPicks.map((p) => p.story.id), title: "The World, Filed — Daily Roundup", structure: "news_roundup", editionKind: "video" }, { deliverable: "static_roundup_6s" })} disabled={busy}>Prepare static roundup</button>
+              <button className="primary" onClick={() => void prepareSet({ ids: intelligence.roundupPicks.map((p) => p.story.id), title: "The World, Filed — Daily Roundup", structure: "news_roundup", editionKind: "video" }, { deliverable: "static_roundup_6s" })} disabled={busy || !intelligence.roundupPicks.length}>Prepare static roundup</button>
             </div>
           </div>
           {intelligence.roundupPicks.map((pick, i) => <p className="why" key={pick.story.id}><strong>{String(i + 1).padStart(2, "0")}. {pick.story.headline}</strong> — opportunity {pick.score}/100; {pick.story.type || "general development"}; {pick.story.locations[0]?.country || "place not established"}</p>)}
@@ -428,7 +428,7 @@ export default function EditionDesk() {
                 <h3>{plan.stories.length} stories · {plan.stories[0]?.story.headline || "No eligible lead story"}</h3>
                 <p className="meta">{plan.rationale}</p>
                 <ul className="comps">{plan.stories.map((pick, i) => <li key={pick.story.id}>{i + 1}. {pick.story.headline}</li>)}</ul>
-                <button className="primary" disabled={plan.stories.length < 2} onClick={() => void prepareSet({ ids: plan.stories.map((p) => p.story.id), title: "The World, Filed — " + plan.durationSeconds + "-Second Edition", structure: "news_roundup", editionKind: "video" }, { deliverable: "script_storyboard", duration: plan.durationSeconds })} disabled={busy}>Prepare {plan.durationSeconds}-second edition</button>
+                <button className="primary" onClick={() => void prepareSet({ ids: plan.stories.map((p) => p.story.id), title: "The World, Filed — " + plan.durationSeconds + "-Second Edition", structure: "news_roundup", editionKind: "video" }, { deliverable: "script_storyboard", duration: plan.durationSeconds })} disabled={busy || plan.stories.length < 2}>Prepare {plan.durationSeconds}-second edition</button>
               </div>
             ))}
           </div>
