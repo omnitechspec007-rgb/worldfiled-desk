@@ -118,7 +118,7 @@ const changedClaim = await request("GET", undefined, "?id=" + promptId);
 const changedClaimBody = await changedClaim.json();
 assert.equal(changedClaimBody.prompt, null);
 assert.equal(changedClaimBody.evidenceCurrent, false);
-assert.match(changedClaimBody.withheld, /sources used by this prompt|factual clearance/i);
+assert.match(changedClaimBody.withheld, /source snapshot or verified claim register changed/i);
 assert.equal(prompts.length, 1, "stale prompt remains in history rather than being deleted");
 console.log("PASS: a changed verified claim statement invalidates the saved single-story prompt.");
 
