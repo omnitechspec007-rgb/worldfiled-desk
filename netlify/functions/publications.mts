@@ -116,7 +116,10 @@ async function recordPublication(b: any) {
     await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: "publication_recorded", entity_type: "publication", entity_id: publication.id, actor: "editor", detail: { edition_id: edition.id, platform: b.platform, content_format: b.contentFormat, story_count: edition.members.length } } });
   } catch (e) {
     // Compensate if attribution fails; never leave a publication looking complete without its story links.
-    try { await db(`publication_records?id=eq.${publication.id}`, { method: "DELETE", prefer: "return=minimal" }); } catch { /* report failure; operator can inspect orphan */ }
+    try {
+      await db(`publication_story_attributions?publication_id=eq.${publication.id}`, { method: "DELETE", prefer: "return=minimal" });
+      await db(`publication_records?id=eq.${publication.id}`, { method: "DELETE", prefer: "return=minimal" });
+    } catch { /* report failure; operator can inspect orphan */ }
     throw e;
   }
   return json({ saved: true, publicationId: publication.id, storyCount: edition.members.length });
@@ -132,6 +135,7 @@ async function recordSnapshot(b: any) {
     const value = finiteOrNull(b[key]);
     if (typeof value === "number" && !Number.isFinite(value)) return json({ error: "invalid_metric", detail: key + " must be a non-negative number (completion rate is 0–100)." }, 400);
     if (value !== null && key !== "followerDelta" && value < 0) return json({ error: "invalid_metric", detail: key + " cannot be negative." }, 400);
+    if (value !== null && ["views","reach","impressions","likes","comments","shares","saves","followerDelta"].includes(key) && !Number.isInteger(value)) return json({ error: "invalid_metric", detail: key + " must be a whole number." }, 400);
     values[key] = value;
   }
   if (values.completionRate !== null && (values.completionRate! < 0 || values.completionRate! > 100)) return json({ error: "invalid_completion_rate", detail: "Enter completion as a percentage from 0 to 100." }, 400);
