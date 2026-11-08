@@ -340,24 +340,24 @@ export default function EditionDesk() {
   }).filter((x) => x !== null);
   return (
     <section>
-      <h1>Edition Desk</h1>
-      <p className="meta">Two independently curated daily products from one researched story pool. The six-second video is one static, text-led international news poster; the written briefing remains a separate product. {desk?.note}</p>
+      <h1>Your story selections</h1>
+      <p className="meta">After research, WorldFiled prepares individual text-video picks, a balanced text roundup and narrated-edition options. Review the reasons and evidence, then choose what to prepare. You remain the final editor. {desk?.note}</p>
       {msg && <p className={`status ${/Could not|not saved|no longer|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
       {desk && !desk.saved.installed && <div className="panel"><p className="status bad">DATABASE SETUP REQUIRED: run migration 004, then migration 006, before saving and generating daily video or text editions. You can still explore suggestions and check coherence.</p></div>}
 
       <div className="panel">
-        <h2>Daily edition profile</h2>
+        <h2>What would you like to prepare?</h2>
         <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Six-second static text video · standalone card or 5–7-story roundup</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
         <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
       </div>
       <div className="tabs">
-        {([["automatic", "1. Automatic picks"], ["developments", "Review all developments"], ["suggested", "Suggested editions"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
+        {([["automatic", "Automatic story selections"], ["developments", "All research results"], ["suggested", "Suggested story combinations"], ["mine", "Saved work"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!desk && !msg && <p className="meta">Loading…</p>}
 
       {desk && tab === "automatic" && (
         <div className="panel">
-          <h2>WorldFiled Editorial Intelligence</h2>
+          <h2>Automatic story selections</h2>
           <p className="meta">Research has finished. This desk separates three editorial decisions: individual text-card stories, a balanced multi-story static roundup, and a coherent narrated edition. The ranking uses transparent editorial heuristics; it is not a prediction of views or a claim to know every viewer's psychology. Evidence and attribution are eligibility gates, not points that can be offset by curiosity.</p>
           <div className="confirm">
             <strong>{intelligence.eligibleCount} developments passed the current evidence and attribution screen</strong>
