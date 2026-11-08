@@ -100,6 +100,39 @@ export const EVIDENCE_LIMITS =
   "The app does not extract individual claims, trace original sources or detect conflicts automatically. " +
   "Classes below apply to what the headline and snippet state, not to the full reporting.";
 
+/** Canonical fingerprints used to invalidate saved prompts when their factual inputs change. */
+export function sourceSnapshotFingerprint(sources: PackSource[]): string {
+  return JSON.stringify([...sources].map((source) => ({
+    url: source.url,
+    title: source.title,
+    publishedAt: source.published_at,
+    retrievedAt: source.retrieved_at,
+    snippet: source.snippet,
+    contentDepth: source.content_depth,
+    sourceEnabled: source.source_enabled,
+    retrievalStatus: source.retrieval_status,
+  })).sort((a, b) => a.url.localeCompare(b.url)));
+}
+
+export function claimRegisterFingerprint(register: ClaimRegisterEntry[]): string {
+  return JSON.stringify([...register].map((claim) => ({
+    claimId: claim.claimId,
+    statement: claim.statement,
+    category: claim.category,
+    outcome: claim.outcome,
+    reviewerNotes: claim.reviewerNotes,
+    decidedAt: claim.decidedAt,
+    currentSupported: claim.currentSupported,
+    evidence: [...claim.evidence].map((e) => ({
+      sourceId: e.sourceId, sourceTitle: e.sourceTitle, sourceUrl: e.sourceUrl,
+      publisher: e.publisher, publishedAt: e.publishedAt, contentDepth: e.contentDepth,
+      sourceEnabled: e.sourceEnabled, retrievalStatus: e.retrievalStatus,
+      passage: e.passage, passageLocation: e.passageLocation,
+      extractionStatus: e.extractionStatus, isContradiction: e.isContradiction, createdAt: e.createdAt,
+    })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+  })).sort((a, b) => a.claimId.localeCompare(b.claimId)));
+}
+
 export class PackTooLarge extends Error {}
 
 /** Untrusted feed text: strip control characters and anything that could close the data fence. */
