@@ -24,7 +24,7 @@ const newKey = () => crypto.randomUUID().replace(/-/g, "");
 
 function describe(s: Stage) {
   if (s.status === "completed" && s.stage === "discover")
-    return `${s.healthy} of ${s.total} sources reachable · ${s.newItems ?? 0} new · ${s.refreshedItems ?? 0} refreshed${s.problems ? ` · ${s.problems} need attention` : ""}`;
+    return `${s.healthy} of ${s.total} sources reachable · ${s.newItems ?? 0} new · ${s.refreshedItems ?? 0} refreshed${s.problems ? ` · ${s.problems} need attention` : ""}${s.blocked ? ` · ${s.blocked} skipped by policy` : ""}`;
   if (s.status === "completed" && s.stage === "cluster") return `${s.stories} stories (${s.multiSource} covered by more than one outlet)`;
   if (s.status === "completed" && s.stage === "rank") return `${s.shortlisted} stories shortlisted from ${s.candidates} candidates`;
   if (s.status === "running" && s.stage === "discover") return `${s.finished ?? 0} of ${s.total ?? "…"} sources checked`;
@@ -140,7 +140,7 @@ export default function Dashboard() {
             ))}
           </ol>
         )}
-        {!viewCleared && stages.find((s) => s.stage === "discover")?.researchReport && (() => {
+        {!viewCleared && stages.find((s) => s.stage === "discover" && s.status !== "pending" && (s.researchReport?.total ?? 0) > 0)?.researchReport && (() => {
           const report = stages.find((s) => s.stage === "discover")!.researchReport!;
           return (
             <div className="panel research-report">
