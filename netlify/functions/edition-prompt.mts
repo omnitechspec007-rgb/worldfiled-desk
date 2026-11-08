@@ -91,7 +91,9 @@ function parseStoryIds(raw: unknown): string[] | null {
 
 /** Research-only brief. Does not require an editorial decision or factual clearance and is never saved to prompt history. */
 async function createVerificationBrief(ids: string[], title: string, angle: string, conflictNotes: string[]) {
-  const loaded = await loadStories(ids);
+  // Internal research may inspect historical source leads even when current feed health is poor.
+  // Those records are labelled with their status in the prompt; they are never used for production.
+  const loaded = await loadStories(ids, Date.now(), true);
   const missing = ids.filter((id) => !loaded.has(id));
   if (missing.length) return json({
     error: "research_material_unavailable",
@@ -120,7 +122,7 @@ async function workflowStatus(editionId: string) {
   const ids = await memberIds(editionId);
   if (!ids.length) return json({
     editionId, storyEditorialReview: { ready: false, awaitingApproval: [], rejectedOrReturned: [] }, editorialApproval: { current: false }, factualVerification: { ready: false, blocked: [{ reason: "The edition has no selected developments." }] },
-    verificationBriefAllowed: false, productionPromptAllowed: false, blockers: ["Select at least one development."],
+    verifiedClaimsByStory: {}, verificationBriefAllowed: false, productionPromptAllowed: false, blockers: ["Select at least one development."],
   });
   const decision = await latestEditionDecision(editionId);
   const decisions = await latestDecisions(ids);
@@ -137,6 +139,19 @@ async function workflowStatus(editionId: string) {
       ? "Claim-verification tables are not installed. Evidence clearance cannot be confirmed."
       : "The current claim-verification state could not be loaded. Production must remain blocked." }] };
   }
+  const verifiedClaimsByStory = Object.fromEntries(ids.map((storyId) => {
+    const story = loaded.get(storyId);
+    const claims = story?.verificationStatus === "verified"
+      ? (story.claimRegister ?? []).filter((claim) => claim.currentSupported).map((claim) => ({
+          claimId: claim.claimId,
+          statement: claim.statement,
+          sources: claim.evidence
+            .filter((evidence) => evidence.extractionStatus === "extracted" && !evidence.isContradiction)
+            .map((evidence) => ({ publisher: evidence.publisher, url: evidence.sourceUrl, title: evidence.sourceTitle })),
+        }))
+      : [];
+    return [storyId, claims];
+  }));
   const blockers: string[] = [];
   if (awaitingStoryApproval.length) blockers.push(`${awaitingStoryApproval.length} selected development(s) still need explicit approval in Editorial Review.`);
   if (!editionApprovalCurrent) blockers.push("The exact selected edition does not have a current human approval.");
@@ -149,6 +164,7 @@ async function workflowStatus(editionId: string) {
     storyEditorialReview: { ready: awaitingStoryApproval.length === 0, awaitingApproval: awaitingStoryApproval, rejectedOrReturned: blockedMembers },
     editorialApproval: { current: editionApprovalCurrent, decision: decision?.decision ?? null, membersCurrent: decision?.members_hash === membersKey(ids) },
     factualVerification: { ready: factual.ready, blocked: factual.blocked },
+    verifiedClaimsByStory,
     verificationBriefAllowed: ids.length > 0 && missingStories.length === 0,
     productionPromptAllowed: blockers.length === 0,
     blockers,
