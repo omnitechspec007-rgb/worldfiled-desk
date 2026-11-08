@@ -51,6 +51,8 @@ export type ClaimRegisterEvidence = {
   publisher: string | null;
   publishedAt: string | null;
   contentDepth: string | null;
+  sourceEnabled: boolean | null;
+  retrievalStatus: string | null;
   passage: string | null;
   passageLocation: string | null;
   extractionStatus: string;
@@ -240,6 +242,7 @@ export function renderEvidence(p: EvidencePack): string {
         claim.reviewerNotes ? `  reviewer rationale: ${claim.reviewerNotes}` : "  reviewer rationale: (none recorded)",
         ...claim.evidence.map((e) => [
           `  evidence: ${e.isContradiction ? "CONTRADICTORY" : "SUPPORTING/CONTEXTUAL"} | extraction: ${e.extractionStatus} | content depth: ${e.contentDepth ?? "unknown"}`,
+          `  source status: ${e.sourceEnabled === null ? "unknown" : e.sourceEnabled ? "enabled" : "disabled"} | feed health: ${e.retrievalStatus ?? "unknown"}`,
           `  source: ${e.publisher ?? "Unknown publisher"} | ${e.sourceTitle ?? "Untitled"} | published: ${day(e.publishedAt)}`,
           `  passage location: ${e.passageLocation ?? "not specified"} | source URL: ${e.sourceUrl ?? "unavailable"}`,
           `  exact recorded passage: ${e.passage ?? "(no passage recorded)"}`,
