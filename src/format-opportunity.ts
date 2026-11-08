@@ -78,3 +78,55 @@ export function recommendFormatOpportunity(input: FormatOpportunityInput): Forma
 
   return { lane, label, score: bounded(score, 100), reason, suggestedRuntimeMinutes, productionReady, holdReason };
 }
+
+export type EditionRuntimeInput = {
+  curiosityScore: number;
+  evidenceStrength: { score?: number; label?: string };
+  sourceCount: number;
+  fresh: boolean;
+  recommendation: string;
+  whyInteresting: string[];
+  humanConsequences?: string | null;
+  possibleImplications?: string | null;
+  sensationalismFlags: string[];
+};
+
+export type EditionRuntimeRecommendation = {
+  minutes: 8 | 10 | 12;
+  storiesConsidered: number;
+  averageCuriosity: number;
+  averageEvidence: number;
+  reason: string;
+};
+
+/** Recommend a whole-programme ceiling from the strongest eligible selected stories.
+ * The editor can override the suggestion. It is a planning heuristic, not measured watch time.
+ */
+export function recommendEditionRuntime(inputs: EditionRuntimeInput[]): EditionRuntimeRecommendation | null {
+  const eligible = inputs
+    .map((input) => ({ input, fit: recommendFormatOpportunity({ ...input }) }))
+    .filter((item) => item.fit.lane === "long_video")
+    .sort((a, b) => b.fit.score - a.fit.score)
+    .slice(0, 3);
+  if (!eligible.length) return null;
+  const avg = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  const averageCuriosity = avg(eligible.map((item) => bounded(item.input.curiosityScore, 100)));
+  const averageEvidence = avg(eligible.map((item) => bounded(item.input.evidenceStrength?.score ?? 0, 5)));
+  const minutes: 8 | 10 | 12 = eligible.length === 3 && averageCuriosity >= 82 && averageEvidence >= 4.1
+    ? 12
+    : eligible.length >= 2 && averageCuriosity >= 70 && averageEvidence >= 3.5
+      ? 10
+      : 8;
+  const reason = minutes === 12
+    ? "The three strongest selected stories have unusually high curiosity potential, strong evidence and enough narrative depth to sustain a longer programme."
+    : minutes === 10
+      ? "At least two selected stories combine strong curiosity potential with sufficient evidence and narrative substance."
+      : "The strongest selected story material supports a focused programme. Keep it shorter rather than padding.";
+  return {
+    minutes,
+    storiesConsidered: eligible.length,
+    averageCuriosity: Math.round(averageCuriosity),
+    averageEvidence: Math.round(averageEvidence * 10) / 10,
+    reason,
+  };
+}
