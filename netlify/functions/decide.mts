@@ -52,7 +52,27 @@ export default async (req: Request) => {
     const responseBody = result?.body ?? { error: "invalid_rpc_response" };
     return json({ ...responseBody, replayed: result?.replayed === true }, status);
   } catch (e) {
-    if (e instanceof DbError) return json({ error: "database", detail: e.message, outcome: "unknown", retryWithSameKey: true }, e.status);
+    if (e instanceof DbError) {
+      // A PostgREST 404 for this RPC means the required migration/function is absent.
+      // Other upstream 4xx responses are definitive rejections, not ambiguous commits.
+      if (e.upstream === 404) {
+        return json({
+          error: "editorial_setup_required",
+          detail: "Editorial decision storage is not installed in the connected database. No decision was saved. Install the reviewed editorial-decision migration, then retry this same request.",
+          outcome: "not_saved",
+          retryWithSameKey: true,
+        }, 503);
+      }
+      if (e.upstream !== undefined && e.upstream >= 400 && e.upstream < 500) {
+        return json({
+          error: "decision_rejected",
+          detail: "The database rejected this decision before it was saved. Review the request or database setup; no decision was recorded.",
+          outcome: "not_saved",
+          retryWithSameKey: false,
+        }, e.upstream);
+      }
+      return json({ error: "database", detail: e.message, outcome: "unknown", retryWithSameKey: true }, e.status);
+    }
     return json({ error: "server_error", outcome: "unknown", retryWithSameKey: true }, 500);
   }
 };
