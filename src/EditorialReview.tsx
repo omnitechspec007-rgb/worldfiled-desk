@@ -79,7 +79,7 @@ export default function EditorialReview() {
       setOpen(null);
       setAck(false);
       setNotes("");
-      setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Approved. It is now available in the Prompt Architect." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
+      setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Editorially approved for drafting. This is not factual verification or publication clearance." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
       await load();
     } catch {
       setSetupBlocked(false);
@@ -133,7 +133,7 @@ export default function EditorialReview() {
             <div className="actions">
               <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain || setupBlocked}>Approve…</button>
               <button onClick={() => decide(s.id, "rejected")} disabled={busy || uncertain || setupBlocked}>Reject</button>
-              <button onClick={() => void decide(s.id, "needs_research")} disabled={busy || uncertain}>Needs more research</button>
+              <button onClick={() => void decide(s.id, "needs_research")} disabled={busy || uncertain || setupBlocked}>Needs more research</button>
               <Link to={`/evidence/${s.id}`}>Open sources</Link>
             </div>
           )}
