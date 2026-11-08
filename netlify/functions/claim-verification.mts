@@ -2,7 +2,9 @@
 import { createHash } from "node:crypto";
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
-import { formatReviewerNotes, hasContradictionReconciliation } from "../lib/claim-clearance.mts";
+import { assessClaimClearance } from "../lib/edition-data.mts";
+import { formatReviewerNotes } from "../lib/claim-clearance.mts";
+import { canRetrieveMetadata, canUsePassageEvidence, loadContentPolicies, policyForSource } from "../lib/source-policy.mts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -10,6 +12,25 @@ const OUTCOMES = ["SUPPORTED", "PARTIALLY_SUPPORTED", "CONTRADICTED", "INSUFFICI
 const hash = (s: string) => createHash("sha256").update(s.trim().toLowerCase()).digest("hex");
 const clean = (s: unknown) => typeof s === "string" ? s.trim() : "";
 const exceeds = (s: unknown, max: number) => typeof s === "string" && s.trim().length > max;
+
+async function accessibleClaimClearance(storyId: string) {
+  const [claims, policies] = await Promise.all([
+    db<any[]>(`claims?story_id=eq.${storyId}&select=id,story_id,claim_evidence(id,source_id,passage,extraction_status,is_contradiction,created_at,retrieved_sources(registry_id)),verification_results(id,outcome,reviewer_notes,created_at)`),
+    loadContentPolicies(),
+  ]);
+  const safeClaims = claims.map((claim) => ({
+    ...claim,
+    claim_evidence: (claim.claim_evidence ?? []).filter((e: any) =>
+      typeof e.retrieved_sources?.registry_id === "string" &&
+      canUsePassageEvidence(policyForSource(policies.rows, e.retrieved_sources.registry_id))
+    ),
+  }));
+  const clearance = assessClaimClearance(safeClaims, [storyId]);
+  if (!policies.installed && !clearance.ready) {
+    clearance.blocked.push({ storyId, reason: "Source content-access policies are not installed. No source is assumed to permit passage evidence." });
+  }
+  return clearance;
+}
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
