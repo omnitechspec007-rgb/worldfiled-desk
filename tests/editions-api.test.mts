@@ -138,7 +138,7 @@ clSources.forEach((source, i) => {
 console.log("Edition Desk API");
 assert.equal((await get(edFn, "", null)).status, 401); assert.equal((await call(edFn, { action: "save" }, null)).status, 401); assert.equal((await get(epFn, "history=1", null)).status, 401); assert.equal((await call(epFn, { editionId: "x" }, null)).status, 401); ok("edition desk and edition prompt require sign-in");
 let d = await (await get(edFn, "")).json();
-assert(d.developments.length >= 5 && d.developments.every((x: any) => x.recommendation && x.evidenceStrength && x.curiosityScore >= 0 && x.hypothesisNote)); ok("desk lists developments with curiosity assessment, evidence strength and recommendation");
+assert(d.developments.length >= 5 && d.developments.every((x: any) => x.recommendation && x.evidenceStrength && x.curiosityScore >= 0 && x.hypothesisNote)); ok("desk lists developments with curiosity assessment, evidence strength and recommendation");\nassert(d.developments.every((x: any) => Array.isArray(x.keyQuestions) && x.keyQuestions.length > 0 && Array.isArray(x.accountability))); ok("desk exposes type-specific editorial questions and accountability signals for scripting");
 const jpProv = d.developments.find((x: any) => x.id === jp).sourceIndependence;
 const fiProv = d.developments.find((x: any) => x.id === fi).sourceIndependence;
 const clProv = d.developments.find((x: any) => x.id === cl).sourceIndependence;
