@@ -99,6 +99,7 @@ export default function EditorialReview() {
   return (
     <section>
       <h1>Verification and approval</h1>
+      {new URLSearchParams(window.location.search).has("ids") && <p className="meta"><a href="/editions">← Return to your prepared production package</a></p>}
       <p className="status">Two separate human checks are required. First verify the material claims in the Evidence Room; then make the editorial decision here. Editorial approval does not mean the facts are verified. Production prompts remain blocked until both checks are complete.</p>
       {msg && <div className={uncertain ? "panel state-warning" : "panel state-error"} role={uncertain ? "status" : "alert"}><p className={uncertain ? "status" : "status bad"}>{msg}</p>{uncertain && pending ? <div className="actions"><button className="primary" disabled={busy} onClick={() => void submitDecision(pending)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button><button disabled={busy} onClick={() => void load()}>Refresh shortlist</button></div> : <button onClick={() => void load()}>Refresh shortlist</button>}</div>}
       {!picks && !msg && <div className="panel state-loading" role="status"><p className="meta">Loading stories for review…</p></div>}

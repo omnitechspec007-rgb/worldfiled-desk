@@ -120,6 +120,7 @@ export default function EditionDesk() {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const lastEv = useRef<Evaluation | null>(null);
+  const autoPromptKey = useRef<string | null>(null);
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const draftKey = "worldfiled:edition-desk:draft:v1";
@@ -219,7 +220,7 @@ export default function EditionDesk() {
   useEffect(() => { if (ev && !title.trim()) setTitle(ev.title); }, [ev, title]);
 
   const openSet = (s: { ids: string[]; title: string; angle?: string; structure?: string; editionKind?: "video" | "text" }, id: string | null = null) => {
-    lastEv.current = null; setPrevScore(null);
+    lastEv.current = null; autoPromptKey.current = null; setPrevScore(null);
     const kind = s.editionKind ?? editionKind;
     setEditionKind(kind); setSelections((prev) => ({ ...prev, [kind]: s.ids }));
     setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setAck(false); setNotes(""); setMsg("");
@@ -284,7 +285,7 @@ export default function EditionDesk() {
   };
   const decide = async (decision: string) => {
     if (!editionId) return;
-    setBusy(true); setMsg("");
+    setBusy(true); setMsg(""); setRes(null); autoPromptKey.current = null;
     try {
       const r = await post("editions", { action: "decide", id: editionId, decision, notes, acknowledged: ack });
       const d = await r.json();
@@ -325,6 +326,14 @@ export default function EditionDesk() {
     } catch { setMsg("Could not create the prompt."); }
     setBusy(false);
   };
+  const autoPromptSignature = [editionId ?? "", editionKind, deliverable, duration, fmt, sound, visual].join("|");
+  useEffect(() => {
+    const preflightReady = editionKind !== "video" || deliverable !== "static_roundup_6s" || roundupPreflight?.ready === true;
+    if (!canBuild || !editionId || res || !preflightReady || autoPromptKey.current === autoPromptSignature) return;
+    autoPromptKey.current = autoPromptSignature;
+    void build();
+  }, [canBuild, editionId, editionKind, deliverable, duration, fmt, sound, visual, roundupPreflight?.ready, res]);
+
   const copy = async () => { try { await navigator.clipboard.writeText(res!.prompt); setCopied(true); } catch { setMsg("Copy was blocked by the browser. Select the text and copy it manually."); } };
 
   const shown = (s: Sug) => !rejectedLinks.includes(s.key);
@@ -490,7 +499,7 @@ export default function EditionDesk() {
                   <Fragment key={d.id}>
                     <tr className={ids.includes(d.id) ? "picked" : ""}>
                       <td><input type="checkbox" aria-label={`Select ${d.headline}`} checked={ids.includes(d.id)} disabled={d.decision === "rejected"} onChange={() => toggle(d.id)} /></td>
-                      <td>{winInfo?.map[d.id] && <span className={`chip ${winInfo.map[d.id].candidate ? "" : "bad"}`} title={winInfo.map[d.id].reason}>{({ NEW: "New", UPDATE: "Update", RENEWED: "Renewed", HELD_OVER: "Held over", ALREADY_PUBLISHED: "Already published", NEVER_VERIFIED: "Never verified", REJECTED_EARLIER: "Left out earlier", REJECTED: "Rejected" } as Record<string, string>)[winInfo.map[d.id].cls] ?? winInfo.map[d.id].cls}</span>} {d.headline}{winInfo?.map[d.id] && <div className="meta">{winInfo.map[d.id].reason}</div>}<div className="meta">{d.type} · {d.outlets} outlet{d.outlets === 1 ? "" : "s"} · {d.ageHours !== null ? `${d.ageHours}h old` : "age unknown"} · {d.decision === "rejected" ? "REJECTED (cannot be selected)" : d.decision ?? "not yet reviewed"}{!d.fresh && d.decision !== "rejected" ? ` · ${d.notFreshWhy}` : ""}</div><div className="meta"><strong>Why it may hold attention:</strong> {d.whyInteresting[0] || d.audienceQuestion}</div></td>
+                      <td>{winInfo?.map[d.id] && <span className={`chip ${winInfo.map[d.id].candidate ? "" : "bad"}`} title={winInfo.map[d.id].reason}>{({ NEW: "New", UPDATE: "Update", RENEWED: "Renewed", HELD_OVER: "Held over", ALREADY_PUBLISHED: "Already published", NEVER_VERIFIED: "Never verified", REJECTED_EARLIER: "Left out earlier", REJECTED: "Rejected" } as Record<string, string>)[winInfo.map[d.id].cls] ?? winInfo.map[d.id].cls}</span>} {d.headline}{winInfo?.map[d.id] && <div className="meta">{winInfo.map[d.id].reason}</div>}<div className="meta">{d.type} · {d.outlets} outlet{d.outlets === 1 ? "" : "s"} · {d.ageHours !== null ? `${d.ageHours}h old` : "age unknown"} · {d.decision === "rejected" ? "REJECTED (cannot be selected)" : d.decision ?? "not yet reviewed"}{!d.fresh && d.decision !== "rejected" ? ` · ${d.notFreshWhy}` : ""}</div><div className="meta"><strong>Why it may hold attention:</strong> {d.whyInteresting.join("; ") || d.audienceQuestion}</div></td>
                       <td>{d.recommendation}</td><td>{d.curiosityScore}/100</td><td>{d.evidenceStrength.label}{d.corroborated ? "" : " · single outlet"}</td>
                       <td>{d.locations.map((l) => l.country).join(", ") || "none established"}</td>
                       <td><button onClick={() => setInspect(inspect === d.id ? null : d.id)}>{inspect === d.id ? "Hide" : "Evidence"}</button></td>
@@ -593,7 +602,11 @@ export default function EditionDesk() {
                 {editionKind === "video" && deliverable !== "static_roundup_6s" && <p className="meta">For the daily narrated edition, 90 seconds is the starting recommendation. The selected runtime is a ceiling, not a quota: if the evidence supports less, the script must be shorter rather than padded. Use 60 seconds for a tighter bulletin or 120 seconds when the sourced material justifies more depth.</p>}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
-                  <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true} preflightNote={roundupPreflight?.note ?? "Checking current approval and factual clearance…"} />
+                  <>
+                    <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true} preflightNote={roundupPreflight?.note ?? "Checking current approval and factual clearance…"} />
+                    <p className="meta">The builder can export the branded static six-second video directly. WorldFiled also prepares a separate AI video prompt for your chosen creation tool.</p>
+                    <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy || roundupPreflight?.ready !== true}>{busy ? "GENERATING…" : res ? "Regenerate AI video prompt" : "Generate AI video prompt"}</button></div>
+                  </>
                 )}
                 {!(editionKind === "video" && deliverable === "static_roundup_6s") && <>
                 {editionKind === "video" && deliverable !== "static_roundup_6s" && cpv && (
@@ -617,11 +630,11 @@ export default function EditionDesk() {
                 )}
                 <label>Prompt angle override (optional)<input type="text" value={pAngle} onChange={(e) => setPAngle(e.target.value)} maxLength={200} /></label>
                 {ids.map((id, i) => <label key={id}>Conflict note for D{i + 1} (only if you found accounts that disagree)<input type="text" value={conflicts[i] ?? ""} maxLength={600} onChange={(e) => setConflicts((c) => c.map((x, j) => (j === i ? e.target.value : x)))} /></label>)}
-                <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy}>{busy ? "CREATING…" : editionKind === "text" ? "Create text briefing prompt" : "Create video production prompt"}</button></div>
+                <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy}>{busy ? "CREATING…" : res ? "Regenerate production prompt" : editionKind === "text" ? "Create text briefing prompt" : "Create video production prompt"}</button></div>
                 </>}
               </>
             )}
-            {res && !(editionKind === "video" && deliverable === "static_roundup_6s") && (
+            {res && (
               <div>
                 {res.saved ? <p className="status good">Saved to Edition Prompt History as version {res.version}.</p> : <p className="status bad">{res.note ?? "This prompt was NOT saved."}</p>}
                 {res.creative && res.creative.pronunciationCheckRequired.length > 0 && <p className="caution">PRONUNCIATION CHECK REQUIRED: {res.creative.pronunciationCheckRequired.join(", ")}. This list is also inside the prompt.</p>}
