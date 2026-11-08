@@ -17,7 +17,7 @@ const STRUCTS = Object.keys(STRUCTURE_LABEL) as Structure[];
 
 const devSummary = (d: Dev, decision: string | null, flag?: { fresh: boolean; why: string | null; ageHours: number | null }, verificationStatus = "unverified") => ({
   fresh: flag?.fresh ?? true, notFreshWhy: flag?.why ?? null, ageHours: flag?.ageHours ?? null,
-  sources: d.sources.map((x) => ({ outlet: x.outlet, region: x.region, tier: x.tier, title: x.title, url: x.url, publishedAt: x.publishedAt ?? null, snippet: (x.summary ?? "").slice(0, 300), depth: x.contentStatus ?? "unknown" })),
+  sources: d.sources.map((x) => ({ outlet: x.outlet, region: x.region, tier: x.tier, title: x.title, url: x.url, publishedAt: x.publishedAt ?? null, snippet: (x.summary ?? "").slice(0, 300), depth: x.contentStatus ?? "unknown", enabled: x.enabled ?? null, retrievalStatus: x.retrievalStatus ?? "unknown" })),
   verificationStatus,
   id: d.id, headline: d.headline, category: d.category, decision,
   type: d.a.typeLabel, recommendation: d.a.recommendation, recommendationWhy: d.a.recommendationWhy,
