@@ -359,7 +359,7 @@ export default function EditionDesk() {
   return (
     <section>
       <h1>Edition Desk</h1>
-      <p className="meta">Two independently curated daily products from one researched story pool. The six-second video is one static, text-led international news poster; the written briefing remains a separate product. {desk?.note}</p>
+      <p className="meta">Research results are sorted into static text-card opportunities and longer narrated-video prospects. Curiosity is an editorial hypothesis—not audience analytics or truth—and stronger evidence plus story depth are required before a longer treatment is recommended. Verification preparation is separate from public news production. {desk?.note}</p>
       {msg && <p className={`status ${/Could not|not saved|no longer|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
       {desk && !desk.saved.installed && <div className="panel"><p className="status bad">DATABASE SETUP REQUIRED: run migration 004, then migration 006, before saving and generating daily video or text editions. You can still explore suggestions and check coherence.</p></div>}
 
@@ -385,11 +385,14 @@ export default function EditionDesk() {
 
       {desk && tab === "developments" && (() => {
         const recs = [...new Set(desk.developments.map((d) => d.recommendation))];
-        const list = desk.developments.filter((d) => (win && winInfo ? !!winInfo.map[d.id] || ids.includes(d.id) : (showOlder || d.fresh || ids.includes(d.id))) && (!recFilter || d.recommendation === recFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
+        const opportunity = (d: Dev) => recommendFormatOpportunity({ curiosityScore: d.curiosityScore, evidenceStrength: d.evidenceStrength, sourceCount: d.sources.length, fresh: d.fresh, recommendation: d.recommendation, whyInteresting: d.whyInteresting, humanConsequences: d.humanConsequences, possibleImplications: d.possibleImplications, sensationalismFlags: d.sensationalismFlags, verificationStatus: d.verificationStatus, editorialDecision: d.decision });
+        const laneCounts = { cards: desk.developments.filter((d) => opportunity(d).lane === "static_text_card").length, long: desk.developments.filter((d) => opportunity(d).lane === "long_video").length, held: desk.developments.filter((d) => opportunity(d).lane === "research_first").length };
+        const list = desk.developments.filter((d) => (win && winInfo ? !!winInfo.map[d.id] || ids.includes(d.id) : (showOlder || d.fresh || ids.includes(d.id))) && (!recFilter || d.recommendation === recFilter) && (formatFilter === "all" || opportunity(d).lane === formatFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
         return (
           <div className="panel">
-            <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "static news roundup"}</h2>
-            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Static video target: 8-10 stories (maximum 10). Text target: 12-18 (maximum 18). These are editorial guides, not quotas.</p>
+            <h2>Research results and format opportunities</h2>
+            <p className="meta">Select developments for a static text-card roundup or a longer narrated video. The recommendation weighs freshness, curiosity potential, evidence depth and narrative substance. It is a planning hypothesis, not proof of truth or a prediction of viewer behaviour.</p>
+            <div className="confirm"><strong>Current research pool:</strong><p className="meta">Static text-card candidates: {laneCounts.cards} · Longer narrated-video prospects: {laneCounts.long} · Research first / held: {laneCounts.held}</p></div>
             <div className="confirm" style={{ position: "sticky", top: 0, zIndex: 2 }}>
               <strong>{ids.length} / {selectionLimit} selected</strong>
               <div className="actions">
@@ -405,23 +408,24 @@ export default function EditionDesk() {
               </select></label>
               <label>Search<input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="words in the headline" /></label>
               <label>Recommendation<select value={recFilter} onChange={(e) => setRecFilter(e.target.value)}><option value="">All</option>{recs.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+              <label>Format lane<select value={formatFilter} onChange={(e) => setFormatFilter(e.target.value as typeof formatFilter)}><option value="all">All opportunities</option><option value="static_text_card">Static text-card candidates</option><option value="long_video">Longer narrated-video prospects</option><option value="research_first">Research first / hold</option></select></label>
               <label className="inline"><input type="checkbox" checked={showOlder} onChange={(e) => setShowOlder(e.target.checked)} /> Also show older and rejected ({desk.developments.filter((d) => !d.fresh).length})</label>
             </div>
             {win && winInfo && <p className="meta">Window: {winInfo.local} ({winInfo.hours} h). Includes the start, excludes the end. Only stories with reporting in this window are listed. <a href="/planner">Open the Planner</a>{winInfo.overlaps.length ? ` · Overlaps earlier coverage: ${winInfo.overlaps.map((o) => o.label).join(", ")}` : ""}</p>}
             {list.length === 0 && <p>No developments match. Run research from the Dashboard, or change the filters.</p>}
             <table>
-              <thead><tr><th></th><th>Development</th><th>Recommendation</th><th>Curiosity (hypothesis)</th><th>Evidence</th><th>Places</th><th></th></tr></thead>
+              <thead><tr><th></th><th>Development</th><th>Recommendation</th><th>Format opportunity</th><th>Curiosity (hypothesis)</th><th>Evidence</th><th>Places</th><th></th></tr></thead>
               <tbody>
                 {list.map((d) => (
                   <Fragment key={d.id}>
                     <tr className={ids.includes(d.id) ? "picked" : ""}>
                       <td><input type="checkbox" aria-label={`Select ${d.headline}`} checked={ids.includes(d.id)} disabled={d.decision === "rejected"} onChange={() => toggle(d.id)} /></td>
                       <td>{winInfo?.map[d.id] && <span className={`chip ${winInfo.map[d.id].candidate ? "" : "bad"}`} title={winInfo.map[d.id].reason}>{({ NEW: "New", UPDATE: "Update", RENEWED: "Renewed", HELD_OVER: "Held over", ALREADY_PUBLISHED: "Already published", NEVER_VERIFIED: "Never verified", REJECTED_EARLIER: "Left out earlier", REJECTED: "Rejected" } as Record<string, string>)[winInfo.map[d.id].cls] ?? winInfo.map[d.id].cls}</span>} {d.headline}{winInfo?.map[d.id] && <div className="meta">{winInfo.map[d.id].reason}</div>}<div className="meta">{d.type} · {d.outlets} outlet{d.outlets === 1 ? "" : "s"} · {d.ageHours !== null ? `${d.ageHours}h old` : "age unknown"} · {d.decision === "rejected" ? "REJECTED (cannot be selected)" : d.decision ?? "not yet reviewed"}{!d.fresh && d.decision !== "rejected" ? ` · ${d.notFreshWhy}` : ""}</div></td>
-                      <td>{d.recommendation}</td><td>{d.curiosityScore}/100</td><td>{d.evidenceStrength.label}{d.corroborated ? "" : " · single outlet"}</td>
+                      <td>{d.recommendation}</td><td>{(() => { const fit = opportunity(d); return <><strong>{fit.label}</strong><div className="meta">{fit.score}/100 · {fit.reason}</div>{fit.suggestedRuntimeMinutes && <div className="meta">Potential runtime: {fit.suggestedRuntimeMinutes} minutes</div>}</>; })()}</td><td>{d.curiosityScore}/100</td><td>{d.evidenceStrength.label}{d.corroborated ? "" : " · multiple labels do not prove independence"}</td>
                       <td>{d.locations.map((l) => l.country).join(", ") || "none established"}</td>
                       <td><button onClick={() => setInspect(inspect === d.id ? null : d.id)}>{inspect === d.id ? "Hide" : "Evidence"}</button></td>
                     </tr>
-                    {inspect === d.id && <tr><td colSpan={7}><DevDetail d={d} /></td></tr>}
+                    {inspect === d.id && <tr><td colSpan={8}><DevDetail d={d} /></td></tr>}
                   </Fragment>
                 ))}
               </tbody>
