@@ -5,6 +5,7 @@ import { buildDev, membersKey, type Dev } from "./editions.mts";
 import { buildEvidencePack, type ClaimRegisterEntry, type EvStory, type EvSource } from "./evidence-pack.mts";
 import { evidenceHash, type EditionMember } from "./edition-prompt.mts";
 import { hasContradictionReconciliation } from "./claim-clearance.mts";
+import { canUsePassageEvidence, loadContentPolicies, policyForSource } from "./source-policy.mts";
 import type { StoryInput } from "./scoring.mts";
 
 export const UUID = /^[0-9a-f-]{36}$/i;
