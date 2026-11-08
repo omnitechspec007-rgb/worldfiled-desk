@@ -212,16 +212,26 @@ export async function editionClaimClearanceByStory(storyIds: string[]): Promise<
   const unique = [...new Set(storyIds)];
   const claims: any[] = [];
   const stories: any[] = [];
+  const policies = await loadContentPolicies();
   for (const part of chunk(unique, 30)) {
     const [claimRows, storyRows] = await Promise.all([
-      db<any[]>(`claims?story_id=in.(${part.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at,retrieved_sources(source_registry(enabled,retrieval_status))),verification_results(id,outcome,reviewer_notes,created_at)`),
+      db<any[]>(`claims?story_id=in.(${part.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at,retrieved_sources(registry_id,source_registry(enabled,retrieval_status))),verification_results(id,outcome,reviewer_notes,created_at)`),
       db<any[]>(`stories?id=in.(${part.join(",")})&select=id,verification_status`),
     ]);
-    claims.push(...claimRows);
+    claims.push(...claimRows.map((claim) => ({
+      ...claim,
+      claim_evidence: (claim.claim_evidence ?? []).filter((e: any) => {
+        const registryId = e.retrieved_sources?.registry_id;
+        return typeof registryId === "string" && canUsePassageEvidence(policyForSource(policies.rows, registryId));
+      }),
+    })));
     stories.push(...storyRows);
   }
   return new Map(unique.map((storyId) => {
     const claimClearance = assessClaimClearance(claims, [storyId]);
+    if (!policies.installed && !claimClearance.ready) {
+      claimClearance.blocked.push({ storyId, reason: "Source content-access policies are not installed. Passage evidence is not assumed to be permitted." });
+    }
     const statusClearance = assessStoryVerificationStatus(stories, [storyId]);
     const blocked = [...statusClearance.blocked, ...claimClearance.blocked];
     return [storyId, { ready: blocked.length === 0, blocked }] as [string, ClaimClearance];
