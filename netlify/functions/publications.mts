@@ -137,7 +137,7 @@ async function recordPublication(b: any) {
   try {
     await db("publication_story_attributions", {
       method: "POST", prefer: "return=minimal",
-      body: edition.members.map((s: any, i: number) => ({ publication_id: publication.id, story_id: s.id, position: i + 1, editorial_role: i === 0 ? "lead" : "supporting" })),
+      body: edition.members.map((s: any, i: number) => ({ publication_id: publication.id, story_id: s.id, position: i + 1, editorial_role: "supporting" })),
     });
     await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: "publication_recorded", entity_type: "publication", entity_id: publication.id, actor: "editor", detail: { edition_id: edition.id, platform: b.platform, content_format: b.contentFormat, story_count: edition.members.length } } });
   } catch (e) {
