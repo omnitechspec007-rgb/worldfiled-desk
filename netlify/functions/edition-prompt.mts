@@ -146,7 +146,12 @@ async function workflowStatus(editionId: string) {
           claimId: claim.claimId,
           statement: claim.statement,
           sources: claim.evidence
-            .filter((evidence) => evidence.extractionStatus === "extracted" && !evidence.isContradiction)
+            .filter((evidence) =>
+              evidence.extractionStatus === "extracted"
+              && !evidence.isContradiction
+              && evidence.sourceEnabled === true
+              && evidence.retrievalStatus === "healthy"
+            )
             .map((evidence) => ({ publisher: evidence.publisher, url: evidence.sourceUrl, title: evidence.sourceTitle })),
         }))
       : [];
