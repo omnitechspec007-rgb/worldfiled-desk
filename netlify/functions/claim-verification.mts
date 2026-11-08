@@ -15,7 +15,7 @@ const exceeds = (s: unknown, max: number) => typeof s === "string" && s.trim().l
 
 async function accessibleClaimClearance(storyId: string) {
   const [claims, policies] = await Promise.all([
-    db<any[]>(`claims?story_id=eq.${storyId}&select=id,story_id,claim_evidence(id,source_id,passage,extraction_status,is_contradiction,created_at,retrieved_sources(registry_id)),verification_results(id,outcome,reviewer_notes,created_at)`),
+    db<any[]>(`claims?story_id=eq.${storyId}&select=id,story_id,claim_evidence(id,source_id,passage,extraction_status,is_contradiction,created_at,retrieved_sources(registry_id,source_registry(enabled,retrieval_status))),verification_results(id,outcome,reviewer_notes,created_at)`),
     loadContentPolicies(),
   ]);
   const safeClaims = claims.map((claim) => ({
@@ -172,12 +172,14 @@ export default async (req: Request) => {
       if (!UUID.test(claimId) || !OUTCOMES.includes(outcome)) return json({ error: "bad_decision" }, 400);
       if (outcome === "SUPPORTED" || outcome === "PARTIALLY_SUPPORTED") {
         const [claimRows, policies] = await Promise.all([
-          db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id,claim_evidence(passage,extraction_status,is_contradiction,retrieved_sources(registry_id))&limit=1`),
+          db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id,claim_evidence(passage,extraction_status,is_contradiction,retrieved_sources(registry_id,source_registry(enabled,retrieval_status)))&limit=1`),
           loadContentPolicies(),
         ]);
         const accessibleSupport = (claimRows[0]?.claim_evidence ?? []).some((e: any) =>
           typeof e.retrieved_sources?.registry_id === "string" &&
           canUsePassageEvidence(policyForSource(policies.rows, e.retrieved_sources.registry_id)) &&
+          e.retrieved_sources?.source_registry?.enabled === true &&
+          e.retrieved_sources?.source_registry?.retrieval_status === "healthy" &&
           e.passage && e.extraction_status === "extracted" && !e.is_contradiction
         );
         if (!accessibleSupport) return json({
