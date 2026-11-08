@@ -289,6 +289,9 @@ const approvedStory = T("stories").find((x) => x.id === sid);
 approvedStory.verification_status = "verified";
 const linkedSource = T("story_source_links").find((x) => x.story_id === sid)?.source_id;
 assert(linkedSource, "the test story must have at least one linked source");
+const linkedRegistryId = T("retrieved_sources").find((x) => x.id === linkedSource)?.registry_id;
+assert(linkedRegistryId, "the linked source must have a publisher registry row");
+T("source_content_policies").push({ source_id: linkedRegistryId, policy: "extraction_allowed" });
 const evidenceAt = new Date(Date.now() - 60_000).toISOString();
 T("claims").push({
   id: crypto.randomUUID(),
