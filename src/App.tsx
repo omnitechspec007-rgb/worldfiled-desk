@@ -14,16 +14,16 @@ import DraftAudit from "./DraftAudit";
 import ProvenanceDesk from "./ProvenanceDesk";
 
 const NAV_GROUPS = [
-  { label: "RESEARCH", items: [
-    { to: "/", label: "Dashboard" }, { to: "/stories", label: "Story Desk" },
-    { to: "/evidence", label: "Evidence Room" }, { to: "/review", label: "Editorial Review" },
-    { to: "/draft-audit", label: "Draft Audit" }, { to: "/provenance", label: "Source Provenance" },
+  { label: "YOUR NEWSROOM", items: [
+    { to: "/", label: "Newsroom" },
+    { to: "/stories", label: "Research library" },
+    { to: "/review", label: "Verification and approval" },
+    { to: "/editions", label: "Your story selections & videos" },
   ] },
-  { label: "EDITION WORKFLOW", items: [
-    { to: "/planner", label: "Planner" }, { to: "/editions", label: "Daily Editions (Video + Text)" },
-    { to: "/creative", label: "Presenter and Voice" }, { to: "/architect", label: "Single-story Prompt Architect" },
-  ] },
-  { label: "LIBRARY & SYSTEM", items: [
+  { label: "ADVANCED TOOLS", items: [
+    { to: "/evidence", label: "Evidence Room" }, { to: "/draft-audit", label: "Draft Audit" },
+    { to: "/provenance", label: "Source Provenance" }, { to: "/planner", label: "Publishing Planner" },
+    { to: "/creative", label: "Presenter and Voice" }, { to: "/architect", label: "Prompt Architect" },
     { to: "/reference", label: "Reference Library" }, { to: "/history", label: "Prompt History" },
     { to: "/health", label: "System Health" },
   ] },
@@ -210,8 +210,8 @@ function Desk({ onLogout }: { onLogout: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
   const titles: Record<string, string> = {
-    "/": "Dashboard", "/stories": "Story Desk", "/evidence": "Evidence Room",
-    "/review": "Editorial Review", "/draft-audit": "Draft Audit", "/provenance": "Source Provenance", "/planner": "Planner", "/editions": "Edition Desk",
+    "/": "Newsroom", "/stories": "Story Desk", "/evidence": "Evidence Room",
+    "/review": "Editorial Review", "/draft-audit": "Draft Audit", "/provenance": "Source Provenance", "/planner": "Planner", "/editions": "Your story selections & videos",
     "/creative": "Presenter and Voice", "/architect": "Prompt Architect",
     "/reference": "Reference Library", "/history": "Prompt History", "/health": "System Health",
   };
@@ -246,7 +246,18 @@ function Desk({ onLogout }: { onLogout: () => void }) {
           <span className="brand-tag">What happened. What changed. What matters.</span>
         </div>
         <nav aria-label="Main navigation">
-          {NAV_GROUPS.map((group) => (
+          {NAV_GROUPS.map((group) => group.label === "ADVANCED TOOLS" ? (
+            <details className="nav-advanced" key={group.label}>
+              <summary>Advanced tools</summary>
+              <div className="nav-advanced-items">
+                {group.items.map((n) => (
+                  <NavLink key={n.to} to={n.to} state={{ from: location.pathname }} className={({ isActive }) => (isActive ? "active" : "")}>
+                    {n.label}
+                  </NavLink>
+                ))}
+              </div>
+            </details>
+          ) : (
             <div className="nav-group" key={group.label}>
               <span className="nav-group-label">{group.label}</span>
               {group.items.map((n) => (
