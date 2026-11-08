@@ -411,3 +411,21 @@ label.pick { padding: 6px 0; }
   color: #9b5a13;
   font-weight: 650;
 }
+
+/* Publishing & performance workspace */
+.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 18px; align-items:start; }
+.form-grid .field { min-width:0; }
+.form-grid .field.wide { grid-column:1 / -1; }
+.form-grid input, .form-grid select, .form-grid textarea { width:100%; max-width:100%; }
+.form-grid small { color:rgba(11,31,56,.68); font-size:.76rem; }
+.stats-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:18px 0; }
+.stat-card { background:#fff; border:1px solid var(--line); border-top:3px solid var(--teal); padding:14px 16px; }
+.stat-card span { display:block; font-size:.76rem; text-transform:uppercase; letter-spacing:.04em; }
+.stat-card strong { display:block; font:700 1.8rem "Source Serif 4",Georgia,serif; }
+.table-scroll { width:100%; overflow-x:auto; }
+.table-scroll table { min-width:720px; }
+.panel > button { margin:6px 0 10px; }
+@media (max-width:760px) {
+  .form-grid,.stats-grid { grid-template-columns:1fr; }
+  .form-grid .field.wide { grid-column:auto; }
+}
