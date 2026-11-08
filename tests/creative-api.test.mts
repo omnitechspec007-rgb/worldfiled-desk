@@ -39,11 +39,22 @@ function postgrest(url: URL, init: any) {
     if (table === "stories") out = out.map((st) => ({ ...st, story_source_links: T("story_source_links").filter((l) => l.story_id === st.id).map((l) => { const rs = T("retrieved_sources").find((r) => r.id === l.source_id); return { retrieved_sources: rs ? { ...rs, source_registry: T("source_registry").find((g) => g.id === rs.registry_id) } : null }; }) }));
     // Synthetic, current claim registers isolate the creative workflow tests from claim-edge cases.
     // Claim-clearance and claim-verification suites exercise unsupported, stale and contradictory evidence.
-    if (table === "claims") out = T("stories").filter((st) => matches({ story_id: st.id }, p)).map((st) => ({
-      id: "claim-" + st.id, story_id: st.id,
-      claim_evidence: [{ id: "evidence-" + st.id, passage: "Checked synthetic supporting passage for creative workflow test.", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60000).toISOString() }],
-      verification_results: [{ id: "decision-" + st.id, outcome: "SUPPORTED", reviewer_notes: "Synthetic editor decision for creative workflow test.", created_at: new Date().toISOString() }]
-    }));
+    if (table === "claims") out = T("stories").filter((st) => matches({ story_id: st.id }, p)).map((st) => {
+      const link = T("story_source_links").find((x) => x.story_id === st.id);
+      const source = link ? T("retrieved_sources").find((x) => x.id === link.source_id) : null;
+      const registry = source ? T("source_registry").find((x) => x.id === source.registry_id) : null;
+      return {
+        id: "claim-" + st.id, story_id: st.id, claim_text: "Synthetic verified claim for creative workflow test: " + st.headline, category: "factual",
+        claim_evidence: [{
+          id: "evidence-" + st.id, source_id: link?.source_id ?? null,
+          passage: "Checked synthetic supporting passage for creative workflow test.",
+          passage_location: "test paragraph", extraction_status: "extracted", is_contradiction: false,
+          created_at: new Date(Date.now() - 60000).toISOString(),
+          retrieved_sources: source ? { ...source, source_registry: registry } : null,
+        }],
+        verification_results: [{ id: "decision-" + st.id, outcome: "SUPPORTED", reviewer_notes: "Synthetic editor decision for creative workflow test.", created_at: new Date().toISOString() }]
+      };
+    });
     return new Response(JSON.stringify(out), { status: 200 });
   }
   if (m === "POST") {
