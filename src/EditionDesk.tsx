@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import StaticRoundupBuilder from "./StaticRoundupBuilder";
-import { recommendFormatOpportunity } from "./format-opportunity";
+import { recommendEditionRuntime, recommendFormatOpportunity } from "./format-opportunity";
 
 type Loc = { country: string; basis: string };
 type Dev = {
@@ -100,6 +100,7 @@ export default function EditionDesk() {
   const [notes, setNotes] = useState("");
   const [deliverable, setDeliverable] = useState("static_roundup_6s");
   const [duration, setDuration] = useState(600);
+  const [durationAuto, setDurationAuto] = useState(true);
   const [pAngle, setPAngle] = useState("");
   const [fmt, setFmt] = useState("");
   const [sound, setSound] = useState("subtle");
@@ -114,7 +115,7 @@ export default function EditionDesk() {
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const draftKey = "worldfiled:edition-desk:draft:v1";
-  const workspaceSnapshot = JSON.stringify({ ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts });
+  const workspaceSnapshot = JSON.stringify({ ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, durationAuto, pAngle, fmt, sound, visual, conflicts });
 
   // Keep the in-progress workspace locally so refreshes do not discard work.
   // Server approvals and generated prompts are deliberately not restored.
@@ -133,6 +134,7 @@ export default function EditionDesk() {
           setTab(["developments", "suggested", "mine"].includes(draft.tab) ? draft.tab : "developments");
           setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "static_roundup_6s");
           setDuration([480, 600, 720].includes(draft.duration) ? draft.duration : 600);
+          setDurationAuto(draft.durationAuto !== false);
           setPAngle(typeof draft.pAngle === "string" ? draft.pAngle : "");
           setFmt(typeof draft.fmt === "string" ? draft.fmt : "");
           setSound(draft.sound === "minimal" ? "minimal" : "subtle");
@@ -151,13 +153,13 @@ export default function EditionDesk() {
     if (!draftHydrated) return;
     try {
       localStorage.setItem(draftKey, JSON.stringify({
-        ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts,
+        ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, durationAuto, pAngle, fmt, sound, visual, conflicts,
         savedAt: new Date().toISOString(),
       }));
     } catch {
       setMsg("Browser storage is unavailable; keep this tab open until you save the edition.");
     }
-  }, [draftHydrated, ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts]);
+  }, [draftHydrated, ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, durationAuto, pAngle, fmt, sound, visual, conflicts]);
 
   useEffect(() => { if (draftHydrated) setSelections((s) => ({ ...s, [editionKind]: ids })); }, [ids, editionKind, draftHydrated]);
 
@@ -214,7 +216,7 @@ export default function EditionDesk() {
     const kind = s.editionKind ?? editionKind;
     setEditionKind(kind); setSelections((prev) => ({ ...prev, [kind]: s.ids }));
     setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setWorkflow(null); setVerificationBrief(null); setRes(null); setAck(false); setNotes(""); setMsg("");
-    setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
+    setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, durationAuto, pAngle, fmt, sound, visual, conflicts }));
     setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
   const openSaved = async (id: string) => {
@@ -353,6 +355,27 @@ export default function EditionDesk() {
   );
 
   const canBuild = !!editionId && workflow?.productionPromptAllowed === true;
+  const selectedRuntimeInputs = ids.flatMap((id) => {
+    const d = devs.find((item) => item.id === id) ?? desk?.developments.find((item) => item.id === id);
+    return d ? [{
+      curiosityScore: d.curiosityScore,
+      evidenceStrength: d.evidenceStrength,
+      sourceCount: d.sources.length,
+      fresh: d.fresh,
+      recommendation: d.recommendation,
+      whyInteresting: d.whyInteresting,
+      humanConsequences: d.humanConsequences,
+      possibleImplications: d.possibleImplications,
+      sensationalismFlags: d.sensationalismFlags,
+    }] : [];
+  });
+  const runtimeRecommendation = recommendEditionRuntime(selectedRuntimeInputs);
+  useEffect(() => {
+    if (durationAuto && editionKind === "video" && runtimeRecommendation) {
+      setDuration(runtimeRecommendation.minutes * 60);
+    }
+  }, [durationAuto, editionKind, runtimeRecommendation?.minutes]);
+
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
     const claims = workflow?.verifiedClaimsByStory?.[id] ?? [];
@@ -547,9 +570,14 @@ export default function EditionDesk() {
             {canBuild && (
               <>
                 {editionKind === "video" && <div className="row">
-                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="static_roundup_6s">Static text-led news roundup · 6 seconds</option><option value="script_storyboard">Script and storyboard (legacy)</option><option value="animated_html">Animated HTML (legacy)</option><option value="narrated_video">Narrated video (legacy)</option></select></label>
-                  <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
+                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="static_roundup_6s">Static text-led news roundup · 6 seconds</option><option value="script_storyboard">Narrated news script and storyboard</option><option value="animated_html">Animated HTML preview</option><option value="narrated_video">Long-form narrated news video</option></select></label>
+                  <label>Length<select value={duration} onChange={(e) => { setDuration(Number(e.target.value)); setDurationAuto(false); }}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
                 </div>}
+                {editionKind === "video" && deliverable !== "static_roundup_6s" && (
+                  runtimeRecommendation
+                    ? <p className="meta">Runtime {durationAuto ? "automatically recommended" : "selected manually"}: {runtimeRecommendation.minutes} minutes from the {runtimeRecommendation.storiesConsidered} strongest selected long-video prospects (average curiosity {runtimeRecommendation.averageCuriosity}/100; evidence {runtimeRecommendation.averageEvidence}/5). {runtimeRecommendation.reason} {durationAuto ? "Change the Length selector to override this recommendation." : "Your manual length is preserved until you return to automatic mode."}</p>
+                    : <p className="caution">No selected story currently meets the long-form interest and evidence threshold. A shorter update or static text-card roundup may be more appropriate; do not pad the programme.</p>
+                )}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
                   <>
