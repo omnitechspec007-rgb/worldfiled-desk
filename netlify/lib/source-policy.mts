@@ -18,6 +18,11 @@ export function canUsePassageEvidence(policy: ContentPolicy): boolean {
   return policy === "extraction_allowed";
 }
 
+/** The discovery pipeline currently stores feed metadata only; extraction_allowed is a prerequisite for a future article extractor, not a command to fetch full text. */
+export function retrievalContentStatus(_policy: ContentPolicy): "metadata_only" {
+  return "metadata_only";
+}
+
 export async function loadContentPolicies(): Promise<{ rows: ContentPolicyRow[]; installed: boolean }> {
   try {
     return {
