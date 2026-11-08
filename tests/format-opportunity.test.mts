@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { recommendFormatOpportunity } from "../src/format-opportunity.ts";
+import { recommendFormatOpportunity, recommendEditionRuntime } from "../src/format-opportunity.ts";
 
 const base = {
   curiosityScore: 78,
@@ -47,3 +47,19 @@ assert.match(fullyCleared.holdReason, /final edition-level clearance/i);
 console.log("PASS: format lanes weigh curiosity, evidence, freshness and narrative depth independently.");
 console.log("PASS: 8/10/12-minute suggestions require stronger evidence and interest; static-card opportunities remain separate.");
 console.log("PASS: no format recommendation can bypass factual verification and human editorial approval.");
+const runtime8 = recommendEditionRuntime([base]);
+assert.equal(runtime8?.minutes, 8);
+const strongTwo = recommendEditionRuntime([
+  base,
+  { ...base, curiosityScore: 82, evidenceStrength: { score: 4, label: "STRONG" }, sourceCount: 4 },
+]);
+assert.equal(strongTwo?.minutes, 10);
+const exceptionalThree = recommendEditionRuntime([
+  { ...base, curiosityScore: 88, evidenceStrength: { score: 5, label: "STRONG" }, sourceCount: 5 },
+  { ...base, curiosityScore: 86, evidenceStrength: { score: 4.5, label: "STRONG" }, sourceCount: 4 },
+  { ...base, curiosityScore: 84, evidenceStrength: { score: 4.5, label: "STRONG" }, sourceCount: 4 },
+]);
+assert.equal(exceptionalThree?.minutes, 12);
+const noLongVideo = recommendEditionRuntime([{ ...base, curiosityScore: 42, evidenceStrength: { score: 2, label: "LIMITED" }, sourceCount: 1, humanConsequences: null, possibleImplications: null, whyInteresting: ["One concise update"] }]);
+assert.equal(noLongVideo, null);
+console.log("PASS: full-programme 8/10/12-minute recommendation follows the strongest selected stories, not an arbitrary fixed runtime.");
