@@ -2,7 +2,7 @@
 // edition member lists, and the "is this saved prompt still valid?" check.
 import { db, DbError } from "./db.mts";
 import { buildDev, membersKey, type Dev } from "./editions.mts";
-import { buildEvidencePack, type EvStory, type EvSource } from "./evidence-pack.mts";
+import { buildEvidencePack, type ClaimRegisterEntry, type EvStory, type EvSource } from "./evidence-pack.mts";
 import { evidenceHash, type EditionMember } from "./edition-prompt.mts";
 import { hasContradictionReconciliation } from "./claim-clearance.mts";
 import type { StoryInput } from "./scoring.mts";
@@ -15,15 +15,15 @@ const EMBED = "story_source_links(retrieved_sources(title,url,published_at,retri
 const FIELDS = `id,headline,category,created_at,verification_status,${EMBED}`;
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
-export type Loaded = { dev: Dev; story: EvStory; hasPrimary: boolean; verificationStatus: string };
+export type Loaded = { dev: Dev; story: EvStory; hasPrimary: boolean; verificationStatus: string; claimRegister: ClaimRegisterEntry[] };
 
-function toLoaded(st: any, now: number): Loaded | null {
+function toLoaded(st: any, now: number, includeInactiveSources = false, claimRegister: ClaimRegisterEntry[] = []): Loaded | null {
   const sources: EvSource[] = (st.story_source_links ?? [])
     .map((l: any) => l.retrieved_sources)
     .filter(Boolean)
-    // Historical links remain in storage, but only currently enabled, healthy sources
-    // can supply evidence to a new editorial or production prompt.
-    .filter((s: any) => s.source_registry?.enabled === true && s.source_registry?.retrieval_status === "healthy")
+    // Public production uses active healthy sources only. Internal verification assignments
+    // may inspect historical leads too, but their state is carried into the evidence pack.
+    .filter((s: any) => includeInactiveSources || (s.source_registry?.enabled === true && s.source_registry?.retrieval_status === "healthy"))
     .map((s: any) => ({
       outlet: s.source_registry?.name ?? "Unknown",
       region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
@@ -34,17 +34,68 @@ function toLoaded(st: any, now: number): Loaded | null {
       publishedAt: (s.published_at ?? null) as string | null,
       retrievedAt: (s.retrieved_at ?? null) as string | null,
       contentStatus: (s.content_status ?? null) as string | null,
+      enabled: typeof s.source_registry?.enabled === "boolean" ? s.source_registry.enabled : undefined,
+      retrievalStatus: typeof s.source_registry?.retrieval_status === "string" ? s.source_registry.retrieval_status : null,
     }));
   if (!sources.length) return null;
   const input: StoryInput = { id: st.id, headline: st.headline, category: st.category, createdAt: st.created_at, sources };
-  return { dev: buildDev(input, sources, now), story: { headline: st.headline, category: st.category, sources }, hasPrimary: sources.some((s) => s.tier === "primary"), verificationStatus: typeof st.verification_status === "string" ? st.verification_status : "unverified" };
+  return { dev: buildDev(input, sources, now), story: { headline: st.headline, category: st.category, sources }, hasPrimary: sources.some((s) => s.tier === "primary"), verificationStatus: typeof st.verification_status === "string" ? st.verification_status : "unverified", claimRegister };
 }
 
-export async function loadStories(ids: string[], now = Date.now()): Promise<Map<string, Loaded>> {
-  const out = new Map<string, Loaded>();
+async function claimRegistersByStory(ids: string[]): Promise<Map<string, ClaimRegisterEntry[]>> {
+  const out = new Map<string, ClaimRegisterEntry[]>();
+  for (const id of ids) out.set(id, []);
   for (const part of chunk(ids, 30)) {
-    const rows = await db<any[]>(`stories?id=in.(${part.join(",")})&select=${FIELDS}`);
-    for (const r of rows) { const l = toLoaded(r, now); if (l) out.set(r.id, l); }
+    let rows: any[];
+    try {
+      rows = await db<any[]>("claims?story_id=in.(" + part.join(",") + ")&select=id,story_id,claim_text,category,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,created_at,retrieved_sources(id,title,url,publisher,published_at,content_status,source_registry(name,publisher))),verification_results(id,outcome,reviewer_notes,created_at)");
+    } catch (error) {
+      // Keep the research-only verification assignment available before claim tables are installed.
+      // Public production separately fails closed through editionClaimClearance().
+      if (error instanceof DbError && error.upstream === 404) return out;
+      throw error;
+    }
+    for (const row of rows) {
+      const evidence = row.claim_evidence ?? [];
+      const latest = [...(row.verification_results ?? [])].sort((a: any, b: any) =>
+        String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? ""))
+      )[0];
+      const extracted = evidence.filter((e: any) => e.passage && e.extraction_status === "extracted");
+      const hasSupport = extracted.some((e: any) => !e.is_contradiction);
+      const hasContradiction = extracted.some((e: any) => e.is_contradiction);
+      const latestEvidenceAt = Math.max(0, ...evidence.map((e: any) => Date.parse(e.created_at ?? "") || 0));
+      const decidedAtMs = Date.parse(latest?.created_at ?? "") || 0;
+      const currentSupported = latest?.outcome === "SUPPORTED" && hasSupport && decidedAtMs >= latestEvidenceAt && (!hasContradiction || hasContradictionReconciliation(latest.reviewer_notes));
+      const entry: ClaimRegisterEntry = {
+        claimId: row.id, statement: row.claim_text, category: row.category ?? null, outcome: latest?.outcome ?? null,
+        reviewerNotes: latest?.reviewer_notes ?? null, decidedAt: latest?.created_at ?? null, currentSupported,
+        evidence: evidence.map((e: any) => ({
+          sourceId: e.source_id ?? null, sourceTitle: e.retrieved_sources?.title ?? null, sourceUrl: e.retrieved_sources?.url ?? null,
+          publisher: e.retrieved_sources?.source_registry?.publisher ?? e.retrieved_sources?.source_registry?.name ?? e.retrieved_sources?.publisher ?? null,
+          publishedAt: e.retrieved_sources?.published_at ?? null, contentDepth: e.retrieved_sources?.content_status ?? null,
+          passage: e.passage ?? null, passageLocation: e.passage_location ?? null, extractionStatus: e.extraction_status ?? "unknown",
+          isContradiction: e.is_contradiction === true, createdAt: e.created_at ?? null,
+        })),
+      };
+      out.set(row.story_id, [...(out.get(row.story_id) ?? []), entry]);
+    }
+  }
+  return out;
+}
+
+/**
+ * includeInactiveSources is for internal verification research only. Public production
+ * leaves it false and fails closed if no currently healthy/enabled source remains.
+ */
+export async function loadStories(ids: string[], now = Date.now(), includeInactiveSources = false): Promise<Map<string, Loaded>> {
+  const out = new Map<string, Loaded>();
+  const registers = await claimRegistersByStory(ids);
+  for (const part of chunk(ids, 30)) {
+    const rows = await db<any[]>("stories?id=in.(" + part.join(",") + ")&select=" + FIELDS);
+    for (const r of rows) {
+      const l = toLoaded(r, now, includeInactiveSources, registers.get(r.id) ?? []);
+      if (l) out.set(r.id, l);
+    }
   }
   return out;
 }
@@ -91,7 +142,9 @@ export async function latestEditionDecision(editionId: string) {
 export function packsFor(ids: string[], loaded: Map<string, Loaded>, conflictNotes: string[] = []): EditionMember[] {
   return ids.map((id, i) => {
     const l = loaded.get(id)!;
-    return { dev: l.dev, pack: buildEvidencePack(l.story, { refPrefix: `D${i + 1}-`, conflictNote: conflictNotes[i] ?? null }) };
+    const pack = buildEvidencePack(l.story, { refPrefix: `D${i + 1}-`, conflictNote: conflictNotes[i] ?? null });
+    pack.claim_register = l.claimRegister;
+    return { dev: l.dev, pack };
   });
 }
 
