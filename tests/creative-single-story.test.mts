@@ -42,6 +42,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   const params = url.searchParams;
   if (method === "GET") {
     if (table === "style_rules") return new Response("{}", { status: 404 });
+    if (table === "source_content_policies") return new Response(JSON.stringify([{ source_id: registry.id, policy: "extraction_allowed" }]), { status: 200 });
     if (table === "stories") {
       const selected = stories.filter((row) => matches(row, params));
       const expanded = params.get("select")?.includes("story_source_links(");
