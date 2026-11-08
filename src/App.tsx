@@ -12,6 +12,7 @@ import Planner from "./Planner";
 import CreativeSetup from "./CreativeSetup";
 import DraftAudit from "./DraftAudit";
 import ProvenanceDesk from "./ProvenanceDesk";
+import PublicationDesk from "./PublicationDesk";
 
 const NAV_GROUPS = [
   { label: "YOUR NEWSROOM", items: [
@@ -19,6 +20,7 @@ const NAV_GROUPS = [
     { to: "/stories", label: "Research library" },
     { to: "/review", label: "Verification and approval" },
     { to: "/editions", label: "Your story selections & videos" },
+    { to: "/publications", label: "Publishing & performance" },
   ] },
   { label: "ADVANCED TOOLS", items: [
     { to: "/evidence", label: "Evidence Room" }, { to: "/draft-audit", label: "Draft Audit" },
@@ -211,13 +213,13 @@ function Desk({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const titles: Record<string, string> = {
     "/": "Newsroom", "/stories": "Story Desk", "/evidence": "Evidence Room",
-    "/review": "Editorial Review", "/draft-audit": "Draft Audit", "/provenance": "Source Provenance", "/planner": "Planner", "/editions": "Your story selections & videos",
+    "/review": "Editorial Review", "/draft-audit": "Draft Audit", "/provenance": "Source Provenance", "/planner": "Planner", "/editions": "Your story selections & videos", "/publications": "Publishing & performance",
     "/creative": "Presenter and Voice", "/architect": "Prompt Architect",
     "/reference": "Reference Library", "/history": "Prompt History", "/health": "System Health",
   };
   const parent: Record<string, string> = {
     "/stories": "/", "/evidence": "/stories", "/review": "/stories", "/draft-audit": "/review", "/provenance": "/stories", "/planner": "/",
-    "/editions": "/planner", "/creative": "/editions", "/architect": "/editions",
+    "/editions": "/planner", "/publications": "/editions", "/creative": "/editions", "/architect": "/editions",
     "/reference": "/", "/history": "/architect", "/health": "/",
   };
   const [editionDirty, setEditionDirty] = useState(false);
@@ -289,6 +291,7 @@ function Desk({ onLogout }: { onLogout: () => void }) {
           <Route path="/provenance" element={<ProvenanceDesk />} />
           <Route path="/planner" element={<Planner />} />
           <Route path="/editions" element={<EditionDesk />} />
+          <Route path="/publications" element={<PublicationDesk />} />
           <Route path="/creative" element={<CreativeSetup />} />
           <Route path="/architect" element={<Architect />} />
           <Route path="/reference" element={<ReferenceLibrary />} />
