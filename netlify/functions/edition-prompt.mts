@@ -8,6 +8,7 @@ import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { buildEditionPrompt, EditionPromptTooLarge, MAX_EDITION_PROMPT_CHARS } from "../lib/edition-prompt.mts";
 import { buildTextEditionPrompt } from "../lib/text-edition-prompt.mts";
+import { buildVerificationBrief, VerificationBriefTooLarge } from "../lib/verification-brief.mts";
 import { evaluateEdition, membersKey, STRUCTURE_LABEL, type Structure } from "../lib/editions.mts";
 import { DELIVERABLES, type Deliverable } from "../lib/production-tools.mts";
 import { PackTooLarge, classCounts } from "../lib/evidence-pack.mts";
@@ -16,7 +17,7 @@ import type { StyleRuleIn } from "../lib/prompt-architect.mts";
 import { loadCreative } from "../lib/creative-data.mts";
 import { FORMATS, configHash, approvalState, selectFormat, type SoundOpt } from "../lib/presenter.mts";
 import { buildBlueprint } from "../lib/blueprint.mts";
-import { UUID, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, editionClaimClearanceByStory, packsFor, promptValidity } from "../lib/edition-data.mts";
+import { UUID, MAX_MEMBERS, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, editionClaimClearanceByStory, packsFor, promptValidity } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -55,6 +56,17 @@ export default async (req: Request) => {
       if (u.searchParams.get("history")) return await history();
       const id = u.searchParams.get("id");
       if (id) return await one(id);
+      const mode = u.searchParams.get("mode");
+      if (mode === "verification_brief") {
+        const ids = parseStoryIds(u.searchParams.get("ids"));
+        if (!ids) return json({ error: "bad_request", detail: "Choose 1 to 18 distinct research developments." }, 400);
+        return await createVerificationBrief(ids, u.searchParams.get("title") ?? "", u.searchParams.get("angle") ?? "", []);
+      }
+      if (mode === "workflow_status") {
+        const statusId = u.searchParams.get("editionId");
+        if (!statusId || !UUID.test(statusId)) return json({ error: "bad_request" }, 400);
+        return await workflowStatus(statusId);
+      }
       const eid = u.searchParams.get("editionId");
       if (!eid || !UUID.test(eid)) return json({ error: "bad_request" }, 400);
       return await preview(eid, req);
@@ -63,10 +75,81 @@ export default async (req: Request) => {
     return json({ error: "method_not_allowed" }, 405);
   } catch (e) {
     if (e instanceof DbError) return json({ error: "database", detail: e.message }, e.status);
-    if (e instanceof PackTooLarge || e instanceof EditionPromptTooLarge) return json({ error: "too_large", detail: (e as Error).message }, 413);
+    if (e instanceof PackTooLarge || e instanceof EditionPromptTooLarge || e instanceof VerificationBriefTooLarge) return json({ error: "too_large", detail: (e as Error).message }, 413);
     return json({ error: "server_error" }, 500);
   }
 };
+
+function parseStoryIds(raw: unknown): string[] | null {
+  const ids = Array.isArray(raw) ? raw.map((x) => typeof x === "string" ? x.trim() : "") :
+    typeof raw === "string" ? raw.split(",").map((x) => x.trim()) : [];
+  if (!ids.length || ids.length > MAX_MEMBERS || ids.some((id) => !UUID.test(id)) || new Set(ids).size !== ids.length) return null;
+  return ids;
+}
+
+/** Research-only brief. Does not require an editorial decision or factual clearance and is never saved to prompt history. */
+async function createVerificationBrief(ids: string[], title: string, angle: string, conflictNotes: string[]) {
+  const loaded = await loadStories(ids);
+  const missing = ids.filter((id) => !loaded.has(id));
+  if (missing.length) return json({
+    error: "research_material_unavailable",
+    detail: "One or more selected developments no longer have retrievable source links. Refresh the research results before preparing a verification brief.",
+    missing,
+  }, 409);
+  const members = packsFor(ids, loaded, conflictNotes);
+  const out = buildVerificationBrief({ title, angle, members });
+  return json({
+    kind: "verification_brief",
+    saved: false,
+    publicNewsOutput: false,
+    storyCount: out.storyCount,
+    sourceCount: out.sourceCount,
+    directoryReviewedOn: out.directoryReviewedOn,
+    note: "Internal verification assignment only. This is not a news draft, report, script or publication approval. Nothing was saved.",
+    prompt: out.prompt,
+  });
+}
+
+/** Reports both independent gates so the UI can explain the next action before production is attempted. */
+async function workflowStatus(editionId: string) {
+  const rows = await db<any[]>(`editions?id=eq.${editionId}&select=id,title,edition_kind`);
+  const ed = rows[0];
+  if (!ed) return json({ error: "not_found" }, 404);
+  const ids = await memberIds(editionId);
+  if (!ids.length) return json({
+    editionId, editorialApproval: { current: false }, factualVerification: { ready: false, blocked: [{ reason: "The edition has no selected developments." }] },
+    verificationBriefAllowed: false, productionPromptAllowed: false, blockers: ["Select at least one development."],
+  });
+  const decision = await latestEditionDecision(editionId);
+  const decisions = await latestDecisions(ids);
+  const blockedMembers = ids.filter((id) => ["rejected", "needs_research"].includes(decisions.get(id)?.decision ?? ""));
+  const approvalCurrent = decision?.decision === "approved" && decision.members_hash === membersKey(ids) && blockedMembers.length === 0;
+  const loaded = await loadStories(ids);
+  const missingStories = ids.filter((id) => !loaded.has(id));
+  let factual = { ready: false, blocked: [] as { storyId?: string; claimId?: string; reason: string }[] };
+  try {
+    factual = await editionClaimClearance(ids);
+  } catch (error) {
+    factual = { ready: false, blocked: [{ reason: error instanceof DbError && error.upstream === 404
+      ? "Claim-verification tables are not installed. Evidence clearance cannot be confirmed."
+      : "The current claim-verification state could not be loaded. Production must remain blocked." }] };
+  }
+  const blockers: string[] = [];
+  if (!approvalCurrent) blockers.push("The exact selected edition does not have a current human editorial approval.");
+  if (!factual.ready) blockers.push("One or more developments have incomplete, unresolved or stale factual verification.");
+  if (blockedMembers.length) blockers.push("One or more developments were rejected or returned for more research.");
+  if (missingStories.length) blockers.push("One or more developments no longer have source material attached.");
+  return json({
+    editionId,
+    editionKind: ed.edition_kind ?? "video",
+    editorialApproval: { current: approvalCurrent, decision: decision?.decision ?? null, membersCurrent: decision?.members_hash === membersKey(ids) },
+    factualVerification: { ready: factual.ready, blocked: factual.blocked },
+    verificationBriefAllowed: ids.length > 0 && missingStories.length === 0,
+    productionPromptAllowed: blockers.length === 0,
+    blockers,
+    note: "Research and verification preparation may happen before approval. Public-facing news prompts require both current human editorial approval and complete, current factual verification.",
+  });
+}
 
 /** Everything that must be true before a prompt may be written. Returns a reason string if not. */
 async function readiness(editionId: string) {
@@ -130,6 +213,12 @@ async function preview(editionId: string, req: Request) {
 async function generate(req: Request) {
   let b: any;
   try { b = JSON.parse(await req.text()); } catch { return json({ error: "bad_request" }, 400); }
+  if (b.mode === "verification_brief") {
+    const ids = parseStoryIds(b.ids);
+    if (!ids) return json({ error: "bad_request", detail: "Choose 1 to 18 distinct research developments." }, 400);
+    const notes = Array.isArray(b.conflictNotes) ? b.conflictNotes.map((x: unknown) => typeof x === "string" ? x : "").slice(0, ids.length) : [];
+    return await createVerificationBrief(ids, typeof b.title === "string" ? b.title : "", typeof b.angle === "string" ? b.angle : "", notes);
+  }
   const editionId = String(b.editionId ?? "");
   if (!UUID.test(editionId)) return json({ error: "bad_request" }, 400);
   const deliverable = DELIVERABLES.some((d) => d.key === b.deliverable) ? (b.deliverable as Deliverable) : "script_storyboard";
