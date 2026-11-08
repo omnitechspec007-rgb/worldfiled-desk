@@ -8,7 +8,7 @@ type SourceIndependence = {
   status: "confirmed_independent" | "known_shared_origin" | "partially_verified" | "unknown";
   explanation: string;
 };
-type Dev = {
+export type Dev = {
   id: string; headline: string; decision: string | null; type: string; recommendation: string; recommendationWhy: string; curiosityScore: number;
   evidenceStrength: { label: string; why: string }; corroborated: boolean; whatChanged: string; whyInteresting: string[]; audienceQuestion: string;
   surprisingElement: string | null; humanConsequences: string | null; possibleImplications: string | null; missingEvidence: string[]; sensationalismFlags: string[];
