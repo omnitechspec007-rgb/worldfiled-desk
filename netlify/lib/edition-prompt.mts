@@ -132,6 +132,9 @@ export function buildEditionPrompt(input: EditionPromptInput) {
 === RULES THAT OVERRIDE EVERYTHING ELSE ===
 ${INTEGRITY_POLICY}
 
+- Use ONLY facts recorded in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER inside section 6 where the latest editor outcome is SUPPORTED and current supported decision is YES. A factual sentence must be directly supported by its exact recorded supporting passage, from a source marked enabled and healthy.
+- Headlines, feed snippets, publisher counts, heuristic evidence classes, editorial curiosity scores, geography inferred from publisher location and official announcements are RESEARCH CONTEXT ONLY. They are not clearance to assert a fact. Never convert them into public-facing factual claims.
+- If a development has no current-supported claim register entry, omit it from factual narration and on-screen text; identify it as held for verification. Do not substitute its research headline, summary or snippet. Do not pad the script or use another story's evidence.
 - Use ONLY the facts in section 6. Never invent numbers, dates, names, places, quotes, official statements, source links, legal provisions, scientific conclusions, geographic relationships or corroboration.
 - Every claim has an evidence class. You may not state a claim more strongly than its class allows. Separate, always labelled: EDITORIAL INTERPRETATION (our reading of the connection) and FUTURE POSSIBILITY (anything that "could" or "may" happen, only if a source says it). Creative treatment may never turn a SINGLE_SOURCE, CONFLICTING or UNKNOWN item into an asserted fact.
 - Several outlets repeating one announcement or one wire report are NOT independent confirmation. Do not write "confirmed by multiple sources" unless section 6 shows separate original sources.
