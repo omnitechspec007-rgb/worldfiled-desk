@@ -113,6 +113,7 @@ export function buildEditorialIntelligence(stories: EditorialStory[]) {
     generatedAt: new Date().toISOString(),
     eligibleCount: eligible.length,
     standalonePicks,
+    standaloneNotSelected,
     roundupPicks,
     narrated,
     held,
