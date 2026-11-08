@@ -193,9 +193,6 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
 
   useEffect(() => () => { if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current); }, []);
 
-  const updateCard = (id: string, key: "headline" | "summary", value: string) => {
-    setCards((current) => current.map((c) => c.id === id ? { ...c, [key]: value } : c));
-  };
   const moveCard = (index: number, direction: -1 | 1) => {
     setCards((current) => {
       const target = index + direction;
@@ -321,7 +318,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
 
       <div className="panel">
         <h3>Story cards ({cards.length})</h3>
-        <p className="meta">Edit, reorder or remove stories. Keep each one factual and short; the preview shows the actual final layout. Source names are included where available. A shorter edition is acceptable when fewer stories merit inclusion.</p>
+        <p className="meta">These cards are populated from the exact current-supported claim statements in the Evidence Room. Factual wording is locked here so it cannot drift away from the verified record. Reorder or remove stories; to change a claim, revise its evidence and decision in the Evidence Room, then regenerate this edition. A shorter roundup is preferable to padding.</p>
         {cards.map((card, index) => (
           <div className="roundup-card-editor" key={card.id}>
             <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
@@ -332,8 +329,8 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
                 <button type="button" onClick={() => removeCard(card.id)} aria-label={`Remove story ${index + 1}`}>Remove</button>
               </div>
             </div>
-            <label>Headline<input value={card.headline} maxLength={150} onChange={(e) => updateCard(card.id, "headline", e.target.value)} /></label>
-            <label>Supporting text<textarea value={card.summary} maxLength={190} rows={2} onChange={(e) => updateCard(card.id, "summary", e.target.value)} /></label>
+            <label>Verified claim<input value={card.headline} readOnly aria-label={`Verified claim for story ${index + 1}`} /></label>
+            <label>Additional verified context<textarea value={card.summary} readOnly rows={2} aria-label={`Additional verified context for story ${index + 1}`} /></label>
             <p className="meta">{card.source ? "Source: " + card.source : "No source label available; verify the evidence in the edition before export."}</p>
           </div>
         ))}
