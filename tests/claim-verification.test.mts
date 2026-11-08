@@ -180,7 +180,13 @@ assert.equal((await metadataOnlyPassage.json()).error,"source_not_approved_for_p
 assert.equal(evidence.length,0);
 ok("metadata-only sources cannot supply stored claim passages");
 contentPolicies[0].policy = "extraction_allowed";
-r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"}); assert.equal(r.status,200); assert.equal(evidence.length,1); ok("extraction-approved source can supply a checked passage");
+registry.enabled = false;
+const disabledSourcePassage = await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"});
+assert.equal(disabledSourcePassage.status,409);
+assert.equal((await disabledSourcePassage.json()).error,"source_not_currently_eligible");
+registry.enabled = true;
+registry.retrieval_status = "healthy";
+r=await post({action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"}); assert.equal(r.status,200); assert.equal(evidence.length,1); ok("only extraction-approved, enabled and healthy sources can supply a checked passage");
 const evidenceKey=crypto.randomUUID();
 const evidenceBody={action:"add_evidence",storyId,claimId:claim.id,sourceId,passage:"The agency announced the policy on 5 November.",location:"Official notice, paragraph 1"};
 const evidenceFirst=await post(evidenceBody,true,evidenceKey); assert.equal(evidenceFirst.status,200);
