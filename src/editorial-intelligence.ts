@@ -94,7 +94,10 @@ export function buildEditorialIntelligence(stories: EditorialStory[]) {
     else eligible.push(scoreStory(story));
   }
   const ranked = [...eligible].sort((a, b) => b.score - a.score);
-  // A standalone card must be strong enough to carry a story alone. Strong edition candidates may still be useful in a roundup or narrated sequence.\n  const standalonePool = ranked.filter((p) => p.story.recommendation === "HIGH-POTENTIAL STORY");\n  const standalonePicks = standalonePool.slice(0, 5);\n  const standaloneNotSelected = ranked.filter((p) => p.story.recommendation !== "HIGH-POTENTIAL STORY");
+  // A standalone card must be strong enough to carry a story alone. Strong edition candidates may still be useful in a roundup or narrated sequence.
+  const standalonePool = ranked.filter((p) => p.story.recommendation === "HIGH-POTENTIAL STORY");
+  const standalonePicks = standalonePool.slice(0, 5);
+  const standaloneNotSelected = ranked.filter((p) => p.story.recommendation !== "HIGH-POTENTIAL STORY");
   const roundupPicks = diverseOrder(eligible, 7);
   const narrated: NarratedPlan[] = [
     { durationSeconds: 60, stories: diverseOrder(eligible, 3), estimatedStoryCount: Math.min(3, eligible.length), rationale: "Up to three developments, leaving room for a clear opening, factual context and close. The production blueprint allocates the actual speaking time." },
