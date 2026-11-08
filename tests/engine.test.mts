@@ -327,6 +327,7 @@ T("claim_evidence").push({ id: crypto.randomUUID(), claim_id: claimId, source_id
 T("verification_results").push({ id: crypto.randomUUID(), claim_id: claimId, outcome: "SUPPORTED", reviewer_notes: "Checked against the permitted source passage.", created_at: new Date(Date.now() + 1000).toISOString() });
 const cleared = await claimVerificationFn(new Request("https://x/", { method: "POST", headers: { origin: "https://x", cookie, "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ action: "complete_story", storyId: sid, acknowledged: true }) }));
 assert.equal(cleared.status, 200); ok("human claim-register completion marks the story factually verified");
+T("source_content_policies").length = 0; // Later assertions independently test that a newly blocked source is withheld.
 assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" }, cookie, crypto.randomUUID())).status, 200);
 assert.equal(T("stories").find((x) => x.id === sid).editorial_status, "approved"); assert.equal(T("editorial_decisions").length, 1); assert(T("audit_events").some((a) => a.event_type === "story_approved" && a.entity_id === sid)); ok("approval saved with notes, status updated and audit event written");
 console.log("Creative Prompt Architect (approved story)");
