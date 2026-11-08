@@ -21,8 +21,8 @@ const decisions: any[] = [{ id: decisionId, story_id: storyId, decision: "approv
 const prompts: any[] = [];
 const audits: any[] = [];
 const claimRow = () => ({
-  id: "claim-1", story_id: storyId,
-  claim_evidence: [{ id: "evidence-1", passage: "The report was published on the ministry website.", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60_000).toISOString() }],
+  id: "claim-1", story_id: storyId, claim_text: "The ministry published its fiscal report.",
+  claim_evidence: [{ id: "evidence-1", source_id: sourceId, passage: "The report was published on the ministry website.", passage_location: "opening paragraph", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60_000).toISOString(), retrieved_sources: { ...sources[0], source_registry: registry } }],
   verification_results: [{ id: "verification-1", outcome: "SUPPORTED", reviewer_notes: "Checked against the official report.", created_at: new Date().toISOString() }],
 });
 function matches(row: any, params: URLSearchParams) {
