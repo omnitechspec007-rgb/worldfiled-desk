@@ -289,7 +289,7 @@ async function one(id: string) {
     withheld: current ? undefined : !clearance.ready
       ? "This story no longer has current factual clearance. The saved prompt remains in history but its text is withheld until the material claims are verified again."
       : !evidenceCurrent
-        ? "The sources used by this prompt are no longer all currently enabled and healthy. The saved prompt remains in history but cannot be copied."
+        ? "The source snapshot or verified claim register changed after this prompt was written. The saved prompt remains in history but cannot be copied; review the updated evidence and regenerate it."
         : "This story's human editorial approval is no longer current. The saved prompt remains in history but cannot be copied. Re-approve and regenerate.",
   });
 }
