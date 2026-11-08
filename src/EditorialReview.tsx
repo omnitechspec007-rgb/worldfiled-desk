@@ -101,7 +101,8 @@ export default function EditorialReview() {
       {picks && picks.length === 0 && !notInstalled && <div className="panel"><p>Nothing to review yet. Click RUN RESEARCH on the Dashboard.</p></div>}
       {picks?.map((s) => (
         <div className="panel story" key={s.id}>
-          <p className="rank">#{s.rank} · EDITORIAL: {STATUS[s.editorialStatus ?? "pending"]}</p>\n          <p className={s.verificationStatus === "verified" ? "status good" : "status bad"}>FACTUAL VERIFICATION: {s.verificationStatus === "verified" ? "Complete — human-reviewed claim register" : s.verificationStatus === "in_progress" ? "In progress — claims still need review" : "Not complete — open the Evidence Room"} · <Link to={`/evidence/${s.id}`}>Verify this story →</Link></p>
+          <p className="rank">#{s.rank} · EDITORIAL: {STATUS[s.editorialStatus ?? "pending"]}</p>
+          <p className={s.verificationStatus === "verified" ? "status good" : "status bad"}>FACTUAL VERIFICATION: {s.verificationStatus === "verified" ? "Complete — human-reviewed claim register" : s.verificationStatus === "in_progress" ? "In progress — claims still need review" : "Not complete — open the Evidence Room"} · <Link to={`/evidence/${s.id}`}>Verify this story →</Link></p>
           <h2><Link to={`/evidence/${s.id}`}>{s.headline}</Link></h2>
           <p className="meta">{s.category ?? "Uncategorised"} · {s.regions?.join(", ")} · {s.outlets === 1 ? "single outlet" : `${s.outlets} outlets`}{s.hasPrimary ? " · includes an official source" : ""}</p>
           <p className="why"><strong>Why selected:</strong> {s.reason}</p>
