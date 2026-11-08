@@ -125,7 +125,9 @@ async function workflowStatus(editionId: string) {
   const decision = await latestEditionDecision(editionId);
   const decisions = await latestDecisions(ids);
   const blockedMembers = ids.filter((id) => ["rejected", "needs_research"].includes(decisions.get(id)?.decision ?? ""));
-  const approvalCurrent = decision?.decision === "approved" && decision.members_hash === membersKey(ids) && blockedMembers.length === 0;
+  const awaitingStoryApproval = ids.filter((id) => decisions.get(id)?.decision !== "approved");
+  const editionApprovalCurrent = decision?.decision === "approved" && decision.members_hash === membersKey(ids);
+  const approvalCurrent = editionApprovalCurrent && awaitingStoryApproval.length === 0 && blockedMembers.length === 0;
   const loaded = await loadStories(ids);
   const missingStories = ids.filter((id) => !loaded.has(id));
   let factual = { ready: false, blocked: [] as { storyId?: string; claimId?: string; reason: string }[] };
@@ -137,14 +139,16 @@ async function workflowStatus(editionId: string) {
       : "The current claim-verification state could not be loaded. Production must remain blocked." }] };
   }
   const blockers: string[] = [];
-  if (!approvalCurrent) blockers.push("The exact selected edition does not have a current human editorial approval.");
+  if (awaitingStoryApproval.length) blockers.push(`${awaitingStoryApproval.length} selected development(s) still need explicit approval in Editorial Review.`);
+  if (!editionApprovalCurrent) blockers.push("The exact selected edition does not have a current human approval.");
   if (!factual.ready) blockers.push("One or more developments have incomplete, unresolved or stale factual verification.");
   if (blockedMembers.length) blockers.push("One or more developments were rejected or returned for more research.");
   if (missingStories.length) blockers.push("One or more developments no longer have source material attached.");
   return json({
     editionId,
     editionKind: ed.edition_kind ?? "video",
-    editorialApproval: { current: approvalCurrent, decision: decision?.decision ?? null, membersCurrent: decision?.members_hash === membersKey(ids) },
+    storyEditorialReview: { ready: awaitingStoryApproval.length === 0, awaitingApproval: awaitingStoryApproval, rejectedOrReturned: blockedMembers },
+    editorialApproval: { current: editionApprovalCurrent, decision: decision?.decision ?? null, membersCurrent: decision?.members_hash === membersKey(ids) },
     factualVerification: { ready: factual.ready, blocked: factual.blocked },
     verificationBriefAllowed: ids.length > 0 && missingStories.length === 0,
     productionPromptAllowed: blockers.length === 0,
@@ -166,6 +170,12 @@ async function readiness(editionId: string) {
   const decs = await latestDecisions(ids);
   const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(decs.get(i)?.decision ?? ""));
   if (blocked.length) return { fail: json({ error: "member_blocked", detail: "A development in this edition was rejected or sent back for research.", blocked }, 409) };
+  const awaitingStoryApproval = ids.filter((i) => decs.get(i)?.decision !== "approved");
+  if (awaitingStoryApproval.length) return { fail: json({
+    error: "story_editorial_approval_required",
+    detail: "Every development must first receive explicit human approval in Editorial Review. That decision clears it for drafting only; it does not verify factual claims.",
+    awaitingApproval: awaitingStoryApproval,
+  }, 409) };
   const clearance = await editionClaimClearance(ids);
   if (!clearance.ready) return { fail: json({ error: "verification_blocked", detail: "Prompt generation is blocked because one or more edition stories have incomplete or unresolved factual verification.", blockedClaims: clearance.blocked }, 409) };
   const loaded = await loadStories(ids);
