@@ -119,7 +119,7 @@ async function workflowStatus(editionId: string) {
   if (!ed) return json({ error: "not_found" }, 404);
   const ids = await memberIds(editionId);
   if (!ids.length) return json({
-    editionId, editorialApproval: { current: false }, factualVerification: { ready: false, blocked: [{ reason: "The edition has no selected developments." }] },
+    editionId, storyEditorialReview: { ready: false, awaitingApproval: [], rejectedOrReturned: [] }, editorialApproval: { current: false }, factualVerification: { ready: false, blocked: [{ reason: "The edition has no selected developments." }] },
     verificationBriefAllowed: false, productionPromptAllowed: false, blockers: ["Select at least one development."],
   });
   const decision = await latestEditionDecision(editionId);
@@ -127,7 +127,6 @@ async function workflowStatus(editionId: string) {
   const blockedMembers = ids.filter((id) => ["rejected", "needs_research"].includes(decisions.get(id)?.decision ?? ""));
   const awaitingStoryApproval = ids.filter((id) => decisions.get(id)?.decision !== "approved");
   const editionApprovalCurrent = decision?.decision === "approved" && decision.members_hash === membersKey(ids);
-  const approvalCurrent = editionApprovalCurrent && awaitingStoryApproval.length === 0 && blockedMembers.length === 0;
   const loaded = await loadStories(ids);
   const missingStories = ids.filter((id) => !loaded.has(id));
   let factual = { ready: false, blocked: [] as { storyId?: string; claimId?: string; reason: string }[] };
@@ -153,7 +152,7 @@ async function workflowStatus(editionId: string) {
     verificationBriefAllowed: ids.length > 0 && missingStories.length === 0,
     productionPromptAllowed: blockers.length === 0,
     blockers,
-    note: "Research and verification preparation may happen before approval. Public-facing news prompts require both current human editorial approval and complete, current factual verification.",
+    note: "Verification preparation may happen before approvals. Public-facing news prompts require story-level Editorial Review approval, approval of the exact edition membership, and complete current factual verification.",
   });
 }
 
