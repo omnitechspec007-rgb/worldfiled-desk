@@ -259,7 +259,27 @@ export default function EditionDesk() {
     } catch { setMsg("Could not save the edition."); }
     setBusy(false);
   };
-  const openSavedQuiet = async (id: string) => { const r = await fetch(`${api}editions?id=${id}`); if (r.ok) setApproval((await r.json()).approval); };
+  const openSavedQuiet = async (id: string) => { const r = await fetch(api + "editions?id=" + encodeURIComponent(id)); if (r.ok) setApproval((await r.json()).approval); };
+  const prepareSet = async (
+    s: { ids: string[]; title: string; angle?: string; structure?: string; editionKind?: "video" | "text" },
+    options: { deliverable?: string; duration?: number } = {},
+  ) => {
+    setBusy(true); setMsg("");
+    try {
+      const kind = s.editionKind ?? "video";
+      const response = await post("editions", { action: "save", title: s.title, ids: s.ids, editionKind: kind, angle: s.angle ?? "", structure: s.structure || undefined });
+      const data = await response.json();
+      if (!response.ok) { setMsg(data.detail ?? "WorldFiled could not save this production package. No package was created."); setBusy(false); return; }
+      openSet(s, data.id);
+      if (options.deliverable) setDeliverable(options.deliverable);
+      if (options.duration) setDuration(options.duration);
+      setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable: options.deliverable ?? deliverable, duration: options.duration ?? duration, pAngle, fmt, sound, visual, conflicts: [] }));
+      await openSavedQuiet(data.id);
+      setMsg("Draft package saved. Next: verify every story in Verification and approval, then approve this edition. WorldFiled will unlock its copy-ready production prompt only after those human checks.");
+      void loadDesk();
+    } catch { setMsg("Could not save the production package. Your research results are unchanged."); }
+    setBusy(false);
+  };
   const decide = async (decision: string) => {
     if (!editionId) return;
     setBusy(true); setMsg("");
@@ -318,7 +338,7 @@ export default function EditionDesk() {
       {s.uncertainties.length > 0 && <p className="caution">Uncertain: {s.uncertainties.slice(0, 2).join(" ")}</p>}
       {s.excluded?.length > 0 && <details><summary>Left out ({s.excluded.length}) and why</summary><ul className="comps">{s.excluded.map((x) => <li key={x.id}><strong>{x.headline}</strong>: {x.reason}</li>)}</ul></details>}
       <div className="actions">
-        <button className="primary" onClick={() => openSet({ ids: s.ids, title: s.title, angle: s.angle, structure: s.structure })}>{weak ? "Inspect" : "Open in workspace"}</button>
+        <button className="primary" onClick={() => weak ? openSet({ ids: s.ids, title: s.title, angle: s.angle, structure: s.structure }) : void prepareSet({ ids: s.ids, title: s.title, angle: s.angle, structure: s.structure, editionKind: "video" })} disabled={busy}>{weak ? "Inspect" : "Prepare this edition"}</button>
         {weak && <button onClick={() => setRejectedLinks((r) => [...r, s.key])}>Reject this connection</button>}
       </div>
     </div>
@@ -377,7 +397,7 @@ export default function EditionDesk() {
               <p className="why"><strong>Why it may earn attention:</strong> {pick.story.whyInteresting.join("; ") || pick.story.recommendationWhy}</p>
               <details><summary>How the opportunity score was calculated</summary><ul className="comps">{pick.parts.map((part) => <li key={part.key}><strong>{part.label}: {part.points}/{part.max}</strong> — {part.reason}</li>)}</ul></details>
               <div className="actions">
-                <button className="primary" onClick={() => { openSet({ ids: [pick.story.id], title: pick.story.headline, structure: "news_roundup", editionKind: "video" }); setDeliverable("static_roundup_6s"); }}>Prepare this standalone text card</button>
+                <button className="primary" onClick={() => void prepareSet({ ids: [pick.story.id], title: pick.story.headline, editionKind: "video" }, { deliverable: "static_roundup_6s" })} disabled={busy}>Prepare this standalone text card</button>
                 <button onClick={() => setInspect(inspect === "auto-" + pick.story.id ? null : "auto-" + pick.story.id)}>{inspect === "auto-" + pick.story.id ? "Hide source review" : "Inspect sources and reasoning"}</button>
               </div>
               {inspect === "auto-" + pick.story.id && <DevDetail d={pick.story} />}
@@ -391,7 +411,7 @@ export default function EditionDesk() {
           <div className="confirm">
             <strong>{intelligence.roundupPicks.length} stories selected for the roundup · maximum 7</strong>
             <div className="actions">
-              <button className="primary" disabled={!intelligence.roundupPicks.length} onClick={() => { openSet({ ids: intelligence.roundupPicks.map((p) => p.story.id), title: "The World, Filed — Daily Roundup", structure: "news_roundup", editionKind: "video" }); setDeliverable("static_roundup_6s"); }}>Prepare static roundup</button>
+              <button className="primary" disabled={!intelligence.roundupPicks.length} onClick={() => void prepareSet({ ids: intelligence.roundupPicks.map((p) => p.story.id), title: "The World, Filed — Daily Roundup", structure: "news_roundup", editionKind: "video" }, { deliverable: "static_roundup_6s" })} disabled={busy}>Prepare static roundup</button>
             </div>
           </div>
           {intelligence.roundupPicks.map((pick, i) => <p className="why" key={pick.story.id}><strong>{String(i + 1).padStart(2, "0")}. {pick.story.headline}</strong> — opportunity {pick.score}/100; {pick.story.type || "general development"}; {pick.story.locations[0]?.country || "place not established"}</p>)}
@@ -406,7 +426,7 @@ export default function EditionDesk() {
                 <h3>{plan.stories.length} stories · {plan.stories[0]?.story.headline || "No eligible lead story"}</h3>
                 <p className="meta">{plan.rationale}</p>
                 <ul className="comps">{plan.stories.map((pick, i) => <li key={pick.story.id}>{i + 1}. {pick.story.headline}</li>)}</ul>
-                <button className="primary" disabled={plan.stories.length < 2} onClick={() => { openSet({ ids: plan.stories.map((p) => p.story.id), title: "The World, Filed — " + plan.durationSeconds + "-Second Edition", structure: "news_roundup", editionKind: "video" }); setDeliverable("script_storyboard"); setDuration(plan.durationSeconds); }}>Prepare {plan.durationSeconds}-second edition</button>
+                <button className="primary" disabled={plan.stories.length < 2} onClick={() => void prepareSet({ ids: plan.stories.map((p) => p.story.id), title: "The World, Filed — " + plan.durationSeconds + "-Second Edition", structure: "news_roundup", editionKind: "video" }, { deliverable: "script_storyboard", duration: plan.durationSeconds })} disabled={busy}>Prepare {plan.durationSeconds}-second edition</button>
               </div>
             ))}
           </div>
@@ -498,6 +518,7 @@ export default function EditionDesk() {
 
       <div id="workspace" className="panel">
         <h2>2. Review, order and build your {editionKind === "text" ? "text briefing" : "video bulletin"} ({ids.length} selected)</h2>
+        {editionId && <div className="confirm"><strong>Draft package saved.</strong><p>Next, open <a href="/review">Verification and approval</a> and complete factual verification for every story. Then return here to approve the edition and create the copy-ready prompt. Neither approval nor publishing happens automatically.</p></div>}
         {ids.length === 0 ? <p className="meta">Nothing selected yet. Tick developments in "1. Select developments", or open a suggested edition.</p> : (
           <>
             <div className="row">
