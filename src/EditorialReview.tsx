@@ -122,7 +122,7 @@ export default function EditorialReview() {
             </div>
           ) : (
             <div className="actions">
-              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain}>Approve for editorial use…</button>
+              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain || s.verificationStatus !== "verified"}>{s.verificationStatus === "verified" ? "Approve for editorial use…" : "Verify first to approve"}</button>
               <button onClick={() => decide(s.id, "rejected")} disabled={busy || uncertain}>Reject</button>
               <button onClick={() => void decide(s.id, "needs_research")} disabled={busy || uncertain}>Needs more research</button>
               <Link to={`/evidence/${s.id}`}>Open sources</Link>
