@@ -78,7 +78,7 @@ export function buildArchitectPrompt(input: ArchitectInput): ArchitectOutput {
 === RULES THAT OVERRIDE EVERYTHING ELSE ===
 ${INTEGRITY_POLICY}
 
-- Use ONLY entries in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER in section B where the latest editor outcome is SUPPORTED and current supported decision is YES. Every factual sentence and on-screen statement must be traceable to the exact recorded supporting passage from a currently enabled, healthy source.
+- Use ONLY entries in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER in section B where the latest editor outcome is SUPPORTED and current supported decision is YES. Every factual sentence and on-screen statement must be traceable to a specific recorded passage whose individual evidence row is extracted, non-contradictory, and marked source enabled=yes and feed health=healthy. Other passage rows are not publishable support.
 - Headlines, feed snippets, source counts, heuristic evidence classes and editorial curiosity scores are RESEARCH CONTEXT ONLY. They are never permission to assert a fact in the public script.
 - If the verified claim register is absent or has no current-supported claim for this story, return NO-GO and do not write factual narration, captions or on-screen claims. Never substitute the research headline, summary or snippet.
 - Never invent numbers, dates, names, places, quotes, dialogue, people or events. If something needed is not in the verified register, say so and leave it out, or ask the editor.
