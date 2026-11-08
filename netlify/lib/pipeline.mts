@@ -6,6 +6,7 @@
 // An AI provider, when added, plugs in behind the interfaces in ai-provider.mts and is never
 // required for any stage here.
 import { db } from "./db.mts";
+import { shouldProbeSource, canUseSourceForResearch, eligibleResearchSourceIds } from "./source-selection.mts";
 import { SEED_SOURCES } from "./seed-sources.mts";
 import { fetchFeed, feedText, urlHash } from "./feeds.mts";
 import { clusterItems } from "./cluster.mts";
@@ -20,7 +21,7 @@ const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length
 
 type StageResult = { done: boolean; detail: Record<string, any> };
 
-type SourceRow = { id: string; name: string; country_scope: string | null; category: string | null; feed_url: unknown; reliability_note?: string | null };
+type SourceRow = { id: string; name: string; country_scope: string | null; category: string | null; feed_url: unknown; reliability_note?: string | null; enabled: boolean; retrieval_status: string };
 
 export async function stagePrepare(): Promise<StageResult> {
   // Built-in list is the source of truth. Existing rows keep their recorded health, unless the
@@ -78,12 +79,14 @@ export async function stagePrepare(): Promise<StageResult> {
 }
 
 export async function stageDiscover(prev: Record<string, any>, config: { windowDays?: number; region?: string } = {}): Promise<StageResult> {
+  // Probe only fresh built-in candidates and already-enabled healthy sources. A previously
+  // degraded/failing or manually disabled source cannot silently re-enter the research pool.
   const sources = await db<SourceRow[]>(
-    "source_registry?select=id,name,country_scope,category,feed_url,reliability_note&feed_url=not.is.null&retrieval_status=neq.disabled&order=name.asc"
+    "source_registry?select=id,name,country_scope,category,feed_url,reliability_note,enabled,retrieval_status&feed_url=not.is.null&retrieval_status=in.(untested,healthy)&order=name.asc"
   );
-  const scopedSources = config.region && config.region !== "all"
-    ? sources.filter((s) => (s.country_scope ?? "").startsWith(config.region!))
-    : sources;
+  const scopedSources = sources
+    .filter(shouldProbeSource)
+    .filter((s) => !config.region || config.region === "all" || (s.country_scope ?? "").startsWith(config.region));
   const results: Record<string, any> = prev.results ?? {};
   const pending = scopedSources.filter((s) => !(s.id in results));
   const batch = pending.slice(0, BATCH_SIZE);
@@ -187,9 +190,10 @@ export async function stageCluster(runId: string, config: { windowDays?: number 
   const retrieved = await db<{ id: string; title: string; registry_id: string | null }[]>(
     `retrieved_sources?select=id,title,registry_id&retrieved_at=gte.${since}&order=url_hash.asc&limit=1500`
   );
-  const sources = await db<SourceRow[]>("source_registry?select=id,name,country_scope,category,feed_url");
+  const sources = await db<SourceRow[]>("source_registry?select=id,name,country_scope,category,feed_url,enabled,retrieval_status");
+  const activeSourceIds = eligibleResearchSourceIds(sources);
   const allowedSourceIds = new Set(
-    sources.filter((s) => !config.region || config.region === "all" || (s.country_scope ?? "").startsWith(config.region)).map((s) => s.id)
+    sources.filter((s) => activeSourceIds.has(s.id) && (!config.region || config.region === "all" || (s.country_scope ?? "").startsWith(config.region))).map((s) => s.id)
   );
   const rows = retrieved.filter((r) => allowedSourceIds.has(r.registry_id ?? ""));
   const reg = new Map(sources.map((s) => [s.id, s]));
@@ -270,7 +274,7 @@ export async function stageRank(runId: string, config: { windowDays?: number; re
     throw new Error("The scoring tables are not installed. Run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click Resume.");
   }
   const rows = await db<any[]>(
-    "stories?select=id,headline,category,created_at,story_source_links(retrieved_sources(title,published_at,retrieved_at,extract,source_registry(name,publisher,country_scope,reliability_note)))&order=created_at.desc&limit=300"
+    "stories?select=id,headline,category,created_at,story_source_links(retrieved_sources(title,published_at,retrieved_at,extract,source_registry(name,publisher,country_scope,reliability_note,enabled,retrieval_status)))&order=created_at.desc&limit=300"
   );
   const now = Date.now();
   const inputs: StoryInput[] = rows.map((r) => ({
@@ -281,6 +285,7 @@ export async function stageRank(runId: string, config: { windowDays?: number; re
     sources: (r.story_source_links ?? [])
       .map((l: any) => l.retrieved_sources)
       .filter(Boolean)
+      .filter((s: any) => canUseSourceForResearch({ id: "linked", enabled: s.source_registry?.enabled, retrieval_status: s.source_registry?.retrieval_status }))
       .filter((s: any) => !config.region || config.region === "all" || (s.source_registry?.country_scope ?? "").startsWith(config.region))
       .map((s: any) => ({
         outlet: s.source_registry?.publisher ?? s.source_registry?.name ?? "Unknown",
