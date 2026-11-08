@@ -356,15 +356,16 @@ export default function EditionDesk() {
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
     const claims = workflow?.verifiedClaimsByStory?.[id] ?? [];
-    const primary = claims[0];
-    const supporting = primary?.sources?.[0];
+    // Poster space is limited. Use only complete, concise, current-supported claim statements;
+    // never cut a longer claim mid-sentence or substitute the research headline.
+    const primary = claims.find((claim) => claim.statement.trim().length > 0 && claim.statement.length <= 120);
+    const supportingClaim = claims.find((claim) => claim.claimId !== primary?.claimId && claim.statement.trim().length > 0 && claim.statement.length <= 170);
+    const supporting = primary?.sources?.find((source) => source.publisher || source.url);
     return d && primary ? {
       id: d.id,
-      // The public-facing card is built from a claim statement the editor actually cleared,
-      // never from the earlier headline/snippet-based research summary.
       headline: primary.statement,
-      summary: claims.slice(1, 3).map((claim) => claim.statement).join(" ") || "See the linked verified source passage for the supporting detail.",
-      location: d.locations.map((x) => x.country).join(", "),
+      summary: supportingClaim?.statement ?? "Verified claim · supporting passage recorded in Evidence Room.",
+      // Do not infer the event location from a publisher or a metadata-only feed item.
       source: supporting?.publisher ?? "Verified source in Evidence Room",
     } : null;
   }).filter((x) => x !== null);
@@ -551,7 +552,10 @@ export default function EditionDesk() {
                 </div>}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
-                  <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true} preflightNote={roundupPreflight?.note ?? "Checking current approval and factual clearance…"} />
+                  <>
+                    {roundupStories.length < ids.length && <p className="caution">Only {roundupStories.length} of {ids.length} selected stories have a concise current-supported claim statement that fits this poster. Longer claims are not cut or replaced with research headlines. Refine the claim in the Evidence Room, add supporting passages and re-verify it, or leave that story out.</p>}
+                    <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true && roundupStories.length > 0} preflightNote={roundupPreflight?.note ?? "Checking current approval and factual clearance…"} />
+                  </>
                 )}
                 {!(editionKind === "video" && deliverable === "static_roundup_6s") && <>
                 {editionKind === "video" && deliverable !== "static_roundup_6s" && cpv && (
