@@ -383,6 +383,8 @@ export default function EditionDesk() {
             </div>
           ))}
 
+          {intelligence.standaloneNotSelected.length > 0 && <details><summary>Strong edition candidates not selected as standalone cards ({intelligence.standaloneNotSelected.length})</summary><p className="meta">These stories may work as part of a roundup or narrated edition, but the engine does not currently rate them strongly enough to carry an individual card on their own.</p><ul className="comps">{intelligence.standaloneNotSelected.map((pick) => <li key={pick.story.id}><strong>{pick.story.headline}</strong> — {pick.score}/100 opportunity index.</li>)}</ul></details>}
+
           <h3>2. Balanced static text roundup</h3>
           <p className="meta">A separate selection problem: up to seven stories, chosen for a strong opening and variety across development types and places. The engine does not simply take the seven highest scores.</p>
           <div className="confirm">
