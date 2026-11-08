@@ -223,7 +223,7 @@ async function generate(req: Request) {
 async function history() {
   let rows: any[];
   try {
-    rows = await db<any[]>("creative_prompts?select=id,story_id,version,treatment_key,created_at,approval_decision_id,created_by&order=created_at.desc&limit=60");
+    rows = await db<any[]>("creative_prompts?select=id,story_id,version,treatment_key,created_at,approval_decision_id,created_by,evidence_snapshot&order=created_at.desc&limit=60");
   } catch (e) {
     if (e instanceof DbError && e.upstream === 404) return json({ notInstalled: true, prompts: [] });
     throw e;
@@ -233,6 +233,7 @@ async function history() {
   const current = new Map<string, string | null>();
   let claimCurrent = new Map<string, { ready: boolean }>();
   try { claimCurrent = await editionClaimClearanceByStory(ids); } catch { /* fail closed: history remains visible but never current */ }
+  const loadedCurrent = await loadStories(ids);
   for (let i = 0; i < ids.length; i += 30) {
     const part = ids.slice(i, i + 30).join(",");
     for (const s of await db<any[]>(`stories?id=in.(${part})&select=id,headline`)) names.set(s.id, s.headline);
@@ -248,7 +249,16 @@ async function history() {
       version: r.version,
       treatment: r.treatment_key,
       createdAt: r.created_at,
-      approvalCurrent: current.get(r.story_id) === r.approval_decision_id && !!r.approval_decision_id && claimCurrent.get(r.story_id)?.ready === true,
+      approvalCurrent: (() => {
+        const loaded = loadedCurrent.get(r.story_id);
+        const snapshot = r.evidence_snapshot;
+        if (!loaded || !snapshot || !(snapshot.sources ?? []).length || claimCurrent.get(r.story_id)?.ready !== true) return false;
+        const currentPack = buildEvidencePack(loaded.story);
+        currentPack.claim_register = loaded.claimRegister;
+        const evidenceCurrent = sourceSnapshotFingerprint(currentPack.sources) === sourceSnapshotFingerprint(snapshot.sources ?? [])
+          && claimRegisterFingerprint(currentPack.claim_register) === claimRegisterFingerprint(snapshot.claim_register ?? []);
+        return current.get(r.story_id) === r.approval_decision_id && !!r.approval_decision_id && evidenceCurrent;
+      })(),
     })),
   });
 }
