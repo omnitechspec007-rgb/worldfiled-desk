@@ -122,6 +122,24 @@ export default async (req: Request) => {
       if (exceeds(b.passage, 4000) || exceeds(b.location, 300)) return json({ error: "field_too_long", detail: "Evidence passage is limited to 4,000 characters and location to 300. Nothing was truncated or saved." }, 400);
       if (b.isContradiction !== undefined && typeof b.isContradiction !== "boolean") return json({ error: "invalid_contradiction_flag", detail: "isContradiction must be a boolean, not a string or inferred value." }, 400);
 
+      const linked = await db<any[]>(`story_source_links?story_id=eq.${storyId}&source_id=eq.${sourceId}&select=source_id&limit=1`);
+      if (!linked[0]) return json({ error: "source_not_linked_to_story" }, 400);
+      const retrieved = await db<any[]>(`retrieved_sources?id=eq.${sourceId}&select=id,registry_id&limit=1`);
+      if (!retrieved[0] || typeof retrieved[0].registry_id !== "string") {
+        return json({ error: "source_registry_missing", detail: "The source has no registered publisher record, so its passage policy cannot be confirmed." }, 409);
+      }
+      const policies = await loadContentPolicies();
+      const policy = policyForSource(policies.rows, retrieved[0].registry_id);
+      if (!canUsePassageEvidence(policy)) {
+        return json({
+          error: policy === "blocked" ? "source_blocked_by_content_policy" : "source_not_approved_for_passage_evidence",
+          detail: policy === "blocked"
+            ? "This source is blocked by its reviewed content-access policy."
+            : "This source is metadata-only. A human editor must approve extraction_allowed before storing a full-text passage as claim evidence.",
+          contentPolicyInstalled: policies.installed,
+        }, 409);
+      }
+
       const key = req.headers.get("idempotency-key") ?? "";
       if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same evidence operation with the same key." }, 400);
       const isContradiction = b.isContradiction === true;
@@ -152,6 +170,21 @@ export default async (req: Request) => {
       const contradictionResolution = clean(b.contradictionResolution);
       if (exceeds(b.notes, 400) || exceeds(b.contradictionResolution, 1000)) return json({ error: "field_too_long", detail: "Reviewer notes are limited to 400 characters and contradiction rationale to 1,000. Nothing was truncated or saved." }, 400);
       if (!UUID.test(claimId) || !OUTCOMES.includes(outcome)) return json({ error: "bad_decision" }, 400);
+      if (outcome === "SUPPORTED" || outcome === "PARTIALLY_SUPPORTED") {
+        const [claimRows, policies] = await Promise.all([
+          db<any[]>(`claims?id=eq.${claimId}&story_id=eq.${storyId}&select=id,claim_evidence(passage,extraction_status,is_contradiction,retrieved_sources(registry_id))&limit=1`),
+          loadContentPolicies(),
+        ]);
+        const accessibleSupport = (claimRows[0]?.claim_evidence ?? []).some((e: any) =>
+          typeof e.retrieved_sources?.registry_id === "string" &&
+          canUsePassageEvidence(policyForSource(policies.rows, e.retrieved_sources.registry_id)) &&
+          e.passage && e.extraction_status === "extracted" && !e.is_contradiction
+        );
+        if (!accessibleSupport) return json({
+          error: "no_accessible_supporting_evidence",
+          detail: "A supported decision requires an extracted supporting passage from a source explicitly permitted by its current content-access policy.",
+        }, 409);
+      }
 
       const key = req.headers.get("idempotency-key") ?? "";
       if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same decision using the same key." }, 400);
@@ -183,6 +216,12 @@ export default async (req: Request) => {
 
     if (b.action === "complete_story") {
       if (b.acknowledged !== true) return json({ error: "acknowledgement_required" }, 400);
+      const clearance = await accessibleClaimClearance(storyId);
+      if (!clearance.ready) return json({
+        error: "claim_clearance_incomplete",
+        detail: "The claim register is incomplete or its passages are not currently permitted by source content policy.",
+        blocked: clearance.blocked,
+      }, 409);
       const key = req.headers.get("idempotency-key") ?? "";
       if (!UUID.test(key)) return json({ error: "idempotency_key_required", detail: "A valid Idempotency-Key UUID is required. Retry the same clearance request with the same key." }, 400);
       const canonical = JSON.stringify({ storyId, acknowledged: true });
