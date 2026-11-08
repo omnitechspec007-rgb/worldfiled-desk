@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Scores, type Score } from "./Scores";
 
-type Pick = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; hasPrimary: boolean; rank: number; reason: string; flags: string[]; scores: Score[]; editorialStatus?: string };
+type Pick = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; hasPrimary: boolean; rank: number; reason: string; flags: string[]; scores: Score[]; editorialStatus?: string; verificationStatus?: string };
 type PendingDecision = { storyId: string; decision: "approved" | "rejected" | "needs_research"; notes: string; acknowledged: boolean; key: string };
 
 const STATUS: Record<string, string> = { in_review: "Awaiting your decision", approved: "Approved", rejected: "Rejected", needs_research: "Needs more research", pending: "Not reviewed" };
@@ -70,7 +70,7 @@ export default function EditorialReview() {
       setOpen(null);
       setAck(false);
       setNotes("");
-      setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Approved. It is now available in the Prompt Architect." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
+      setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Editorially approved. This is not factual verification; production remains blocked until the claim register is verified." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
       await load();
     } catch {
       setUncertain(true);
@@ -94,14 +94,14 @@ export default function EditorialReview() {
   return (
     <section>
       <h1>Editorial Review</h1>
-      <p className="status">Nothing moves forward without your decision. Approval means "cleared for drafting", not "verified": claims have not been checked yet.</p>
+      <p className="status">Two separate human checks are required. First verify the material claims in the Evidence Room; then make the editorial decision here. Editorial approval does not mean the facts are verified. Production prompts remain blocked until both checks are complete.</p>
       {msg && <div className={uncertain ? "panel state-warning" : "panel state-error"} role={uncertain ? "status" : "alert"}><p className={uncertain ? "status" : "status bad"}>{msg}</p>{uncertain && pending ? <div className="actions"><button className="primary" disabled={busy} onClick={() => void submitDecision(pending)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button><button disabled={busy} onClick={() => void load()}>Refresh shortlist</button></div> : <button onClick={() => void load()}>Refresh shortlist</button>}</div>}
       {!picks && !msg && <div className="panel state-loading" role="status"><p className="meta">Loading stories for review…</p></div>}
       {notInstalled && <div className="panel"><p className="caution">One-time setup needed: run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click RUN RESEARCH.</p></div>}
       {picks && picks.length === 0 && !notInstalled && <div className="panel"><p>Nothing to review yet. Click RUN RESEARCH on the Dashboard.</p></div>}
       {picks?.map((s) => (
         <div className="panel story" key={s.id}>
-          <p className="rank">#{s.rank} · {STATUS[s.editorialStatus ?? "pending"]}</p>
+          <p className="rank">#{s.rank} · EDITORIAL: {STATUS[s.editorialStatus ?? "pending"]}</p>\n          <p className={s.verificationStatus === "verified" ? "status good" : "status bad"}>FACTUAL VERIFICATION: {s.verificationStatus === "verified" ? "Complete — human-reviewed claim register" : s.verificationStatus === "in_progress" ? "In progress — claims still need review" : "Not complete — open the Evidence Room"} · <Link to={`/evidence/${s.id}`}>Verify this story →</Link></p>
           <h2><Link to={`/evidence/${s.id}`}>{s.headline}</Link></h2>
           <p className="meta">{s.category ?? "Uncategorised"} · {s.regions?.join(", ")} · {s.outlets === 1 ? "single outlet" : `${s.outlets} outlets`}{s.hasPrimary ? " · includes an official source" : ""}</p>
           <p className="why"><strong>Why selected:</strong> {s.reason}</p>
@@ -121,7 +121,7 @@ export default function EditorialReview() {
             </div>
           ) : (
             <div className="actions">
-              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain}>Approve…</button>
+              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain}>Approve for editorial use…</button>
               <button onClick={() => decide(s.id, "rejected")} disabled={busy || uncertain}>Reject</button>
               <button onClick={() => void decide(s.id, "needs_research")} disabled={busy || uncertain}>Needs more research</button>
               <Link to={`/evidence/${s.id}`}>Open sources</Link>
