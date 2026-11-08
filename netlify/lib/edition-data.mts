@@ -11,11 +11,11 @@ export const UUID = /^[0-9a-f-]{36}$/i;
 export const SCORE_WINDOW_HOURS = 72; // same windows as the research pipeline's rank stage
 export const OFFICIAL_SCORE_WINDOW_HOURS = 14 * 24;
 export const MAX_MEMBERS = 18;
-const EMBED = "story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(name,country_scope,reliability_note)))";
-const FIELDS = `id,headline,category,created_at,${EMBED}`;
+const EMBED = "story_source_links(retrieved_sources(title,url,published_at,retrieved_at,content_status,extract,source_registry(name,country_scope,reliability_note)))";
+const FIELDS = `id,headline,category,created_at,verification_status,${EMBED}`;
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
-export type Loaded = { dev: Dev; story: EvStory; hasPrimary: boolean };
+export type Loaded = { dev: Dev; story: EvStory; hasPrimary: boolean; verificationStatus: string };
 
 function toLoaded(st: any, now: number): Loaded | null {
   const sources: EvSource[] = (st.story_source_links ?? [])
@@ -30,10 +30,11 @@ function toLoaded(st: any, now: number): Loaded | null {
       summary: (s.extract ?? null) as string | null,
       publishedAt: (s.published_at ?? null) as string | null,
       retrievedAt: (s.retrieved_at ?? null) as string | null,
+      contentStatus: (s.content_status ?? null) as string | null,
     }));
   if (!sources.length) return null;
   const input: StoryInput = { id: st.id, headline: st.headline, category: st.category, createdAt: st.created_at, sources };
-  return { dev: buildDev(input, sources, now), story: { headline: st.headline, category: st.category, sources }, hasPrimary: sources.some((s) => s.tier === "primary") };
+  return { dev: buildDev(input, sources, now), story: { headline: st.headline, category: st.category, sources }, hasPrimary: sources.some((s) => s.tier === "primary"), verificationStatus: typeof st.verification_status === "string" ? st.verification_status : "unverified" };
 }
 
 export async function loadStories(ids: string[], now = Date.now()): Promise<Map<string, Loaded>> {
