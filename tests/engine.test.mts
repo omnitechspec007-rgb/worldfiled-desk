@@ -193,6 +193,21 @@ assert.equal(st("Euronews").retrieval_status, "degraded"); assert(/older items s
 assert.equal(st("France 24").retrieval_status, "failing"); ok("network error flagged failing");
 assert.equal(st("Dawn").enabled, false); ok("failed sources are disabled");
 assert.equal(end.run.status, "completed");
+
+// A failed feed can be retried on a subsequent research run, but its old records stay out
+// of clustering until a fresh, healthy retrieval explicitly enables it again.
+const dawnRegistryId = st("Dawn").id;
+behaviour[hostFor("Dawn")] = "ok";
+fetched.length = 0;
+const retryRun = await start();
+const retryEnd = await runToEnd(retryRun.run.id);
+assert.equal(retryEnd.run.status, "completed");
+assert(fetched.some((url) => hostOf(url) === hostFor("Dawn")), "the later research run should retry the failing feed");
+assert.equal(st("Dawn").retrieval_status, "healthy");
+assert.equal(st("Dawn").enabled, true);
+assert(T("retrieved_sources").some((source) => source.registry_id === dawnRegistryId));
+assert(T("story_source_links").some((link) => link.source_id === T("retrieved_sources").find((source) => source.registry_id === dawnRegistryId)?.id));
+ok("previously failing sources are retried later and re-enter the research pool only after healthy retrieval");
 const finalRun = T("research_runs")[0]; assert(/sources had problems/.test(finalRun.error_summary)); ok("run reports how many sources had problems");
 
 console.log("Total failure is not reported as success");
