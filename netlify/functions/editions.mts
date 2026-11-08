@@ -32,7 +32,7 @@ const devSummary = (d: Dev, decision: string | null, flag?: { fresh: boolean; wh
   id: d.id, headline: d.headline, category: d.category, decision,
   type: d.a.typeLabel, recommendation: d.a.recommendation, recommendationWhy: d.a.recommendationWhy,
   curiosityScore: d.a.curiosityScore, evidenceStrength: d.a.evidenceStrength, corroborated: d.a.corroborated,
-  whatChanged: d.a.whatChanged, whyInteresting: d.a.whyInteresting, audienceQuestion: d.a.audienceQuestion, surprisingElement: d.a.surprisingElement,
+  whatChanged: d.a.whatChanged, whyInteresting: d.a.whyInteresting, audienceQuestion: d.a.audienceQuestion, keyQuestions: d.a.keyQuestions, accountability: d.a.accountability, surprisingElement: d.a.surprisingElement,
   humanConsequences: d.a.humanConsequences, possibleImplications: d.a.possibleImplications, missingEvidence: d.a.missingEvidence,
   sensationalismFlags: d.a.sensationalismFlags, hypothesisNote: d.a.hypothesisNote,
   themes: d.a.themes.map((t: any) => t.label ?? t.id ?? String(t)), locations: d.a.locations, geographicInterest: d.a.geographicInterest, outlets: d.outlets.size,
