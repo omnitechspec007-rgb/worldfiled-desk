@@ -64,8 +64,25 @@ async function list() {
     shares: p.latestSnapshot?.shares == null ? null : Number(p.latestSnapshot.shares),
     saves: p.latestSnapshot?.saves == null ? null : Number(p.latestSnapshot.saves),
   })));
+  const now = Date.now();
+  const history = new Map<string, { headline: string; editionIds: Set<string>; platforms: Set<string>; lastPublishedAt: string | null }>();
+  for (const publication of rows) {
+    const publishedAt = publication.published_at ?? null;
+    if (!publishedAt || now - new Date(publishedAt).getTime() > 30 * 24 * 60 * 60 * 1000) continue;
+    for (const story of publication.stories) {
+      const item = history.get(story.story_id) ?? { headline: story.headline, editionIds: new Set<string>(), platforms: new Set<string>(), lastPublishedAt: null };
+      item.editionIds.add(publication.edition_id);
+      item.platforms.add(publication.platform);
+      if (!item.lastPublishedAt || publishedAt > item.lastPublishedAt) item.lastPublishedAt = publishedAt;
+      history.set(story.story_id, item);
+    }
+  }
+  const repeatedStories = [...history.entries()]
+    .filter(([, item]) => item.editionIds.size > 1)
+    .map(([storyId, item]) => ({ storyId, headline: item.headline, distinctEditions: item.editionIds.size, platforms: [...item.platforms].sort(), lastPublishedAt: item.lastPublishedAt }))
+    .sort((a, b) => b.distinctEditions - a.distinctEditions || String(b.lastPublishedAt).localeCompare(String(a.lastPublishedAt)));
   const eligibleEditions = await loadEligibleEditions();
-  return json({ installed: true, publications: rows, eligibleEditions, performanceCohorts });
+  return json({ installed: true, publications: rows, eligibleEditions, performanceCohorts, repeatedStories });
 }
 
 async function loadEligibleEditions() {
