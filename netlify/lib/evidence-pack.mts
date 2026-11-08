@@ -26,6 +26,8 @@ export type EvSource = {
   publishedAt: string | null;
   retrievedAt: string | null;
   contentStatus?: string | null;
+  enabled?: boolean;
+  retrievalStatus?: string | null;
 };
 export type EvStory = { headline: string; category: string | null; sources: EvSource[] };
 
@@ -39,6 +41,31 @@ export type PackSource = {
   retrieved_at: string | null;
   snippet: string;
   content_depth: "metadata_only" | "snippet" | "full_text" | "unknown";
+  source_enabled: boolean | null;
+  retrieval_status: string;
+};
+export type ClaimRegisterEvidence = {
+  sourceId: string | null;
+  sourceTitle: string | null;
+  sourceUrl: string | null;
+  publisher: string | null;
+  publishedAt: string | null;
+  contentDepth: string | null;
+  passage: string | null;
+  passageLocation: string | null;
+  extractionStatus: string;
+  isContradiction: boolean;
+  createdAt: string | null;
+};
+export type ClaimRegisterEntry = {
+  claimId: string;
+  statement: string;
+  category: string | null;
+  outcome: string | null;
+  reviewerNotes: string | null;
+  decidedAt: string | null;
+  currentSupported: boolean;
+  evidence: ClaimRegisterEvidence[];
 };
 export type ClaimEntry = { id: string; statement: string; class: ClaimClass; basis: string; refs: string[] };
 export type EvidencePack = {
@@ -49,6 +76,7 @@ export type EvidencePack = {
   omitted_sources: { count: number; items: { outlet: string; reason: string }[] };
   evidence_limits: string;
   claim_classes: ClaimEntry[];
+  claim_register: ClaimRegisterEntry[];
   editor_notes: { conflict: string | null; decision: string | null };
 };
 
@@ -124,6 +152,8 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
     retrieved_at: s.retrievedAt,
     snippet: cleanField(s.summary, MAX_SNIPPET),
     content_depth: s.contentStatus === "full_text" ? "full_text" : s.contentStatus === "snippet" ? "snippet" : s.contentStatus === "metadata_only" ? "metadata_only" : "unknown",
+    source_enabled: typeof s.enabled === "boolean" ? s.enabled : null,
+    retrieval_status: s.retrievalStatus ?? "unknown",
   }));
 
   const primary = sources.filter((s) => s.type === "official or primary source");
@@ -184,6 +214,7 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
     omitted_sources: { count: omitted.length, items: omitted },
     evidence_limits: EVIDENCE_LIMITS,
     claim_classes: claims,
+    claim_register: [],
     editor_notes: { conflict, decision: cleanField(opts.decisionNote, 400) || null },
   };
   if (Buffer.byteLength(JSON.stringify(pack)) > MAX_PACK_BYTES) {
@@ -202,6 +233,19 @@ export function renderEvidence(p: EvidencePack): string {
   const cls = p.claim_classes
     .map((c) => `${c.id} [${c.class}] ${c.statement}\n     basis: ${c.basis}${c.refs.length ? `\n     sources: ${c.refs.join(", ")}` : ""}`)
     .join("\n");
+  const register = p.claim_register.length
+    ? p.claim_register.map((claim) => [
+        `- [${claim.claimId}] ${claim.statement}`,
+        `  latest editor outcome: ${claim.outcome ?? "UNKNOWN"} | current supported decision: ${claim.currentSupported ? "YES" : "NO"} | decision time: ${claim.decidedAt ?? "unknown"}`,
+        claim.reviewerNotes ? `  reviewer rationale: ${claim.reviewerNotes}` : "  reviewer rationale: (none recorded)",
+        ...claim.evidence.map((e) => [
+          `  evidence: ${e.isContradiction ? "CONTRADICTORY" : "SUPPORTING/CONTEXTUAL"} | extraction: ${e.extractionStatus} | content depth: ${e.contentDepth ?? "unknown"}`,
+          `  source: ${e.publisher ?? "Unknown publisher"} | ${e.sourceTitle ?? "Untitled"} | published: ${day(e.publishedAt)}`,
+          `  passage location: ${e.passageLocation ?? "not specified"} | source URL: ${e.sourceUrl ?? "unavailable"}`,
+          `  exact recorded passage: ${e.passage ?? "(no passage recorded)"}`,
+        ].join("\n")),
+      ].join("\n")).join("\n")
+    : "No claim-level evidence register was loaded for this development.";
   const omitted = p.omitted_sources.count
     ? `${p.omitted_sources.count} further source(s) exist and are NOT included: ${p.omitted_sources.items.map((o) => `${o.outlet} (${o.reason})`).join("; ")}.`
     : "No sources were left out.";
@@ -213,6 +257,9 @@ export function renderEvidence(p: EvidencePack): string {
     "",
     "SOURCES:",
     src,
+    "",
+    "CURRENT HUMAN CLAIM-VERIFICATION REGISTER (recorded claim statements, extracted passages and editor decisions):",
+    register,
     "UNTRUSTED_NEWS_DATA>>>",
     "",
     `Sources not included: ${omitted}`,
