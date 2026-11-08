@@ -331,10 +331,10 @@ export default function EditionDesk() {
   const autoPromptSignature = [editionId ?? "", editionKind, deliverable, duration].join("|");
   useEffect(() => {
     const preflightReady = editionKind !== "video" || deliverable !== "static_roundup_6s" || roundupPreflight?.ready === true;
-    if (!editionId || !approval?.current || res || !preflightReady || autoPromptKey.current === autoPromptSignature) return;
+    if (busy || !editionId || !approval?.current || res || !preflightReady || autoPromptKey.current === autoPromptSignature) return;
     autoPromptKey.current = autoPromptSignature;
     void build();
-  }, [editionId, approval?.current, editionKind, deliverable, duration, roundupPreflight?.ready, res]);
+  }, [busy, editionId, approval?.current, editionKind, deliverable, duration, roundupPreflight?.ready, res]);
 
   const copy = async () => { try { await navigator.clipboard.writeText(res!.prompt); setCopied(true); } catch { setMsg("Copy was blocked by the browser. Select the text and copy it manually."); } };
 
