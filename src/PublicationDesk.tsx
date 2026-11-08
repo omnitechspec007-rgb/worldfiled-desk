@@ -11,6 +11,7 @@ const platforms = [{ value: "facebook", label: "Facebook" }, { value: "tiktok", 
 const formats = [{ value: "narrated_video", label: "Narrated video" }, { value: "text_card", label: "Single text card" }, { value: "text_roundup", label: "Text roundup" }, { value: "other", label: "Other" }];
 const number = (v: number | null | undefined) => v === null || v === undefined ? "—" : new Intl.NumberFormat().format(v);
 const pct = (v: number | null | undefined) => v === null || v === undefined ? "—" : (v * 100).toFixed(1) + "%";
+const localDateTime = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
 export default function PublicationDesk() {
   const [desk, setDesk] = useState<Desk | null>(null);
@@ -20,7 +21,7 @@ export default function PublicationDesk() {
   const [editionId, setEditionId] = useState("");
   const [platform, setPlatform] = useState("youtube");
   const [contentFormat, setContentFormat] = useState("narrated_video");
-  const [publishedAt, setPublishedAt] = useState(new Date().toISOString().slice(0, 16));
+  const [publishedAt, setPublishedAt] = useState(localDateTime());
   const [postUrl, setPostUrl] = useState("");
   const [accountLabel, setAccountLabel] = useState("");
   const [notes, setNotes] = useState("");
@@ -34,18 +35,16 @@ export default function PublicationDesk() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.detail ?? data.error ?? "Could not load publication records.");
       setDesk(data);
-      if (!editionId && data.eligibleEditions?.[0]) setEditionId(data.eligibleEditions[0].id);
-      if (!snapshotFor && data.publications?.[0]) setSnapshotFor(data.publications[0].id);
-      setMessage(data.note ?? "");
+      setEditionId((current) => current || data.eligibleEditions?.[0]?.id || "");
+      setSnapshotFor((current) => current || data.publications?.[0]?.id || "");
+      if (data.note) setMessage(data.note);
     } catch (e) { setMessage(e instanceof Error ? e.message : "Could not load publication records."); }
     finally { setLoading(false); }
-  }, [editionId, snapshotFor]);
+  }, []);
   useEffect(() => { void load(); }, [load]);
 
   const selectedEdition = desk?.eligibleEditions.find((e) => e.id === editionId);
   const selectedPublication = desk?.publications.find((p) => p.id === snapshotFor);
-  const [unused, setUnused] = useState(false);
-  void unused; void setUnused;
 
   const record = async (body: unknown) => {
     setBusy(true); setMessage("");
