@@ -314,7 +314,7 @@ async function generate(req: Request) {
 async function history() {
   let rows: any[];
   try {
-    rows = await db<any[]>("edition_prompts?select=id,edition_id,edition_kind,version,structure,title,deliverable,members,members_hash,approval_decision_id,rationale,created_at&order=created_at.desc&limit=40");
+    rows = await db<any[]>("edition_prompts?select=id,edition_id,edition_kind,version,structure,title,deliverable,members,members_hash,approval_decision_id,evidence_hash,rationale,created_at&order=created_at.desc&limit=40");
   } catch (e) {
     if (e instanceof DbError && e.upstream === 404) return json({ notInstalled: true, prompts: [] });
     throw e;
