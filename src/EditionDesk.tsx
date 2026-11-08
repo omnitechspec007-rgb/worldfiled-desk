@@ -347,7 +347,7 @@ export default function EditionDesk() {
 
       <div className="panel">
         <h2>Daily edition profile</h2>
-        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Static news roundup · 5-7 stories · 6 seconds</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
+        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Six-second static text video · standalone card or 5–7-story roundup</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
         <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
       </div>
       <div className="tabs">
@@ -439,8 +439,8 @@ export default function EditionDesk() {
         const list = desk.developments.filter((d) => (win && winInfo ? !!winInfo.map[d.id] || ids.includes(d.id) : (showOlder || d.fresh || ids.includes(d.id))) && (!recFilter || d.recommendation === recFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
         return (
           <div className="panel">
-            <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "static news roundup"}</h2>
-            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Static text roundup: aim for 5-7 stories (maximum 7), with fewer allowed when evidence is thin. Written briefing: target 12-18 stories (maximum 18). Do not force unrelated stories into a shared theme.</p>
+            <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "text video"}</h2>
+            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Static text video: use one story for a standalone card, or aim for 5–7 stories (maximum 7) for a roundup; fewer are allowed when evidence is thin. Written briefing: target 12-18 stories (maximum 18). Do not force unrelated stories into a shared theme.</p>
             <div className="confirm" style={{ position: "sticky", top: 0, zIndex: 2 }}>
               <strong>{ids.length} / {selectionLimit} selected</strong>{editionKind === "video" && ids.length > 7 && <p className="caution">This existing selection has more than the new balanced 7-story target. Remove stories before creating a new static roundup; no existing story has been deleted.</p>}
               <div className="actions">
