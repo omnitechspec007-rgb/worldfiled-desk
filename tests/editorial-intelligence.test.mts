@@ -73,3 +73,13 @@ assert.equal(unknownResult.eligibleCount, 1);
 assert(unknownResult.standalonePicks[0].reasons.some((x) => /Unknown provenance/.test(x)));
 assert(unknownResult.limitations.some((x) => /not a prediction of views/.test(x)));
 console.log("PASS: unknown provenance stays explicitly unknown and is not given an independence bonus");
+
+const strongEditionOnly = make(26, { recommendation: "STRONG EDITION CANDIDATE" });
+const highPotential = make(27, { recommendation: "HIGH-POTENTIAL STORY" });
+const split = buildEditorialIntelligence([strongEditionOnly, highPotential]);
+assert.deepEqual(split.standalonePicks.map((p) => p.story.id), ["27"]);
+assert(split.standaloneNotSelected.some((p) => p.story.id === "26"));
+assert(split.roundupPicks.some((p) => p.story.id === "26"));
+assert(split.narrated[1].stories.some((p) => p.story.id === "26"));
+console.log("PASS: standalone cards require high standalone potential while strong edition candidates remain available for roundups and narrated editions");
+
