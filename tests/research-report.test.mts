@@ -43,7 +43,8 @@ assert.equal(incomplete.checked, 2);
 assert.match(incomplete.note, /incomplete/);
 
 const empty = buildResearchReport();
-assert.equal(empty.coverage, "complete");
+assert.equal(empty.coverage, "incomplete");
+assert.match(empty.note, /incomplete/);
 assert.equal(empty.total, 0);
 
 console.log("Research report tests passed.");
