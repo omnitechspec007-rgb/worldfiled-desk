@@ -2,7 +2,11 @@ import assert from "node:assert";
 import { assessClaimClearance, assessStoryVerificationStatus } from "../netlify/lib/edition-data.mts";
 import { formatReviewerNotes, hasContradictionReconciliation } from "../netlify/lib/claim-clearance.mts";
 const storyId="11111111-1111-4111-8111-111111111111";
-const base={id:"claim-1",story_id:storyId,claim_evidence:[{passage:"A checked supporting passage",extraction_status:"extracted",is_contradiction:false},{passage:"A checked conflicting passage",extraction_status:"extracted",is_contradiction:true}],verification_results:[{id:"decision-1",outcome:"SUPPORTED",created_at:"2026-11-06T10:00:00Z",reviewer_notes:"A long but generic reviewer note that does not explain the conflicting passage in any specific way."}]};
+const activeSource = { retrieved_sources: { source_registry: { enabled: true, retrieval_status: "healthy" } } };
+const base={id:"claim-1",story_id:storyId,claim_evidence:[
+  {passage:"A checked supporting passage",extraction_status:"extracted",is_contradiction:false,...activeSource},
+  {passage:"A checked conflicting passage",extraction_status:"extracted",is_contradiction:true,...activeSource}
+],verification_results:[{id:"decision-1",outcome:"SUPPORTED",created_at:"2026-11-06T10:00:00Z",reviewer_notes:"A long but generic reviewer note that does not explain the conflicting passage in any specific way."}]};
 assert.equal(hasContradictionReconciliation(base.verification_results[0].reviewer_notes),false);
 const encoded = formatReviewerNotes("A sufficiently specific reconciliation explaining the conflicting evidence and why it does not overturn this claim.", "Reviewed independently.");
 assert.ok(encoded.startsWith("CONTRADICTION RECONCILIATION:\n"), "reconciliation uses a real newline delimiter");
@@ -13,9 +17,15 @@ const rationale="The conflicting passage describes a separate agency announcemen
 const resolved={...base,verification_results:[{...base.verification_results[0],reviewer_notes:formatReviewerNotes(rationale,"Reviewed the source in context.")}]};
 assert.equal(hasContradictionReconciliation(resolved.verification_results[0].reviewer_notes),true);
 assert.equal(assessClaimClearance([resolved],[storyId]).ready,true);
-const newerEvidence={...resolved,claim_evidence:[...resolved.claim_evidence,{passage:"Newly added supporting detail",extraction_status:"extracted",is_contradiction:false,created_at:"2026-11-06T10:01:00Z"}]};
+const newerEvidence={...resolved,claim_evidence:[...resolved.claim_evidence,{passage:"Newly added supporting detail",extraction_status:"extracted",is_contradiction:false,created_at:"2026-11-06T10:01:00Z",...activeSource}]};
 assert.equal(assessClaimClearance([newerEvidence],[storyId]).ready,false);
 assert.equal(assessClaimClearance([], [storyId]).ready,false);
+const sourceDisabled={...base,claim_evidence:[{passage:"Old passage from disabled source",extraction_status:"extracted",is_contradiction:false,retrieved_sources:{source_registry:{enabled:false,retrieval_status:"healthy"}}}],verification_results:[{id:"decision-1",outcome:"SUPPORTED",created_at:"2026-11-06T10:00:00Z"}]};
+const sourceFailed={...base,claim_evidence:[{passage:"Passage from source with failed feed health",extraction_status:"extracted",is_contradiction:false,retrieved_sources:{source_registry:{enabled:true,retrieval_status:"failing"}}}],verification_results:[{id:"decision-1",outcome:"SUPPORTED",created_at:"2026-11-06T10:00:00Z"}]};
+assert.equal(assessClaimClearance([sourceDisabled],[storyId]).ready,false);
+assert.match(assessClaimClearance([sourceDisabled],[storyId]).blocked[0].reason,/enabled, healthy source/);
+assert.equal(assessClaimClearance([sourceFailed],[storyId]).ready,false);
+console.log("PASS: extracted passages from disabled or unhealthy sources cannot clear a public claim.");
 
 const verified = [{ id: storyId, verification_status: "verified" }];
 const inProgress = [{ id: storyId, verification_status: "in_progress" }];
