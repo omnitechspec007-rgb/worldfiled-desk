@@ -64,13 +64,13 @@ export const VERIFICATION_SOURCE_STARTERS: VerificationSourceStarter[] = [
 ];
 
 export function verificationStartersFor(regions: string[] = []): VerificationSourceStarter[] {
-  const normalized = regions.join(" ").toLowerCase();
-  const matches = (name: string) => normalized.includes(name.toLowerCase());
+  const normalized = ` ${regions.join(" ").toLowerCase().replace(/[^a-z0-9.]+/g, " ")} `;
+  const matches = (pattern: RegExp) => pattern.test(normalized);
   const wanted = new Set<VerificationSourceStarter["region"]>(["Global"]);
-  if (matches("united kingdom") || matches("uk") || matches("britain") || matches("england") || matches("scotland") || matches("wales")) wanted.add("United Kingdom");
-  if (matches("united states") || matches("usa") || matches(" u.s.") || matches("america")) wanted.add("United States");
-  if (matches("canada")) wanted.add("Canada");
-  if (matches("nigeria")) wanted.add("Nigeria");
+  if (matches(/\\b(united kingdom|uk|britain|england|scotland|wales)\\b/)) wanted.add("United Kingdom");
+  if (matches(/\\b(united states|usa|u.s|america)\\b/)) wanted.add("United States");
+  if (matches(/\\bcanada\\b/)) wanted.add("Canada");
+  if (matches(/\\bnigeria\\b/)) wanted.add("Nigeria");
   // If no jurisdiction is discoverable, retain the global primary and wire-service starters.
   return VERIFICATION_SOURCE_STARTERS.filter((s) => wanted.has(s.region));
 }
