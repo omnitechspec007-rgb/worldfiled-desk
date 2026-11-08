@@ -132,7 +132,7 @@ export function buildEditionPrompt(input: EditionPromptInput) {
 === RULES THAT OVERRIDE EVERYTHING ELSE ===
 ${INTEGRITY_POLICY}
 
-- Use ONLY facts recorded in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER inside section 6 where the latest editor outcome is SUPPORTED and current supported decision is YES. A factual sentence must be directly supported by its exact recorded supporting passage, from a source marked enabled and healthy.
+- Use ONLY facts recorded in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER inside section 6 where the latest editor outcome is SUPPORTED and current supported decision is YES. A factual sentence must be directly supported by a specific recorded supporting passage whose individual evidence row is extracted, non-contradictory, and marked source enabled=yes and feed health=healthy. Do not use other passage rows in the register as support.
 - Headlines, feed snippets, publisher counts, heuristic evidence classes, editorial curiosity scores, geography inferred from publisher location and official announcements are RESEARCH CONTEXT ONLY. They are not clearance to assert a fact. Never convert them into public-facing factual claims.
 - If a development has no current-supported claim register entry, omit it from factual narration and on-screen text; identify it as held for verification. Do not substitute its research headline, summary or snippet. Do not pad the script or use another story's evidence.
 - Use ONLY the facts in section 6. Never invent numbers, dates, names, places, quotes, official statements, source links, legal provisions, scientific conclusions, geographic relationships or corroboration.
