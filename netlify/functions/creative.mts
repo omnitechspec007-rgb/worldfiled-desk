@@ -7,7 +7,7 @@
 // trigger on creative_prompts checks it again at insert time.
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
-import { buildEvidencePack, classCounts, PackTooLarge, type EvStory } from "../lib/evidence-pack.mts";
+import { buildEvidencePack, claimRegisterFingerprint, classCounts, PackTooLarge, sourceSnapshotFingerprint, type EvStory } from "../lib/evidence-pack.mts";
 import { recommendTreatment, getTreatment, TREATMENTS } from "../lib/treatments.mts";
 import { DELIVERABLES, type Deliverable } from "../lib/production-tools.mts";
 import { buildArchitectPrompt, PromptTooLarge, type StyleRuleIn } from "../lib/prompt-architect.mts";
@@ -261,9 +261,15 @@ async function one(id: string) {
   const dec = await latestDecision(r.story_id);
   const clearance = await currentClaimClearance(r.story_id);
   const loaded = await loadStory(r.story_id);
-  const activeUrls = new Set(loaded?.story.sources.map((source) => source.url) ?? []);
-  const snapshotUrls = (r.evidence_snapshot?.sources ?? []).map((source: any) => source.url).filter((url: unknown): url is string => typeof url === "string");
-  const evidenceCurrent = clearance.ready && activeUrls.size > 0 && snapshotUrls.length > 0 && snapshotUrls.every((url: string) => activeUrls.has(url));
+  const currentPack = loaded ? buildEvidencePack(loaded.story, { decisionNote: dec?.notes }) : null;
+  if (currentPack && loaded) currentPack.claim_register = loaded.claimRegister;
+  const evidenceCurrent = Boolean(
+    clearance.ready
+    && currentPack
+    && (r.evidence_snapshot?.sources ?? []).length > 0
+    && sourceSnapshotFingerprint(currentPack.sources) === sourceSnapshotFingerprint(r.evidence_snapshot.sources ?? [])
+    && claimRegisterFingerprint(currentPack.claim_register) === claimRegisterFingerprint(r.evidence_snapshot?.claim_register ?? [])
+  );
   const current = dec?.decision === "approved" && dec.id === r.approval_decision_id && evidenceCurrent;
   return json({
     id: r.id,
