@@ -72,7 +72,7 @@ const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("h
 
 // ---------- seed ----------
 const H = 3600_000; const NOW = Date.now(); const at = (h: number) => new Date(NOW - h * H).toISOString();
-const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "" }; T("source_registry").push(r); } return r; };
+const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "", enabled: true, retrieval_status: "healthy" }; T("source_registry").push(r); } return r; };
 function story(headline: string, category: string, srcs: [string, string, string, boolean?][]) {
   // Synthetic fixture: claim and story-level clearance are both complete.
   const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending", verification_status: "verified" };
@@ -88,6 +88,7 @@ const E = crypto.randomUUID(); T("editions").push({ id: E, title: "Roundup", sta
 const hashNow = () => hashOf(E);
 T("edition_decisions").push({ id: crypto.randomUUID(), edition_id: E, decision: "approved", decided_by: "ed", members_hash: hashNow(), created_at: new Date(Date.now() + seq++).toISOString() });
 const decide = (sid: string, decision: string) => T("editorial_decisions").push({ id: crypto.randomUUID(), story_id: sid, decision, decided_by: "ed", created_at: new Date(Date.now() + seq++).toISOString() });
+[jp, al, rt].forEach((storyId) => decide(storyId, "approved"));
 
 console.log("Creative setup API");
 assert.equal((await get(cfn, "", null)).status, 401); assert.equal((await call(cfn, { action: "save-voice" }, null)).status, 401); ok("creative setup requires sign-in");
