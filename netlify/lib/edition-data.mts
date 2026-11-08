@@ -11,7 +11,7 @@ export const UUID = /^[0-9a-f-]{36}$/i;
 export const SCORE_WINDOW_HOURS = 72; // same windows as the research pipeline's rank stage
 export const OFFICIAL_SCORE_WINDOW_HOURS = 14 * 24;
 export const MAX_MEMBERS = 18;
-const EMBED = "story_source_links(retrieved_sources(title,url,published_at,retrieved_at,content_status,extract,source_registry(name,country_scope,reliability_note)))";
+const EMBED = "story_source_links(retrieved_sources(title,url,published_at,retrieved_at,content_status,extract,source_registry(name,country_scope,reliability_note,enabled,retrieval_status)))";
 const FIELDS = `id,headline,category,created_at,verification_status,${EMBED}`;
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
@@ -21,6 +21,9 @@ function toLoaded(st: any, now: number): Loaded | null {
   const sources: EvSource[] = (st.story_source_links ?? [])
     .map((l: any) => l.retrieved_sources)
     .filter(Boolean)
+    // Historical links remain in storage, but only currently enabled, healthy sources
+    // can supply evidence to a new editorial or production prompt.
+    .filter((s: any) => s.source_registry?.enabled === true && s.source_registry?.retrieval_status === "healthy")
     .map((s: any) => ({
       outlet: s.source_registry?.name ?? "Unknown",
       region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
