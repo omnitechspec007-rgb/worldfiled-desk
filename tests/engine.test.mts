@@ -267,7 +267,21 @@ assert.equal((await call(creativeFn, { storyId: sid })).status, 409); assert.equ
 assert.equal((await call(creativeFn, { storyId: sid }, null)).status, 401); assert.equal((await get(creativeFn, "history=1", null)).status, 401); assert.equal((await call(referenceFn, { action: "seed" }, null)).status, 401); ok("architect, history and reference library require sign-in");
 assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" }, cookie, crypto.randomUUID())).status, 200);
 assert.equal(T("stories").find((x) => x.id === sid).editorial_status, "approved"); assert.equal(T("editorial_decisions").length, 1); assert(T("audit_events").some((a) => a.event_type === "story_approved" && a.entity_id === sid)); ok("approval saved with notes, status updated and audit event written");
-console.log("Creative Prompt Architect (approved story)");
+
+// Synthetic test-only evidence register: a production prompt must have an extracted passage,
+// a claim-level SUPPORTED decision made after that passage, and the story-level completeness ack.
+const approvedStory = T("stories").find((x) => x.id === sid);
+approvedStory.verification_status = "verified";
+const linkedSource = T("story_source_links").find((x) => x.story_id === sid)?.source_id;
+assert(linkedSource, "the test story must have at least one linked source");
+const evidenceAt = new Date(Date.now() - 60_000).toISOString();
+T("claims").push({
+  id: crypto.randomUUID(),
+  story_id: sid,
+  claim_evidence: [{ id: crypto.randomUUID(), source_id: linkedSource, passage: "Synthetic extracted passage checked against the source record for this test.", extraction_status: "extracted", is_contradiction: false, created_at: evidenceAt }],
+  verification_results: [{ id: crypto.randomUUID(), outcome: "SUPPORTED", reviewer_notes: "Synthetic test-only claim review.", created_at: new Date().toISOString() }],
+});
+console.log("Creative Prompt Architect (approved and factually cleared story)");
 const pv = await (await get(creativeFn, `storyId=${sid}`)).json();
 assert(pv.recommended.key && pv.recommended.roles.length >= 4 && pv.recommended.reason && pv.allTreatments.length >= 6 && pv.deliverables.length === 3 && pv.evidence.sources >= 1); ok("preview recommends a treatment, team and reason, and saves nothing");
 assert.equal(T("creative_prompts").length, 0);
