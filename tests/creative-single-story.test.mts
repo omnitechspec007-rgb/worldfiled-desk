@@ -20,8 +20,9 @@ const links = [{ story_id: storyId, source_id: sourceId }];
 const decisions: any[] = [{ id: decisionId, story_id: storyId, decision: "approved", notes: "Cleared for drafting only", created_at: new Date().toISOString() }];
 const prompts: any[] = [];
 const audits: any[] = [];
+let claimText = "The ministry published its fiscal report.";
 const claimRow = () => ({
-  id: "claim-1", story_id: storyId, claim_text: "The ministry published its fiscal report.",
+  id: "claim-1", story_id: storyId, claim_text: claimText,
   claim_evidence: [{ id: "evidence-1", source_id: sourceId, passage: "The report was published on the ministry website.", passage_location: "opening paragraph", extraction_status: "extracted", is_contradiction: false, created_at: new Date(Date.now() - 60_000).toISOString(), retrieved_sources: { ...sources[0], source_registry: registry } }],
   verification_results: [{ id: "verification-1", outcome: "SUPPORTED", reviewer_notes: "Checked against the official report.", created_at: new Date().toISOString() }],
 });
@@ -111,11 +112,20 @@ assert.match(generatedBody.prompt, /only entries in the CURRENT HUMAN CLAIM-VERI
 console.log("PASS: a single-story production prompt is available only after claim-register clearance and human editorial approval.");
 console.log("PASS: it carries the exact current-supported claim statement and extracted passage, not only the research snippet.");
 
+// Altering the registered statement must invalidate the saved prompt, even if its URL is unchanged.
+claimText = "The ministry released a revised fiscal report.";
+const changedClaim = await request("GET", undefined, "?id=" + promptId);
+const changedClaimBody = await changedClaim.json();
+assert.equal(changedClaimBody.prompt, null);
+assert.equal(changedClaimBody.evidenceCurrent, false);
+assert.match(changedClaimBody.withheld, /sources used by this prompt|factual clearance/i);
+assert.equal(prompts.length, 1, "stale prompt remains in history rather than being deleted");
+console.log("PASS: a changed verified claim statement invalidates the saved single-story prompt.");
+
 stories[0].verification_status = "in_progress";
 const stale = await request("GET", undefined, "?id=" + promptId);
 const staleBody = await stale.json();
 assert.equal(staleBody.prompt, null);
 assert.equal(staleBody.factualClearanceCurrent, false);
 assert.match(staleBody.withheld, /no longer has current factual clearance/i);
-assert.equal(prompts.length, 1, "stale prompt remains in history rather than being deleted");
 console.log("PASS: saved single-story prompts are withheld when factual clearance later becomes stale.");
