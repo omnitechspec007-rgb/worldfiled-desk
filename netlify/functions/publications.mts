@@ -2,6 +2,7 @@
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { membersKey } from "../lib/editions.mts";
+import { summarizePerformanceCohorts } from "../lib/performance-intelligence.mts";
 import { UUID } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
@@ -55,8 +56,16 @@ async function list() {
   const members = new Map<string, any[]>();
   for (const a of attributions) members.set(a.publication_id, [...(members.get(a.publication_id) ?? []), { ...a, headline: storyMap.get(a.story_id) ?? "Story unavailable" }]);
   const rows = publications.map((p) => ({ ...p, edition: editionMap.get(p.edition_id) ?? null, stories: members.get(p.id) ?? [], latestSnapshot: latest.get(p.id) ?? null, snapshotCount: snapshots.filter((s) => s.publication_id === p.id).length }));
+  const performanceCohorts = summarizePerformanceCohorts(rows.map((p) => ({
+    publicationId: p.id, platform: p.platform, contentFormat: p.content_format,
+    views: p.latestSnapshot?.views == null ? null : Number(p.latestSnapshot.views),
+    averageViewDurationSeconds: p.latestSnapshot?.average_view_duration_seconds == null ? null : Number(p.latestSnapshot.average_view_duration_seconds),
+    completionRate: p.latestSnapshot?.completion_rate == null ? null : Number(p.latestSnapshot.completion_rate),
+    shares: p.latestSnapshot?.shares == null ? null : Number(p.latestSnapshot.shares),
+    saves: p.latestSnapshot?.saves == null ? null : Number(p.latestSnapshot.saves),
+  })));
   const eligibleEditions = await loadEligibleEditions();
-  return json({ installed: true, publications: rows, eligibleEditions });
+  return json({ installed: true, publications: rows, eligibleEditions, performanceCohorts });
 }
 
 async function loadEligibleEditions() {
