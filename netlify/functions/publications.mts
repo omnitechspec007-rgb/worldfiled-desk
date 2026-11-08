@@ -60,21 +60,33 @@ async function list() {
 }
 
 async function loadEligibleEditions() {
-  const rows = await db<any[]>("editions?status=eq.draft&select=id,title,edition_kind,theme,updated_at&order=updated_at.desc&limit=60");
-  const out = [];
-  for (const e of rows) {
-    const [members, decisions] = await Promise.all([
-      db<any[]>(`edition_developments?edition_id=eq.${e.id}&select=story_id,position&order=position.asc`),
-      db<any[]>(`edition_decisions?edition_id=eq.${e.id}&select=decision,members_hash,created_at&order=created_at.desc,id.desc&limit=1`),
-    ]);
-    const ids = members.map((m) => m.story_id);
-    const decision = decisions[0];
-    if (!ids.length || decision?.decision !== "approved" || decision.members_hash !== membersKey(ids)) continue;
-    const stories = await db<any[]>(`stories?id=in.(${ids.join(",")})&select=id,headline,verification_status,editorial_status`);
-    if (stories.length !== ids.length || stories.some((s) => s.verification_status !== "verified" || s.editorial_status !== "approved")) continue;
-    out.push({ id: e.id, title: e.title, editionKind: e.edition_kind ?? "video", theme: e.theme, members: stories.map((s) => ({ id: s.id, headline: s.headline })) });
-  }
-  return out;
+  const editions = await db<any[]>("editions?status=eq.draft&select=id,title,edition_kind,theme,updated_at&order=updated_at.desc&limit=60");
+  if (!editions.length) return [];
+  const editionIds = editions.map((e) => e.id);
+  const [members, decisions] = await Promise.all([
+    db<any[]>(`edition_developments?edition_id=in.(${editionIds.join(",")})&select=edition_id,story_id,position&order=position.asc`),
+    db<any[]>(`edition_decisions?edition_id=in.(${editionIds.join(",")})&select=edition_id,decision,members_hash,created_at&order=created_at.desc,id.desc&limit=1000`),
+  ]);
+  const membersByEdition = new Map<string, any[]>();
+  for (const row of members) membersByEdition.set(row.edition_id, [...(membersByEdition.get(row.edition_id) ?? []), row]);
+  const latestDecision = new Map<string, any>();
+  for (const row of decisions) if (!latestDecision.has(row.edition_id)) latestDecision.set(row.edition_id, row);
+  const candidates = editions.flatMap((edition) => {
+    const rows = membersByEdition.get(edition.id) ?? [];
+    const ids = rows.map((m) => m.story_id);
+    const decision = latestDecision.get(edition.id);
+    if (!ids.length || decision?.decision !== "approved" || decision.members_hash !== membersKey(ids)) return [];
+    return [{ edition, ids }];
+  });
+  const allStoryIds = [...new Set(candidates.flatMap((c) => c.ids))];
+  if (!allStoryIds.length) return [];
+  const stories = await db<any[]>(`stories?id=in.(${allStoryIds.join(",")})&select=id,headline,verification_status,editorial_status`);
+  const storyMap = new Map(stories.map((s) => [s.id, s]));
+  return candidates.flatMap(({ edition, ids }) => {
+    const rows = ids.map((id) => storyMap.get(id));
+    if (rows.some((s) => !s || s.verification_status !== "verified" || s.editorial_status !== "approved")) return [];
+    return [{ id: edition.id, title: edition.title, editionKind: edition.edition_kind ?? "video", theme: edition.theme, members: rows.map((s) => ({ id: s!.id, headline: s!.headline })) }];
+  });
 }
 
 async function recordPublication(b: any) {
