@@ -1,14 +1,15 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import StaticRoundupBuilder from "./StaticRoundupBuilder";
+import { recommendFormatOpportunity } from "./format-opportunity";
 
 type Loc = { country: string; basis: string };
 type Dev = {
   id: string; headline: string; decision: string | null; type: string; recommendation: string; recommendationWhy: string; curiosityScore: number;
-  evidenceStrength: { label: string; why: string }; corroborated: boolean; whatChanged: string; whyInteresting: string[]; audienceQuestion: string;
+  evidenceStrength: { label: string; why: string; score: number; max: number }; corroborated: boolean; whatChanged: string; whyInteresting: string[]; audienceQuestion: string;
   surprisingElement: string | null; humanConsequences: string | null; possibleImplications: string | null; missingEvidence: string[]; sensationalismFlags: string[];
   hypothesisNote: string; themes: string[]; locations: Loc[]; geographicInterest: string; outlets: number;
-  fresh: boolean; notFreshWhy: string | null; ageHours: number | null;
-  sources: { outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string }[];
+  fresh: boolean; notFreshWhy: string | null; ageHours: number | null; verificationStatus: string;
+  sources: { outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string; depth?: string }[];
 };
 type Comp = { name: string; points: number; max: number; why: string };
 type Evaluation = {
@@ -28,6 +29,8 @@ type Desk = {
   saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
 };
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
+type WorkflowStatus = { editorialApproval: { current: boolean; decision?: string | null; membersCurrent?: boolean }; factualVerification: { ready: boolean; blocked: { storyId?: string; claimId?: string; reason: string }[] }; verificationBriefAllowed: boolean; productionPromptAllowed: boolean; blockers: string[]; note: string };
+type VerificationBrief = { prompt: string; storyCount: number; sourceCount: number; directoryReviewedOn: string; note: string };
 type CreativePreview = {
   format: { key: string; label: string; why: string; overridden: boolean }; formats: { key: string; label: string; description: string }[];
   voice: { engine: string; voice: string; status: string; approval: string; licence: string; configured: boolean };
@@ -68,6 +71,7 @@ export default function EditionDesk() {
   const [q, setQ] = useState("");
   const [showOlder, setShowOlder] = useState(false);
   const [recFilter, setRecFilter] = useState("");
+  const [formatFilter, setFormatFilter] = useState<"all" | "static_text_card" | "long_video" | "research_first">("all");
   const [msg, setMsg] = useState("");
   const [inspect, setInspect] = useState<string | null>(null);
   // coverage window (from the Planner): classify developments as new / update / renewed / held over / already published
@@ -89,6 +93,8 @@ export default function EditionDesk() {
   const [prevScore, setPrevScore] = useState<{ score: number | null; verdict: string } | null>(null);
   const [devs, setDevs] = useState<Dev[]>([]);
   const [approval, setApproval] = useState<Approval | null>(null);
+  const [workflow, setWorkflow] = useState<WorkflowStatus | null>(null);
+  const [verificationBrief, setVerificationBrief] = useState<VerificationBrief | null>(null);
   const [ack, setAck] = useState(false);
   const [notes, setNotes] = useState("");
   const [deliverable, setDeliverable] = useState("static_roundup_6s");
@@ -206,7 +212,7 @@ export default function EditionDesk() {
     lastEv.current = null; setPrevScore(null);
     const kind = s.editionKind ?? editionKind;
     setEditionKind(kind); setSelections((prev) => ({ ...prev, [kind]: s.ids }));
-    setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setAck(false); setNotes(""); setMsg("");
+    setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setWorkflow(null); setVerificationBrief(null); setRes(null); setAck(false); setNotes(""); setMsg("");
     setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
     setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
@@ -224,13 +230,13 @@ export default function EditionDesk() {
   const remove = (id: string) => setIds((a) => a.filter((x) => x !== id));
   const add = (id: string) => setIds((a) => (a.includes(id) || a.length >= selectionLimit ? a : [...a, id]));
   const toggle = (id: string) => setIds((a) => (a.includes(id) ? a.filter((x) => x !== id) : a.length >= selectionLimit ? a : [...a, id]));
-  const clearSel = () => { setIds([]); setSelections((s) => ({ ...s, [editionKind]: [] })); setEditionId(null); setApproval(null); setRes(null); };
+  const clearSel = () => { setIds([]); setSelections((s) => ({ ...s, [editionKind]: [] })); setEditionId(null); setApproval(null); setWorkflow(null); setVerificationBrief(null); setRes(null); };
   const switchEditionKind = (kind: "video" | "text") => {
     if (kind === editionKind) return;
     setSelections((s) => ({ ...s, [editionKind]: ids }));
     setIds(selections[kind] ?? []);
     setEditionKind(kind);
-    setEditionId(null); setApproval(null); setRes(null); setAck(false); setTitle(""); setAngle(""); setStructure(""); setNotes(""); setConflicts([]); setPAngle(""); setFmt(""); setCpv(null); setMsg("Switched edition profile. Your other profile selection is kept separately; save and approve each edition independently.");
+    setEditionId(null); setApproval(null); setWorkflow(null); setVerificationBrief(null); setRes(null); setAck(false); setTitle(""); setAngle(""); setStructure(""); setNotes(""); setConflicts([]); setPAngle(""); setFmt(""); setCpv(null); setMsg("Switched edition profile. Your other profile selection is kept separately; save and approve each edition independently.");
   };
   const applySequence = () => ev && setIds(ev.sequence.map((s) => s.id));
 
