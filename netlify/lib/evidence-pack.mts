@@ -25,6 +25,7 @@ export type EvSource = {
   summary: string | null;
   publishedAt: string | null;
   retrievedAt: string | null;
+  contentStatus?: string | null;
 };
 export type EvStory = { headline: string; category: string | null; sources: EvSource[] };
 
@@ -37,6 +38,7 @@ export type PackSource = {
   published_at: string | null;
   retrieved_at: string | null;
   snippet: string;
+  content_depth: "metadata_only" | "snippet" | "full_text" | "unknown";
 };
 export type ClaimEntry = { id: string; statement: string; class: ClaimClass; basis: string; refs: string[] };
 export type EvidencePack = {
@@ -121,6 +123,7 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
     published_at: s.publishedAt,
     retrieved_at: s.retrievedAt,
     snippet: cleanField(s.summary, MAX_SNIPPET),
+    content_depth: s.contentStatus === "full_text" ? "full_text" : s.contentStatus === "snippet" ? "snippet" : s.contentStatus === "metadata_only" ? "metadata_only" : "unknown",
   }));
 
   const primary = sources.filter((s) => s.type === "official or primary source");
