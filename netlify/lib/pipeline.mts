@@ -79,10 +79,11 @@ export async function stagePrepare(): Promise<StageResult> {
 }
 
 export async function stageDiscover(prev: Record<string, any>, config: { windowDays?: number; region?: string } = {}): Promise<StageResult> {
-  // Probe only fresh built-in candidates and already-enabled healthy sources. A previously
-  // degraded/failing or manually disabled source cannot silently re-enter the research pool.
+  // Probe fresh built-in candidates, active healthy sources, and retry previously failing/degraded
+  // feeds on a later run. Discovery probes do not make a source eligible for clustering: only
+  // enabled+healthy sources enter the active research pool. Manually retired/disabled sources stay out.
   const sources = await db<SourceRow[]>(
-    "source_registry?select=id,name,country_scope,category,feed_url,reliability_note,enabled,retrieval_status&feed_url=not.is.null&retrieval_status=in.(untested,healthy)&order=name.asc"
+    "source_registry?select=id,name,country_scope,category,feed_url,reliability_note,enabled,retrieval_status&feed_url=not.is.null&retrieval_status=in.(untested,healthy,failing,degraded)&order=name.asc"
   );
   const scopedSources = sources
     .filter(shouldProbeSource)
