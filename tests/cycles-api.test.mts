@@ -95,6 +95,11 @@ for (const storyId of [A, D]) {
     }],
     verification_results: [{ id: crypto.randomUUID(), outcome: "SUPPORTED", reviewer_notes: "Planner fixture editor decision.", created_at: new Date().toISOString() }],
   });
+  T("editorial_decisions").push({
+    id: crypto.randomUUID(), story_id: storyId, decision: "approved",
+    notes: "Planner fixture story-level Editorial Review approval.",
+    decided_by: "editor", created_at: new Date(Date.now() + 1).toISOString(),
+  });
 }
 
 console.log("Planner API");
