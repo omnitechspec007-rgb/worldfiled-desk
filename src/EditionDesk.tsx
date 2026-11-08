@@ -15,6 +15,7 @@ export type Dev = {
   hypothesisNote: string; themes: string[]; locations: Loc[]; geographicInterest: string; outlets: number;
   fresh: boolean; notFreshWhy: string | null; ageHours: number | null;
   sourceIndependence: SourceIndependence;
+  keyQuestions?: string[]; accountability?: string[];
   sources: {
     outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string;
     sourceRegistryId: string | null; retrievedSourceId: string | null; ownershipStatus: string; publisherGroupKey: string | null;
