@@ -109,7 +109,7 @@ assert.equal(audits.length, 1);
 assert.match(generatedBody.prompt, /CURRENT HUMAN CLAIM-VERIFICATION REGISTER/);
 assert.match(generatedBody.prompt, /The ministry published its fiscal report/);
 assert.match(generatedBody.prompt, /The report was published on the ministry website/);
-assert.match(generatedBody.prompt, /only entries in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/i);
+assert.match(generatedBody.prompt, /only facts recorded in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/i);
 console.log("PASS: a single-story production prompt is available only after claim-register clearance and human editorial approval.");
 console.log("PASS: it carries the exact current-supported claim statement and extracted passage, not only the research snippet.");
 
