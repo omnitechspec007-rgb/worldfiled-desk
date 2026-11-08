@@ -48,7 +48,7 @@ async function claimRegistersByStory(ids: string[]): Promise<Map<string, ClaimRe
   for (const part of chunk(ids, 30)) {
     let rows: any[];
     try {
-      rows = await db<any[]>("claims?story_id=in.(" + part.join(",") + ")&select=id,story_id,claim_text,category,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,created_at,retrieved_sources(id,title,url,publisher,published_at,content_status,source_registry(name,publisher))),verification_results(id,outcome,reviewer_notes,created_at)");
+      rows = await db<any[]>("claims?story_id=in.(" + part.join(",") + ")&select=id,story_id,claim_text,category,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,created_at,retrieved_sources(id,title,url,publisher,published_at,content_status,source_registry(name,publisher,enabled,retrieval_status))),verification_results(id,outcome,reviewer_notes,created_at)");
     } catch (error) {
       // Keep the research-only verification assignment available before claim tables are installed.
       // Public production separately fails closed through editionClaimClearance().
@@ -61,7 +61,11 @@ async function claimRegistersByStory(ids: string[]): Promise<Map<string, ClaimRe
         String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? ""))
       )[0];
       const extracted = evidence.filter((e: any) => e.passage && e.extraction_status === "extracted");
-      const hasSupport = extracted.some((e: any) => !e.is_contradiction);
+      const hasSupport = extracted.some((e: any) =>
+        !e.is_contradiction
+        && e.retrieved_sources?.source_registry?.enabled === true
+        && e.retrieved_sources?.source_registry?.retrieval_status === "healthy"
+      );
       const hasContradiction = extracted.some((e: any) => e.is_contradiction);
       const latestEvidenceAt = Math.max(0, ...evidence.map((e: any) => Date.parse(e.created_at ?? "") || 0));
       const decidedAtMs = Date.parse(latest?.created_at ?? "") || 0;
@@ -73,6 +77,8 @@ async function claimRegistersByStory(ids: string[]): Promise<Map<string, ClaimRe
           sourceId: e.source_id ?? null, sourceTitle: e.retrieved_sources?.title ?? null, sourceUrl: e.retrieved_sources?.url ?? null,
           publisher: e.retrieved_sources?.source_registry?.publisher ?? e.retrieved_sources?.source_registry?.name ?? e.retrieved_sources?.publisher ?? null,
           publishedAt: e.retrieved_sources?.published_at ?? null, contentDepth: e.retrieved_sources?.content_status ?? null,
+          sourceEnabled: typeof e.retrieved_sources?.source_registry?.enabled === "boolean" ? e.retrieved_sources.source_registry.enabled : null,
+          retrievalStatus: typeof e.retrieved_sources?.source_registry?.retrieval_status === "string" ? e.retrieved_sources.source_registry.retrieval_status : null,
           passage: e.passage ?? null, passageLocation: e.passage_location ?? null, extractionStatus: e.extraction_status ?? "unknown",
           isContradiction: e.is_contradiction === true, createdAt: e.created_at ?? null,
         })),
@@ -162,13 +168,17 @@ export function assessClaimClearance(rows: any[], storyIds: string[]): ClaimClea
       const latest = [...(claim.verification_results ?? [])].sort((a,b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? "")))[0];
       const evidence = claim.claim_evidence ?? [];
       const extracted = evidence.filter((e:any) => e.passage && e.extraction_status === "extracted");
-      const support = extracted.some((e:any) => !e.is_contradiction);
+      const support = extracted.some((e:any) =>
+        !e.is_contradiction
+        && e.retrieved_sources?.source_registry?.enabled === true
+        && e.retrieved_sources?.source_registry?.retrieval_status === "healthy"
+      );
       const contradiction = extracted.some((e:any) => e.is_contradiction);
       const latestEvidenceAt = Math.max(0, ...evidence.map((e:any) => Date.parse(e.created_at ?? "") || 0));
       const decisionAt = Date.parse(latest?.created_at ?? "") || 0;
       if (!latest) blocked.push({ storyId, claimId: claim.id, reason: "No editor decision recorded." });
       else if (latest.outcome !== "SUPPORTED") blocked.push({ storyId, claimId: claim.id, reason: "Latest decision is " + latest.outcome + "." });
-      else if (!support) blocked.push({ storyId, claimId: claim.id, reason: "No extracted supporting passage." });
+      else if (!support) blocked.push({ storyId, claimId: claim.id, reason: "No extracted supporting passage from a currently enabled, healthy source." });
       else if (decisionAt < latestEvidenceAt) blocked.push({ storyId, claimId: claim.id, reason: "Evidence was added or changed after the latest editor decision; review this claim again." });
       else if (contradiction && !hasContradictionReconciliation(latest.reviewer_notes)) blocked.push({ storyId, claimId: claim.id, reason: "Contradictory evidence needs a specific editor reconciliation rationale, not a general note." });
     }
@@ -196,7 +206,7 @@ export async function editionClaimClearanceByStory(storyIds: string[]): Promise<
   const stories: any[] = [];
   for (const part of chunk(unique, 30)) {
     const [claimRows, storyRows] = await Promise.all([
-      db<any[]>(`claims?story_id=in.(${part.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at),verification_results(id,outcome,reviewer_notes,created_at)`),
+      db<any[]>(`claims?story_id=in.(${part.join(",")})&select=id,story_id,claim_evidence(id,passage,extraction_status,is_contradiction,created_at,retrieved_sources(source_registry(enabled,retrieval_status))),verification_results(id,outcome,reviewer_notes,created_at)`),
       db<any[]>(`stories?id=in.(${part.join(",")})&select=id,verification_status`),
     ]);
     claims.push(...claimRows);
