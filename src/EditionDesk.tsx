@@ -49,7 +49,8 @@ function DevDetail({ d }: { d: Dev }) {
   return (
     <div>
       <h3>Sources</h3>
-      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"} · content: {x.depth ?? "unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <p className="caution">Factual state: {d.verificationStatus === "verified" ? "Verified in the claim register" : "NOT VERIFIED — research lead only"}. Source health and publisher count do not establish the truth of this development.</p>
       <h3>Editorial reasoning</h3>
       <p className="why"><strong>What changed:</strong> {d.whatChanged}</p>
       <p className="why"><strong>Why it may be interesting:</strong> {d.whyInteresting.join("; ") || "nothing specific found"}</p>
@@ -495,11 +496,20 @@ export default function EditionDesk() {
                 {ev.uncertainties.length > 0 && <p className="caution">Uncertainties: {ev.uncertainties.join(" ")}</p>}
               </>
             )}
+            <h3>3. Prepare the verification assignment</h3>
+            <p className="meta">Available before editorial approval and factual clearance. This creates an internal research prompt to inspect original records, independent sourcing, contradictions and evidence gaps. It does not generate news copy, a report, a script or a publishable summary.</p>
+            <div className="actions"><button className="primary" onClick={() => void prepareVerificationBrief()} disabled={busy || !ids.length}>{busy ? "PREPARING…" : "Prepare verification prompt"}</button></div>
+            {verificationBrief && <div className="confirm">
+              <p className="status">Internal verification assignment prepared — {verificationBrief.storyCount} developments, {verificationBrief.sourceCount} source records. Source directory reviewed {verificationBrief.directoryReviewedOn}.</p>
+              <p className="meta">{verificationBrief.note}</p>
+              <textarea readOnly value={verificationBrief.prompt} rows={16} />
+              <div className="actions"><button onClick={() => void copyVerificationBrief()}>Copy verification prompt</button><button onClick={() => setVerificationBrief(null)}>Close</button></div>
+            </div>}
             <div className="actions"><button className="primary" onClick={() => void save()} disabled={busy || !title.trim() || !ids.length}>{editionId ? "Save changes" : "Save edition (needed before approval)"}</button></div>
 
             {editionId && (
               <div className="confirm">
-                <h3>3. Approve this edition</h3>
+                <h3>4. Human editorial approval</h3>
                 <p className="meta">{approval?.current ? "Approved for exactly these developments." : approval?.membersChangedSinceApproval ? "The developments changed after approval: approve again." : approval?.decision ? `Latest decision: ${approval.decision.replace(/_/g, " ")}.` : "Not decided yet."}</p>
                 <label className="inline"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> I reviewed the coherence check and the evidence for each development.</label>
                 <label>Notes{ev && !ev.roundup && ev.coherence.verdict !== "COHERENT" && ev.coherence.verdict !== "SINGLE DEVELOPMENT" ? " (required: you chose a thematic structure for a weak connection)" : " (optional)"}<input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></label>
@@ -511,8 +521,13 @@ export default function EditionDesk() {
               </div>
             )}
 
-            <h3>4. Create the {editionKind === "text" ? "written briefing" : deliverable === "static_roundup_6s" ? "six-second static roundup" : "video production prompt"}</h3>
-            {!canBuild && <p className="meta">Available once the saved edition has a current approval.</p>}
+            <h3>5. Public-facing production prompt</h3>
+            {workflow ? <>
+              <p className={canBuild ? "status good" : "status bad"}>{canBuild ? "Current human editorial approval and factual verification are confirmed. Production prompt preparation is available." : "PUBLIC NEWS OUTPUT IS HELD. You can prepare verification above, but public-facing news content cannot be produced yet."}</p>
+              {!canBuild && workflow.blockers.map((reason, i) => <p className="caution" key={i}>{reason}</p>)}
+              {workflow.factualVerification.blocked.slice(0, 8).map((item, i) => <p className="caution" key={`claim-${i}`}>{item.claimId ? `Claim ${item.claimId}: ` : ""}{item.reason}</p>)}
+            </> : <p className="meta">Checking current editorial approval and factual verification… Production remains locked until the check is confirmed.</p>}
+            {!canBuild && <p className="meta">The verification prompt can be prepared now. Public-facing news prompts require both current human editorial approval and complete, current claim verification.</p>}
             {canBuild && (
               <>
                 {editionKind === "video" && <div className="row">
