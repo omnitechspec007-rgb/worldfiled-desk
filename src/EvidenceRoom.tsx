@@ -46,7 +46,8 @@ export default function EvidenceRoom() {
       const data = await b.json();
       if (!b.ok) throw new Error(data.detail || data.error || "Could not load the verification register.");
       const policyById = new Map<string, any>((data.sources || []).map((source: any) => [source.id, source]));
-      const sources: Source[] = (storyData.story.sources || []).map((source: any) => {
+      const rawSources: any[] = storyData.story.sources || [];
+      const sources: Source[] = rawSources.map((source: any) => {
         const policy = policyById.get(source.id);
         if (!policy || policy.contentPolicy === "blocked") {
           return {
@@ -68,6 +69,28 @@ export default function EvidenceRoom() {
           retrievalStatus: policy.retrievalStatus ?? "unknown",
         };
       });
+      const visibleIds = new Set(sources.map((source) => source.id));
+      // The Story Desk omits blocked metadata; retain the policy-only stubs returned by
+      // the Evidence Room API so an editor can see why those sources are unavailable.
+      for (const policy of data.sources || []) {
+        if (visibleIds.has(policy.id) || policy.contentPolicy !== "blocked") continue;
+        sources.push({
+          id: policy.id,
+          title: null,
+          url: null,
+          outlet: "Blocked source",
+          scope: null,
+          region: "Unknown",
+          tier: "reporting",
+          publishedAt: null,
+          retrievedAt: null,
+          depth: "metadata withheld",
+          summary: null,
+          contentPolicy: "blocked",
+          enabled: false,
+          retrievalStatus: "unknown",
+        });
+      }
       setStory({
         ...storyData.story,
         sources,
