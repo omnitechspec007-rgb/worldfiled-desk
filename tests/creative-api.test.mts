@@ -49,10 +49,10 @@ function postgrest(url: URL, init: any) {
           id: "evidence-" + st.id, source_id: link?.source_id ?? null,
           passage: "Checked synthetic supporting passage for creative workflow test.",
           passage_location: "test paragraph", extraction_status: "extracted", is_contradiction: false,
-          created_at: new Date(Date.now() - 60000).toISOString(),
+          created_at: new Date(new Date(st.created_at).getTime() - 60_000).toISOString(),
           retrieved_sources: source ? { ...source, source_registry: registry } : null,
         }],
-        verification_results: [{ id: "decision-" + st.id, outcome: "SUPPORTED", reviewer_notes: "Synthetic editor decision for creative workflow test.", created_at: new Date().toISOString() }]
+        verification_results: [{ id: "decision-" + st.id, outcome: "SUPPORTED", reviewer_notes: "Synthetic editor decision for creative workflow test.", created_at: st.created_at }]
       };
     });
     return new Response(JSON.stringify(out), { status: 200 });
