@@ -226,6 +226,8 @@ async function history() {
   const ids = [...new Set(rows.map((r) => r.story_id))];
   const names = new Map<string, string>();
   const current = new Map<string, string | null>();
+  let claimCurrent = new Map<string, { ready: boolean }>();
+  try { claimCurrent = await editionClaimClearanceByStory(ids); } catch { /* fail closed: history remains visible but never current */ }
   for (let i = 0; i < ids.length; i += 30) {
     const part = ids.slice(i, i + 30).join(",");
     for (const s of await db<any[]>(`stories?id=in.(${part})&select=id,headline`)) names.set(s.id, s.headline);
@@ -241,7 +243,7 @@ async function history() {
       version: r.version,
       treatment: r.treatment_key,
       createdAt: r.created_at,
-      approvalCurrent: current.get(r.story_id) === r.approval_decision_id && !!r.approval_decision_id,
+      approvalCurrent: current.get(r.story_id) === r.approval_decision_id && !!r.approval_decision_id && claimCurrent.get(r.story_id)?.ready === true,
     })),
   });
 }
@@ -252,7 +254,12 @@ async function one(id: string) {
   const r = rows[0];
   if (!r) return json({ error: "not_found" }, 404);
   const dec = await latestDecision(r.story_id);
-  const current = dec?.decision === "approved" && dec.id === r.approval_decision_id;
+  const clearance = await currentClaimClearance(r.story_id);
+  const loaded = await loadStory(r.story_id);
+  const activeUrls = new Set(loaded?.story.sources.map((source) => source.url) ?? []);
+  const snapshotUrls = (r.evidence_snapshot?.sources ?? []).map((source: any) => source.url).filter((url: unknown): url is string => typeof url === "string");
+  const evidenceCurrent = clearance.ready && activeUrls.size > 0 && snapshotUrls.length > 0 && snapshotUrls.every((url: string) => activeUrls.has(url));
+  const current = dec?.decision === "approved" && dec.id === r.approval_decision_id && evidenceCurrent;
   return json({
     id: r.id,
     storyId: r.story_id,
@@ -261,11 +268,17 @@ async function one(id: string) {
     createdAt: r.created_at,
     brandVersion: r.brand_spec_version,
     approvalCurrent: current,
+    factualClearanceCurrent: clearance.ready,
+    evidenceCurrent,
     roles: r.roles,
     rationale: r.rationale,
     tools: r.tools,
     evidenceClasses: classCounts(r.evidence_snapshot),
     prompt: current ? r.prompt_text : null,
-    withheld: current ? undefined : "This story's approval is no longer current (it was rejected, sent back for research, or approved again later). The prompt is kept as history but cannot be copied. Re-approve the story and regenerate.",
+    withheld: current ? undefined : !clearance.ready
+      ? "This story no longer has current factual clearance. The saved prompt remains in history but its text is withheld until the material claims are verified again."
+      : !evidenceCurrent
+        ? "The sources used by this prompt are no longer all currently enabled and healthy. The saved prompt remains in history but cannot be copied."
+        : "This story's human editorial approval is no longer current. The saved prompt remains in history but cannot be copied. Re-approve and regenerate.",
   });
 }
