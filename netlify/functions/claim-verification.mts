@@ -42,9 +42,38 @@ export default async (req: Request) => {
       if (!UUID.test(storyId)) return json({ error: "bad_story_id" }, 400);
       const stories = await db<any[]>(`stories?id=eq.${storyId}&select=id,headline,verification_status,editorial_status`);
       if (!stories[0]) return json({ error: "not_found" }, 404);
-      const claims = await db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_text,category,created_at,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,retrieved_sources(id,title,url,publisher,content_status,source_registry(name,publisher))),verification_results(id,outcome,determined_by,reviewer_notes,created_at)&order=created_at.asc`);
-      const sources = await db<any[]>(`story_source_links?story_id=eq.${storyId}&select=role,retrieved_sources(id,title,url,publisher,published_at,content_status,source_registry(name,publisher))`);
-      return json({ story: stories[0], claims, sources: sources.filter(x=>x.retrieved_sources).map(x=>({ ...x.retrieved_sources, linkRole:x.role })) });
+      const [claims, sources, policies] = await Promise.all([
+        db<any[]>(`claims?story_id=eq.${storyId}&select=id,claim_text,category,created_at,claim_evidence(id,source_id,passage,passage_location,is_contradiction,extraction_status,retrieved_sources(id,registry_id,title,url,publisher,content_status)),verification_results(id,outcome,determined_by,reviewer_notes,created_at)&order=created_at.asc`),
+        db<any[]>(`story_source_links?story_id=eq.${storyId}&select=role,retrieved_sources(id,registry_id,title,url,publisher,published_at,content_status,source_registry(id,name,publisher))`),
+        loadContentPolicies(),
+      ]);
+      const safeClaims = claims.map((claim) => ({
+        ...claim,
+        claim_evidence: (claim.claim_evidence ?? []).map((e: any) => {
+          const registryId = e.retrieved_sources?.registry_id;
+          const policy = typeof registryId === "string" ? policyForSource(policies.rows, registryId) : "blocked";
+          const blocked = !canRetrieveMetadata(policy);
+          const passageWithheld = !canUsePassageEvidence(policy);
+          return passageWithheld
+            ? { ...e, passage: null, passage_location: null, extraction_status: "inaccessible", policyBlocked: blocked, passageWithheld: true, contentPolicy: policy, retrieved_sources: blocked ? null : e.retrieved_sources }
+            : { ...e, policyBlocked: false, passageWithheld: false, contentPolicy: policy };
+        }),
+      }));
+      const safeSources = sources.filter((row) => {
+        const registryId = row.retrieved_sources?.registry_id;
+        return typeof registryId === "string" && canRetrieveMetadata(policyForSource(policies.rows, registryId));
+      });
+      return json({
+        story: stories[0],
+        claims: safeClaims,
+        sources: safeSources.map((row) => ({
+          ...row.retrieved_sources,
+          linkRole: row.role,
+          contentPolicy: policyForSource(policies.rows, row.retrieved_sources.registry_id),
+        })),
+        sourceContentPolicyInstalled: policies.installed,
+        sourcePolicyNote: policies.installed ? null : "Source content policies are not installed. All publishers default to metadata-only; passages remain unavailable for claim verification until a human approves extraction_allowed.",
+      });
     }
     if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
     let b: any;
