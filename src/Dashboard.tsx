@@ -148,7 +148,7 @@ export default function Dashboard() {
                 <h2>Research coverage report</h2>
                 <span className={report.coverage === "complete" ? "status" : "status bad"}>{report.coverage === "complete" ? "All configured sources checked" : report.coverage === "limited" ? "Limited coverage" : "Incomplete coverage"}</span>
               </div>
-              <p>{report.note}</p>
+              <p>{report.note}</p>\n              <p className="meta">“New” means a feed URL WorldFiled had not stored before; it does not prove the underlying event is new. “Refreshed” means a previously known URL was retrieved again. Story freshness is assessed separately.</p>
               <div className="grid">
                 <div className="stat"><span className="stat-label">Sources checked</span><span className="stat-value">{report.checked}/{report.total}</span></div>
                 <div className="stat"><span className="stat-label">Reachable</span><span className="stat-value">{report.reachable}</span></div>
