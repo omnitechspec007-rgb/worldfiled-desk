@@ -511,12 +511,15 @@ export default function EditionDesk() {
               <div className="confirm">
                 <h3>4. Human editorial approval</h3>
                 <p className="meta">{approval?.current ? "Approved for exactly these developments." : approval?.membersChangedSinceApproval ? "The developments changed after approval: approve again." : approval?.decision ? `Latest decision: ${approval.decision.replace(/_/g, " ")}.` : "Not decided yet."}</p>
+                {workflow && !workflow.storyEditorialReview.ready && <p className="caution">First complete Editorial Review for every selected story. Story approval means cleared for drafting, not verified.</p>}
+                {workflow && !workflow.factualVerification.ready && <p className="caution">Edition approval is not available until all material claims have current verification decisions and the story-level completeness acknowledgement.</p>}
                 <label className="inline"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> I reviewed the coherence check and the evidence for each development.</label>
                 <label>Notes{ev && !ev.roundup && ev.coherence.verdict !== "COHERENT" && ev.coherence.verdict !== "SINGLE DEVELOPMENT" ? " (required: you chose a thematic structure for a weak connection)" : " (optional)"}<input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></label>
                 <div className="actions">
-                  <button className="primary" disabled={busy || !ack} onClick={() => void decide("approved")}>Approve edition</button>
+                  <button className="primary" disabled={busy || !ack || !workflow || !workflow.storyEditorialReview.ready || !workflow.factualVerification.ready || workflow.storyEditorialReview.rejectedOrReturned.length > 0} onClick={() => void decide("approved")}>Approve edition</button>
                   <button disabled={busy} onClick={() => void decide("needs_changes")}>Needs changes</button>
                   <button disabled={busy} onClick={() => void decide("rejected")}>Reject</button>
+                  <button disabled={busy} onClick={() => { setWorkflow(null); fetch(`${api}edition-prompt?mode=workflow_status&editionId=${encodeURIComponent(editionId)}`).then((r) => r.ok ? r.json() : null).then((data) => setWorkflow(data)).catch(() => setWorkflow(null)); }}>Refresh gate status</button>
                 </div>
               </div>
             )}
