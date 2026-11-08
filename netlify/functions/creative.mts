@@ -13,6 +13,7 @@ import { DELIVERABLES, type Deliverable } from "../lib/production-tools.mts";
 import { buildArchitectPrompt, PromptTooLarge, type StyleRuleIn } from "../lib/prompt-architect.mts";
 import { brandChecklist, BRAND_VERSION } from "../lib/brand.mts";
 import { scoreStory, type StoryInput } from "../lib/scoring.mts";
+import { editionClaimClearance, editionClaimClearanceByStory } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -25,13 +26,14 @@ async function latestDecision(storyId: string) {
 
 async function loadStory(storyId: string) {
   const rows = await db<any[]>(
-    `stories?id=eq.${storyId}&select=id,headline,category,created_at,story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(name,country_scope,reliability_note)))`
+    `stories?id=eq.${storyId}&select=id,headline,category,created_at,story_source_links(retrieved_sources(title,url,published_at,retrieved_at,content_status,extract,source_registry(name,country_scope,reliability_note,enabled,retrieval_status)))`
   );
   const st = rows[0];
   if (!st) return null;
   const sources = (st.story_source_links ?? [])
     .map((l: any) => l.retrieved_sources)
     .filter(Boolean)
+    .filter((s: any) => s.source_registry?.enabled === true && s.source_registry?.retrieval_status === "healthy")
     .map((s: any) => ({
       outlet: s.source_registry?.name ?? "Unknown",
       region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
@@ -41,6 +43,7 @@ async function loadStory(storyId: string) {
       summary: (s.extract ?? null) as string | null,
       publishedAt: (s.published_at ?? null) as string | null,
       retrievedAt: (s.retrieved_at ?? null) as string | null,
+      contentStatus: (s.content_status ?? null) as string | null,
     }));
   const story: EvStory = { headline: st.headline, category: st.category, sources };
   const scoringInput: StoryInput = { id: st.id, headline: st.headline, category: st.category, createdAt: st.created_at, sources };
@@ -56,6 +59,22 @@ async function approvedRules(): Promise<{ rules: StyleRuleIn[]; installed: boole
   } catch (e) {
     if (e instanceof DbError && e.upstream === 404) return { rules: [], installed: false };
     throw e;
+  }
+}
+
+async function currentClaimClearance(storyId: string) {
+  try {
+    return await editionClaimClearance([storyId]);
+  } catch (error) {
+    return {
+      ready: false,
+      blocked: [{
+        storyId,
+        reason: error instanceof DbError && error.upstream === 404
+          ? "Claim-verification records are not installed; factual clearance cannot be confirmed."
+          : "The current claim-verification state could not be loaded. Public-facing news output remains blocked.",
+      }],
+    };
   }
 }
 
@@ -88,9 +107,12 @@ export default async (req: Request) => {
 
 async function preview(storyId: string) {
   const dec = await latestDecision(storyId);
-  if (dec?.decision !== "approved") return json({ error: "not_approved" }, 409);
+  if (dec?.decision !== "approved") return json({ error: "not_approved", detail: "This story is not currently approved for drafting." }, 409);
+  const clearance = await currentClaimClearance(storyId);
+  if (!clearance.ready) return json({ error: "verification_blocked", detail: "A public-facing creative prompt cannot be prepared until this story's material claims are verified and its claim register is complete.", blockedClaims: clearance.blocked }, 409);
   const loaded = await loadStory(storyId);
   if (!loaded) return json({ error: "not_found" }, 404);
+  if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "No currently enabled and healthy source remains attached to this story. It cannot be used for public news output." }, 409);
   const rec = recommendTreatment(loaded.story);
   const pack = buildEvidencePack(loaded.story, { decisionNote: dec.notes });
   return json({
@@ -119,9 +141,12 @@ async function generate(req: Request) {
   const parentId = typeof b.parentId === "string" && UUID.test(b.parentId) ? b.parentId : null;
 
   const dec = await latestDecision(storyId);
-  if (dec?.decision !== "approved") return json({ error: "not_approved" }, 409);
+  if (dec?.decision !== "approved") return json({ error: "not_approved", detail: "This story is not currently approved for drafting." }, 409);
+  const clearance = await currentClaimClearance(storyId);
+  if (!clearance.ready) return json({ error: "verification_blocked", detail: "A public-facing creative prompt cannot be prepared until this story's material claims are verified and its claim register is complete.", blockedClaims: clearance.blocked }, 409);
   const loaded = await loadStory(storyId);
   if (!loaded) return json({ error: "not_found" }, 404);
+  if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "No currently enabled and healthy source remains attached to this story. It cannot be used for public news output." }, 409);
 
   const rec = recommendTreatment(loaded.story);
   const treatment = (typeof b.treatmentKey === "string" && getTreatment(b.treatmentKey)) || rec.treatment;
