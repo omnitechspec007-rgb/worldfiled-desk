@@ -6,6 +6,9 @@ type RoundupStory = {
   summary: string;
   location?: string;
   source?: string;
+  publishedAt?: string | null;
+  sourceUrl?: string;
+  reviewed?: boolean;
 };
 
 type Props = { title: string; stories: RoundupStory[]; exportReady: boolean; preflightNote: string };
@@ -93,8 +96,13 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
   ctx.fillRect(82, 242, 72, 5);
   ctx.fillStyle = "#0B1F38";
   ctx.font = "700 54px Georgia, serif";
-  const titleLines = linesFor(ctx, title.toUpperCase(), 900, 2);
-  titleLines.forEach((line, i) => ctx.fillText(line, 82, 310 + i * 62));
+  let titleLines = linesFor(ctx, title.toUpperCase(), 900, 2);
+  // Keep a two-line edition title clear of the date baseline inside the fixed masthead panel.
+  const titleSize = titleLines.length > 1 ? 44 : 54;
+  const titleY = titleLines.length > 1 ? 300 : 330;
+  ctx.font = "700 " + titleSize + "px Georgia, serif";
+  titleLines = linesFor(ctx, title.toUpperCase(), 900, 2);
+  titleLines.forEach((line, i) => ctx.fillText(line, 82, titleY + i * (titleSize + 10)));
   ctx.fillStyle = "#52677D";
   ctx.font = "600 19px Inter, Arial, sans-serif";
   ctx.fillText(date.toUpperCase(), 82, 397);
@@ -104,7 +112,6 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
   const bottom = 1744;
   const gap = cards.length >= 7 ? 10 : 14;
   const cardH = (bottom - top - gap * Math.max(0, cards.length - 1)) / Math.max(1, cards.length);
-  const compact = cards.length >= 7;
   cards.forEach((story, index) => {
     const y = top + index * (cardH + gap);
     ctx.save();
@@ -121,26 +128,34 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
 
     const padX = 82;
     ctx.fillStyle = "#52677D";
-    ctx.font = "700 16px Inter, Arial, sans-serif";
+    ctx.font = "700 18px Inter, Arial, sans-serif";
     const label = story.location ? story.location.toUpperCase().slice(0, 38) : "WORLD UPDATE";
-    ctx.fillText(String(index + 1).padStart(2, "0") + "  /  " + label, padX, y + 29);
+    const topInset = Math.max(0, (cardH - 260) / 2);
+    ctx.fillText(String(index + 1).padStart(2, "0") + "  /  " + label, padX, y + 29 + topInset);
 
-    const headlineSize = compact ? 25 : 30;
+    const dense = cards.length >= 6;
+    const headlineSize = cards.length >= 7 ? 30 : cards.length === 6 ? 34 : cards.length <= 3 ? 46 : 38;
     ctx.fillStyle = "#0B1F38";
     ctx.font = "700 " + headlineSize + "px Inter, Arial, sans-serif";
-    const headlineY = y + 65;
+    const headlineY = y + 65 + topInset;
     const titleCount = drawText(ctx, story.headline, padX, headlineY, 900, headlineSize * 1.12, 2);
 
-    const summarySize = compact ? 18 : 21;
+    const summarySize = cards.length >= 7 ? 20 : cards.length === 6 ? 22 : cards.length <= 3 ? 30 : 25;
     ctx.fillStyle = "#31465B";
     ctx.font = "500 " + summarySize + "px Inter, Arial, sans-serif";
-    const summaryY = headlineY + titleCount * headlineSize * 1.12 + (compact ? 10 : 14);
-    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.18, compact ? 1 : 2);
+    const summaryY = headlineY + titleCount * headlineSize * 1.12 + (dense ? 9 : 14);
+    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.18, dense ? 1 : cards.length <= 3 ? 3 : 2);
 
     ctx.fillStyle = "#68798A";
-    ctx.font = "600 13px Inter, Arial, sans-serif";
-    const sourceLabel = story.source ? "SOURCE: " + story.source.toUpperCase().slice(0, 58) : "SOURCE DETAILS: OPEN LINKED STORY";
-    ctx.fillText(sourceLabel, padX, y + cardH - 13);
+    ctx.font = "600 20px Inter, Arial, sans-serif";
+    const dateMatch = story.publishedAt ? /^(\d{4})-(\d{2})-(\d{2})/.exec(story.publishedAt) : null;
+    const dateLabel = dateMatch
+      ? new Date(Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).toUpperCase()
+      : "DATE UNKNOWN";
+    const sourceLabel = story.source
+      ? "SOURCE: " + story.source.toUpperCase().slice(0, 42) + "  ·  " + dateLabel
+      : "SOURCE NOT PROVIDED  ·  " + dateLabel + "  ·  CHECK BEFORE SHARING";
+    ctx.fillText(sourceLabel, padX, y + cardH - 8);
   });
 
   // Branded close / follow prompt.
@@ -162,6 +177,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
     ...s,
     headline: s.headline.slice(0, 150),
     summary: (s.summary || s.headline).slice(0, 190),
+    reviewed: false,
   })), [storySignature]);
   const omittedCount = Math.max(0, stories.length - MAX_BALANCED_STORIES);
   const [cards, setCards] = useState<RoundupStory[]>(initial);
@@ -177,7 +193,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
   }, [editionTitle, date, cards]);
 
   const updateCard = (id: string, key: "headline" | "summary", value: string) => {
-    setCards((current) => current.map((c) => c.id === id ? { ...c, [key]: value } : c));
+    setCards((current) => current.map((c) => c.id === id ? { ...c, [key]: value, reviewed: false } : c));
   };
   const moveCard = (index: number, direction: -1 | 1) => {
     setCards((current) => {
@@ -189,9 +205,13 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
     });
   };
   const removeCard = (id: string) => setCards((current) => current.filter((card) => card.id !== id));
+  const reviewCard = (id: string, reviewed: boolean) => setCards((current) => current.map((card) => card.id === id ? { ...card, reviewed } : card));
+  const allCardsReviewed = cards.length > 0 && cards.every((card) => card.reviewed === true);
+  const canExport = exportReady && allCardsReviewed;
 
   const downloadPoster = () => {
     if (!exportReady) { setNotice("Export blocked: " + preflightNote); return; }
+    if (!allCardsReviewed) { setNotice("Export blocked: review every card's headline and supporting text against its source first."); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const a = document.createElement("a");
@@ -206,6 +226,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
 
   const exportVideo = async () => {
     if (!exportReady) { setNotice("Export blocked: " + preflightNote); return; }
+    if (!allCardsReviewed) { setNotice("Export blocked: review every card's headline and supporting text against its source first."); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     if (!("MediaRecorder" in window) || !canvas.captureStream) {
@@ -279,7 +300,7 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
           <label>Edition headline<input value={editionTitle} onChange={(e) => setEditionTitle(e.target.value)} maxLength={100} /></label>
           <label>Edition date<input value={date} onChange={(e) => setDate(e.target.value)} maxLength={32} /></label>
         </div>
-        <p className="meta">Balanced layout: up to 7 stories, with room for readable headlines, short context and source labels. Fewer stories are preferable to padding an edition.</p>
+        <p className="meta">Balanced layout: 5–6 stories give the clearest mobile reading; 7 are supported with a tighter type scale. Every card keeps its headline, context and source/date label. Fewer stories are preferable to padding an edition.</p>
         {omittedCount > 0 && <p className="state-warning">{omittedCount} additional candidate{omittedCount === 1 ? " remains" : "s remain"} outside this seven-story composition. They have not been deleted; review them in the Edition Desk.</p>}
       </div>
 
@@ -303,15 +324,16 @@ export default function StaticRoundupBuilder({ title, stories, exportReady, pref
             </div>
             <label>Headline<input value={card.headline} maxLength={150} onChange={(e) => updateCard(card.id, "headline", e.target.value)} /></label>
             <label>Supporting text<textarea value={card.summary} maxLength={190} rows={2} onChange={(e) => updateCard(card.id, "summary", e.target.value)} /></label>
-            <p className="meta">{card.source ? "Source: " + card.source : "No source label available; inspect the linked story and evidence before export."}</p>
+            <p className="meta">{card.source ? "Source: " + card.source : "No source label available; export will remain blocked."}{card.sourceUrl ? <> · <a href={card.sourceUrl} target="_blank" rel="noreferrer">Open source</a></> : null}</p>
+            <label className="inline"><input type="checkbox" checked={card.reviewed === true} onChange={(e) => reviewCard(card.id, e.target.checked)} /> I checked this headline and supporting text against the source.</label>
           </div>
         ))}
       </div>
       {notice && <p className="status">{notice}</p>}
-      <p className={exportReady ? "status good" : "status bad"}>{exportReady ? "EXPORT CLEARANCE CONFIRMED: " : "EXPORT LOCKED: "}{preflightNote}</p>
+      <p className={canExport ? "status good" : "status bad"}>{!exportReady ? "EXPORT LOCKED: " + preflightNote : !allCardsReviewed ? "EDITOR REVIEW REQUIRED: check every headline and supporting text against its source before export." : "EXPORT CLEARANCE CONFIRMED: " + preflightNote}</p>
       <div className="actions">
-        <button disabled={!exportReady} onClick={downloadPoster}>Download static poster (PNG)</button>
-        <button className="primary" disabled={!exportReady || rendering || cards.length === 0} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
+        <button disabled={!canExport} onClick={downloadPoster}>Download static poster (PNG)</button>
+        <button className="primary" disabled={!canExport || rendering} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
       </div>
       <p className="meta">Export uses WebM in modern Chrome and Edge. MP4 conversion is not performed in this browser-only release. The same single frame remains visible for all six seconds.</p>
     </div>

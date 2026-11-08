@@ -1,14 +1,26 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import StaticRoundupBuilder from "./StaticRoundupBuilder";
+import { buildEditorialIntelligence } from "./editorial-intelligence";
 
 type Loc = { country: string; basis: string };
-type Dev = {
+type SourceIndependence = {
+  namedOutlets: number; confirmedIndependentOrigins: number; confirmedSharedOrigins: number;
+  status: "confirmed_independent" | "known_shared_origin" | "partially_verified" | "unknown";
+  explanation: string;
+};
+export type Dev = {
   id: string; headline: string; decision: string | null; type: string; recommendation: string; recommendationWhy: string; curiosityScore: number;
   evidenceStrength: { label: string; why: string }; corroborated: boolean; whatChanged: string; whyInteresting: string[]; audienceQuestion: string;
   surprisingElement: string | null; humanConsequences: string | null; possibleImplications: string | null; missingEvidence: string[]; sensationalismFlags: string[];
   hypothesisNote: string; themes: string[]; locations: Loc[]; geographicInterest: string; outlets: number;
   fresh: boolean; notFreshWhy: string | null; ageHours: number | null;
-  sources: { outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string }[];
+  sourceIndependence: SourceIndependence;
+  sources: {
+    outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string;
+    sourceRegistryId: string | null; retrievedSourceId: string | null; ownershipStatus: string; publisherGroupKey: string | null;
+    originType: string; originStatus: string; upstreamSourceRegistryId: string | null; upstreamRetrievedSourceId: string | null; upstreamUrl: string | null;
+    upstreamOwnershipStatus: string | null; upstreamPublisherGroupKey: string | null;
+  }[];
 };
 type Comp = { name: string; points: number; max: number; why: string };
 type Evaluation = {
@@ -46,7 +58,9 @@ function DevDetail({ d }: { d: Dev }) {
   return (
     <div>
       <h3>Sources</h3>
-      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}<div className="meta">Ownership: {x.ownershipStatus === "verified" ? "verified" : "unknown or unverified"} · Article origin: {x.originStatus === "verified" ? x.originType : "unverified / unknown"}</div>{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <h3>Source independence assessment</h3>
+      <p className={d.sourceIndependence?.status === "confirmed_independent" ? "ok" : "caution"}>{d.sourceIndependence?.explanation ?? "Independence unknown; outlet names are not proof of separate reporting."}</p>
       <h3>Editorial reasoning</h3>
       <p className="why"><strong>What changed:</strong> {d.whatChanged}</p>
       <p className="why"><strong>Why it may be interesting:</strong> {d.whyInteresting.join("; ") || "nothing specific found"}</p>
@@ -64,7 +78,7 @@ function DevDetail({ d }: { d: Dev }) {
 
 export default function EditionDesk() {
   const [desk, setDesk] = useState<Desk | null>(null);
-  const [tab, setTab] = useState<"developments" | "suggested" | "mine">("developments");
+  const [tab, setTab] = useState<"developments" | "suggested" | "mine" | "automatic">("automatic");
   const [q, setQ] = useState("");
   const [showOlder, setShowOlder] = useState(false);
   const [recFilter, setRecFilter] = useState("");
@@ -80,7 +94,7 @@ export default function EditionDesk() {
   const [ids, setIds] = useState<string[]>([]);
   const [editionKind, setEditionKind] = useState<"video" | "text">("video");
   const [selections, setSelections] = useState<{ video: string[]; text: string[] }>({ video: [], text: [] });
-  const selectionLimit = editionKind === "video" ? 10 : 18;
+  const selectionLimit = editionKind === "video" ? 7 : 18;
   const [editionId, setEditionId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [angle, setAngle] = useState("");
@@ -92,7 +106,7 @@ export default function EditionDesk() {
   const [ack, setAck] = useState(false);
   const [notes, setNotes] = useState("");
   const [deliverable, setDeliverable] = useState("static_roundup_6s");
-  const [duration, setDuration] = useState(600);
+  const [duration, setDuration] = useState(90);
   const [pAngle, setPAngle] = useState("");
   const [fmt, setFmt] = useState("");
   const [sound, setSound] = useState("subtle");
@@ -123,9 +137,9 @@ export default function EditionDesk() {
           setTitle(typeof draft.title === "string" ? draft.title : "");
           setAngle(typeof draft.angle === "string" ? draft.angle : "");
           setStructure(typeof draft.structure === "string" ? draft.structure : "");
-          setTab(["developments", "suggested", "mine"].includes(draft.tab) ? draft.tab : "developments");
+          setTab(["developments", "suggested", "mine", "automatic"].includes(draft.tab) ? draft.tab : "developments");
           setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "static_roundup_6s");
-          setDuration([480, 600, 720].includes(draft.duration) ? draft.duration : 600);
+          setDuration([60, 90, 120, 480, 600, 720].includes(draft.duration) ? draft.duration : 90);
           setPAngle(typeof draft.pAngle === "string" ? draft.pAngle : "");
           setFmt(typeof draft.fmt === "string" ? draft.fmt : "");
           setSound(draft.sound === "minimal" ? "minimal" : "subtle");
@@ -310,9 +324,19 @@ export default function EditionDesk() {
   );
 
   const canBuild = !!editionId && !!approval?.current;
+  const intelligence = buildEditorialIntelligence(desk?.developments ?? []);
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
-    return d ? { id: d.id, headline: d.headline, summary: d.whatChanged || d.whyInteresting[0] || "Consult the linked source material for the verified details.", location: d.locations.map((x) => x.country).join(", "), source: d.sources[0]?.outlet ?? "" } : null;
+    if (!d) return null;
+    const attributedSource = d.sources.find((x) => x.outlet.trim() && x.url.startsWith("http") && x.publishedAt && /^\d{4}-\d{2}-\d{2}/.test(x.publishedAt) && Number.isFinite(Date.parse(x.publishedAt))) ?? d.sources[0];
+    return {
+      id: d.id, headline: d.headline,
+      summary: d.whatChanged || attributedSource?.snippet || "Summary unavailable — review the evidence before export.",
+      location: d.locations.map((x) => x.country).join(", "),
+      source: attributedSource?.outlet ?? "",
+      publishedAt: attributedSource?.publishedAt ?? null,
+      sourceUrl: attributedSource?.url ?? ""
+    };
   }).filter((x) => x !== null);
   return (
     <section>
@@ -323,13 +347,83 @@ export default function EditionDesk() {
 
       <div className="panel">
         <h2>Daily edition profile</h2>
-        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Static news roundup · 8-10 stories · 6 seconds</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
+        <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Six-second static text video · standalone card or 5–7-story roundup</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
         <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
-      </div>\n      <div className="tabs">
-        {([["developments", "1. Select developments"], ["suggested", "Suggested editions (shortcut)"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
+      </div>
+      <div className="tabs">
+        {([["automatic", "1. Automatic picks"], ["developments", "Review all developments"], ["suggested", "Suggested editions"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!desk && !msg && <p className="meta">Loading…</p>}
 
+      {desk && tab === "automatic" && (
+        <div className="panel">
+          <h2>WorldFiled Editorial Intelligence</h2>
+          <p className="meta">Research has finished. This desk separates three editorial decisions: individual text-card stories, a balanced multi-story static roundup, and a coherent narrated edition. The ranking uses transparent editorial heuristics; it is not a prediction of views or a claim to know every viewer's psychology. Evidence and attribution are eligibility gates, not points that can be offset by curiosity.</p>
+          <div className="confirm">
+            <strong>{intelligence.eligibleCount} developments passed the current evidence and attribution screen</strong>
+            <p className="meta">The engine requires fresh stories, a strong existing editorial recommendation, MODERATE evidence, at least two named outlets, no detected sensational wording, no known shared upstream origin, and at least one complete named-source/date/link record. Two outlet names do not prove independent reporting.</p>
+            <p className="meta">Select a package below to open it in the production workspace. Saving, factual clearance and current human approval are still required before a production prompt can be generated.</p>
+          </div>
+
+          <h3>1. Standalone text-video picks</h3>
+          <p className="meta">The strongest individual stories that can carry their own six-second, presenter-free WorldFiled text card. These are ranked separately from the roundup.</p>
+          {intelligence.standalonePicks.length === 0 && <p>No stories currently pass the standalone production screen. Review held stories below; do not lower the evidence threshold to fill a slot.</p>}
+          {intelligence.standalonePicks.map((pick, i) => (
+            <div className="roundup-card-editor" key={pick.story.id}>
+              <p className="rank">STANDALONE PICK {String(i + 1).padStart(2, "0")} · EDITORIAL OPPORTUNITY {pick.score}/100</p>
+              <h3>{pick.story.headline}</h3>
+              <p className="meta">{pick.story.recommendation} · curiosity {pick.story.curiosityScore}/100 · evidence {pick.story.evidenceStrength.label} · {pick.story.ageHours === null ? "age unknown" : Math.round(pick.story.ageHours) + "h old"}</p>
+              <p className="why"><strong>Why it may earn attention:</strong> {pick.story.whyInteresting.join("; ") || pick.story.recommendationWhy}</p>
+              <details><summary>How the opportunity score was calculated</summary><ul className="comps">{pick.parts.map((part) => <li key={part.key}><strong>{part.label}: {part.points}/{part.max}</strong> — {part.reason}</li>)}</ul></details>
+              <div className="actions">
+                <button className="primary" onClick={() => { openSet({ ids: [pick.story.id], title: pick.story.headline, structure: "news_roundup", editionKind: "video" }); setDeliverable("static_roundup_6s"); }}>Prepare this standalone text card</button>
+                <button onClick={() => setInspect(inspect === "auto-" + pick.story.id ? null : "auto-" + pick.story.id)}>{inspect === "auto-" + pick.story.id ? "Hide source review" : "Inspect sources and reasoning"}</button>
+              </div>
+              {inspect === "auto-" + pick.story.id && <DevDetail d={pick.story} />}
+            </div>
+          ))}
+
+          {intelligence.standaloneNotSelected.length > 0 && <details><summary>Strong edition candidates not selected as standalone cards ({intelligence.standaloneNotSelected.length})</summary><p className="meta">These stories may work as part of a roundup or narrated edition, but the engine does not currently rate them strongly enough to carry an individual card on their own.</p><ul className="comps">{intelligence.standaloneNotSelected.map((pick) => <li key={pick.story.id}><strong>{pick.story.headline}</strong> — {pick.score}/100 opportunity index.</li>)}</ul></details>}
+
+          <h3>2. Balanced static text roundup</h3>
+          <p className="meta">A separate selection problem: up to seven stories, chosen for a strong opening and variety across development types and places. The engine does not simply take the seven highest scores.</p>
+          <div className="confirm">
+            <strong>{intelligence.roundupPicks.length} stories selected for the roundup · maximum 7</strong>
+            <div className="actions">
+              <button className="primary" disabled={!intelligence.roundupPicks.length} onClick={() => { openSet({ ids: intelligence.roundupPicks.map((p) => p.story.id), title: "The World, Filed — Daily Roundup", structure: "news_roundup", editionKind: "video" }); setDeliverable("static_roundup_6s"); }}>Prepare static roundup</button>
+            </div>
+          </div>
+          {intelligence.roundupPicks.map((pick, i) => <p className="why" key={pick.story.id}><strong>{String(i + 1).padStart(2, "0")}. {pick.story.headline}</strong> — opportunity {pick.score}/100; {pick.story.type || "general development"}; {pick.story.locations[0]?.country || "place not established"}</p>)}
+          {intelligence.roundupPicks.length > 0 && intelligence.roundupPicks.length < 5 && <p className="caution">Fewer than five stories passed. A shorter roundup is preferable to padding it with weaker material.</p>}
+
+          <h3>3. Narrated edition builder</h3>
+          <p className="meta">The engine selects a different story combination for each runtime and prioritises a strong opening, variety and enough room to explain the developments. The existing production blueprint will calculate actual speaking-time allocations and warn if the evidence-supported minimums do not fit.</p>
+          <div className="grid">
+            {intelligence.narrated.map((plan) => (
+              <div className="roundup-card-editor" key={plan.durationSeconds}>
+                <p className="rank">{plan.durationSeconds}-SECOND EDITION</p>
+                <h3>{plan.stories.length} stories · {plan.stories[0]?.story.headline || "No eligible lead story"}</h3>
+                <p className="meta">{plan.rationale}</p>
+                <ul className="comps">{plan.stories.map((pick, i) => <li key={pick.story.id}>{i + 1}. {pick.story.headline}</li>)}</ul>
+                <button className="primary" disabled={plan.stories.length < 2} onClick={() => { openSet({ ids: plan.stories.map((p) => p.story.id), title: "The World, Filed — " + plan.durationSeconds + "-Second Edition", structure: "news_roundup", editionKind: "video" }); setDeliverable("script_storyboard"); setDuration(plan.durationSeconds); }}>Prepare {plan.durationSeconds}-second edition</button>
+              </div>
+            ))}
+          </div>
+
+          <details><summary>Held back by the evidence and attribution screen ({intelligence.held.length})</summary>
+            <p className="meta">Held stories remain in Review all developments. The reasons identify the exact gate that failed; they do not mean the underlying event is unimportant.</p>
+            <ul className="comps">{intelligence.held.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reasons.join(" ")}</li>)}</ul>
+          </details>
+          {intelligence.notSelected.length > 0 && <details><summary>Eligible but not selected for these format caps ({intelligence.notSelected.length})</summary>
+            <p className="meta">These stories passed eligibility but did not make the current format selections. They have not been rejected or deleted.</p>
+            <ul className="comps">{intelligence.notSelected.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reason}</li>)}</ul>
+          </details>}
+          <details><summary>How this engine works and what it cannot claim</summary>
+            <ul className="comps">{intelligence.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
+          </details>
+          <p className="caution">Only relationships explicitly marked verified in the Source Provenance Desk affect the independence assessment. Unknown ownership or article lineage is never counted as independent confirmation. Research currently relies primarily on headlines and snippets, not full article text. Open the source links and check the underlying claims before publication.</p>
+        </div>
+      )}
       {desk && tab === "suggested" && (
         <>
           {desk.suggestions.filter(shown).length === 0 && <div className="panel"><p>No coherent edition found in the current research. That is a valid result: do not force one. Run research again, or build one by hand from the Developments tab.</p></div>}
@@ -345,10 +439,10 @@ export default function EditionDesk() {
         const list = desk.developments.filter((d) => (win && winInfo ? !!winInfo.map[d.id] || ids.includes(d.id) : (showOlder || d.fresh || ids.includes(d.id))) && (!recFilter || d.recommendation === recFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
         return (
           <div className="panel">
-            <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "static news roundup"}</h2>
-            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Static video target: 8-10 stories (maximum 10). Text target: 12-18 (maximum 18). These are editorial guides, not quotas.</p>
+            <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "text video"}</h2>
+            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Static text video: use one story for a standalone card, or aim for 5–7 stories (maximum 7) for a roundup; fewer are allowed when evidence is thin. Written briefing: target 12-18 stories (maximum 18). Do not force unrelated stories into a shared theme.</p>
             <div className="confirm" style={{ position: "sticky", top: 0, zIndex: 2 }}>
-              <strong>{ids.length} / {selectionLimit} selected</strong>
+              <strong>{ids.length} / {selectionLimit} selected</strong>{editionKind === "video" && ids.length > 7 && <p className="caution">This existing selection has more than the new balanced 7-story target. Remove stories before creating a new static roundup; no existing story has been deleted.</p>}
               <div className="actions">
                 <button className="primary" disabled={!ids.length} onClick={() => { setTab("developments"); setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 30); }}>Review selection ({ids.length}) ↓</button>
                 <button disabled={!ids.length} onClick={clearSel}>Clear selection</button>
@@ -469,9 +563,10 @@ export default function EditionDesk() {
             {canBuild && (
               <>
                 {editionKind === "video" && <div className="row">
-                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="static_roundup_6s">Static text-led news roundup · 6 seconds</option><option value="script_storyboard">Script and storyboard (legacy)</option><option value="animated_html">Animated HTML (legacy)</option><option value="narrated_video">Narrated video (legacy)</option></select></label>
-                  <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
+                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="static_roundup_6s">Static text-led news roundup · 6 seconds</option><option value="script_storyboard">Short-form narrated edition · script and storyboard</option><option value="animated_html">Animated HTML preview · advanced</option><option value="narrated_video">Narrated video production · audio and final file</option></select></label>
+                  {deliverable !== "static_roundup_6s" && <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><optgroup label="Short-form daily edition"><option value={60}>60 seconds · concise</option><option value={90}>90 seconds · recommended</option><option value={120}>120 seconds · extra depth</option></optgroup><optgroup label="Long-form bulletin"><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></optgroup></select></label>}
                 </div>}
+                {editionKind === "video" && deliverable !== "static_roundup_6s" && <p className="meta">For the daily narrated edition, 90 seconds is the starting recommendation. The selected runtime is a ceiling, not a quota: if the evidence supports less, the script must be shorter rather than padded. Use 60 seconds for a tighter bulletin or 120 seconds when the sourced material justifies more depth.</p>}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
                   <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true} preflightNote={roundupPreflight?.note ?? "Checking current approval and factual clearance…"} />

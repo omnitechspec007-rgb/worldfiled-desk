@@ -92,10 +92,10 @@ try {
   assert.equal(candidateResult.reviewStatus, "unverified");
   assert.equal(candidateResult.replayed, false);
   assert.equal(rpcBodies.length, 1);
-  assert.equal(rpcBodies[0].p_idempotency_key, candidateKey);
-  assert.equal(rpcBodies[0].p_source_id, candidateBody.sourceId);
-  assert.equal(rpcBodies[0].p_relationship_type, "same_owner");
-  assert.match(rpcBodies[0].p_request_hash, /^[0-9a-f]{64}$/);
+  assert.equal(rpcBodies[0].payload.p_idempotency_key, candidateKey);
+  assert.equal(rpcBodies[0].payload.p_source_id, candidateBody.sourceId);
+  assert.equal(rpcBodies[0].payload.p_relationship_type, "same_owner");
+  assert.match(rpcBodies[0].payload.p_request_hash, /^[0-9a-f]{64}$/);
 
 
   const reviewResponse = await provenance(new Request("https://desk.test/.netlify/functions/provenance", {
@@ -107,7 +107,7 @@ try {
     }),
   }));
   assert.equal(reviewResponse.status, 200);
-  assert.equal(rpcBodies[1].path, "https://worldfiled-test.supabase.co/rest/v1/rpc/review_publication_relationship");
+  assert.equal(rpcBodies[1].path, "/rest/v1/rpc/review_publication_relationship");
   assert.equal(rpcBodies[1].payload.p_review_status, "verified");
 
   const lineageResponse = await provenance(new Request("https://desk.test/.netlify/functions/provenance", {
@@ -120,7 +120,7 @@ try {
     }),
   }));
   assert.equal(lineageResponse.status, 200);
-  assert.equal(rpcBodies[2].path, "https://worldfiled-test.supabase.co/rest/v1/rpc/review_article_lineage");
+  assert.equal(rpcBodies[2].path, "/rest/v1/rpc/review_article_lineage");
   assert.equal(rpcBodies[2].payload.p_origin_type, "syndicated");
   assert.equal(rpcBodies[2].payload.p_upstream_source_registry_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 
@@ -133,7 +133,7 @@ try {
     }),
   }));
   assert.equal(policyResponse.status, 200);
-  assert.equal(rpcBodies[3].path, "https://worldfiled-test.supabase.co/rest/v1/rpc/review_source_content_policy");
+  assert.equal(rpcBodies[3].path, "/rest/v1/rpc/review_source_content_policy");
   assert.equal(rpcBodies[3].payload.p_policy, "blocked");
   assert.match(rpcBodies[3].payload.p_request_hash, /^[0-9a-f]{64}$/);
 

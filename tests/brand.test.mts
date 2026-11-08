@@ -29,5 +29,22 @@ const css = readFileSync("src/styles.css", "utf8").toLowerCase();
 for (const hex of ["#0b1f38", "#f7f4ed", "#ffc857", "#4cc9b0"]) check("stylesheet defines " + hex, css.includes(hex));
 check("stylesheet does not use the logo's off-palette navy #07223e", !css.includes("#07223e"));
 
+// Static roundup evidence labels must preserve the source's publication date and disclose gaps.
+const roundup = readFileSync("src/StaticRoundupBuilder.tsx", "utf8");
+const editionDesk = readFileSync("src/EditionDesk.tsx", "utf8");
+const editionPromptApi = readFileSync("netlify/functions/edition-prompt.mts", "utf8");
+check("roundup cards carry publication dates from the selected source record", /publishedAt\?: string \| null/.test(roundup) && /publishedAt: attributedSource\?\.publishedAt \?\? null/.test(editionDesk));
+check("roundup source stamps render a publication date or explicitly say DATE UNKNOWN", /DATE UNKNOWN/.test(roundup) && /toLocaleDateString\("en-GB"/.test(roundup));
+check("missing source metadata is disclosed instead of implying a linked source is present", /SOURCE NOT PROVIDED/.test(roundup) && !/SOURCE DETAILS: OPEN LINKED STORY/.test(roundup));
+check("roundup fallback text uses a retrieved source snippet rather than an unverified curiosity inference", /d\.whatChanged \|\| attributedSource\?\.snippet/.test(editionDesk) && !/d\.whyInteresting\[0\]/.test(editionDesk));
+check("static roundup export is blocked if any selected story lacks a named, dated source", /missingAttribution/.test(editionPromptApi) && /source\.outlet\.trim\(\)\.length > 0/.test(editionPromptApi) && /source\.url/.test(editionPromptApi) && /https\?:/.test(editionPromptApi) && /source\.publishedAt/.test(editionPromptApi) && /exportReady: r\.ed\.edition_kind !== "text" && attributionReady/.test(editionPromptApi));
+check("roundup typography scales with story count and keeps source/date labels visible", /const headlineSize = cards\.length >= 7 \? 30 : cards\.length === 6 \? 34 : cards\.length <= 3 \? 46 : 38/.test(roundup) && /const summarySize = cards\.length >= 7 \? 20 : cards\.length === 6 \? 22 : cards\.length <= 3 \? 30 : 25/.test(roundup) && /ctx\.font = "600 20px Inter, Arial, sans-serif"/.test(roundup));
+check("roundup explains that five or six stories provide the clearest mobile reading while seven remain supported", /5–6 stories give the clearest mobile reading; 7 are supported/.test(roundup));
+check("sparse roundups enlarge and vertically centre their cards instead of stretching tiny text or adding filler", /const topInset = Math\.max\(0, \(cardH - 260\) \/ 2\)/.test(roundup) && /cards\.length <= 3 \? 3 : 2/.test(roundup));
+check("the narrated runtime selector is hidden for the fixed six-second static roundup", /deliverable !== "static_roundup_6s" && <label>Length<select/.test(editionDesk));
+check("every static roundup card requires an explicit source review before either export", /reviewed: false/.test(roundup) && /I checked this headline and supporting text against the source/.test(roundup) && /const allCardsReviewed = cards\.length > 0 && cards\.every/.test(roundup) && (roundup.match(/if \(!allCardsReviewed\)/g) ?? []).length === 2 && /disabled={!canExport}/.test(roundup));
+check("the card editor exposes the exact source link used for review", /sourceUrl\?: string/.test(roundup) && /Open source/.test(roundup) && /sourceUrl: attributedSource\?\.url/.test(editionDesk));
+
+
 console.log(`\n${fail ? "FAILURES: " + fail : "ALL " + pass + " BRAND CHECKS PASSED"}`);
 process.exit(fail ? 1 : 0);
