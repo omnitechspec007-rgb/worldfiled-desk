@@ -4,33 +4,8 @@
  * This is an explainable editorial hypothesis, not a claim to predict audience behaviour.
  * Evidence eligibility is a hard gate: a high curiosity score cannot compensate for weak evidence.
  */
-export type EditorialStory = {
-  id: string;
-  headline: string;
-  recommendation: string;
-  curiosityScore: number;
-  evidenceStrength: { label: string; why?: string };
-  corroborated?: boolean;
-  whatChanged?: string;
-  whyInteresting?: string[];
-  audienceQuestion?: string;
-  humanConsequences?: string | null;
-  possibleImplications?: string | null;
-  type?: string;
-  themes?: string[];
-  locations?: { country: string; basis?: string }[];
-  sources: { outlet: string; url: string; publishedAt: string | null; title?: string }[];
-  sourceIndependence?: {
-    status: "confirmed_independent" | "known_shared_origin" | "partially_verified" | "unknown";
-    confirmedIndependentOrigins: number;
-    explanation: string;
-  };
-  fresh: boolean;
-  notFreshWhy?: string | null;
-  ageHours: number | null;
-  decision?: string | null;
-  sensationalismFlags: string[];
-};
+import type { Dev } from "./EditionDesk";
+export type EditorialStory = Dev;
 
 export type ScorePart = { key: string; label: string; points: number; max: number; reason: string };
 export type EditorialPick = { story: EditorialStory; score: number; parts: ScorePart[]; reasons: string[] };
