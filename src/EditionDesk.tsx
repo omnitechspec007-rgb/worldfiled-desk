@@ -9,7 +9,7 @@ type Dev = {
   surprisingElement: string | null; humanConsequences: string | null; possibleImplications: string | null; missingEvidence: string[]; sensationalismFlags: string[];
   hypothesisNote: string; themes: string[]; locations: Loc[]; geographicInterest: string; outlets: number;
   fresh: boolean; notFreshWhy: string | null; ageHours: number | null; verificationStatus: string;
-  sources: { outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string; depth?: string }[];
+  sources: { outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string; depth?: string; enabled?: boolean | null; retrievalStatus?: string | null }[];
 };
 type Comp = { name: string; points: number; max: number; why: string };
 type Evaluation = {
@@ -49,7 +49,7 @@ function DevDetail({ d }: { d: Dev }) {
   return (
     <div>
       <h3>Sources</h3>
-      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"} · content: {x.depth ?? "unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official/primary" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"} · content: {x.depth ?? "unknown"} · source: {x.enabled === true ? "enabled" : x.enabled === false ? "disabled" : "unknown"} · feed: {x.retrievalStatus ?? "unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
       <p className="caution">Factual state: {d.verificationStatus === "verified" ? "Verified in the claim register" : "NOT VERIFIED — research lead only"}. Source health and publisher count do not establish the truth of this development.</p>
       <h3>Editorial reasoning</h3>
       <p className="why"><strong>What changed:</strong> {d.whatChanged}</p>
