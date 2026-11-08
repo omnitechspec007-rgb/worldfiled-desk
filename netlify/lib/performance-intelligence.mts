@@ -61,7 +61,8 @@ export function summarizePerformanceCohorts(
     const shares = group.map((r) => rate(r.shares, r.views)).filter(valid);
     const saves = group.map((r) => rate(r.saves, r.views)).filter(valid);
     const count = group.length;
-    const sampleLabel = count >= minimumUsableSample ? "usable_pattern" : count >= 2 ? "early_signal" : "too_few_to_interpret";
+    const measuredPublications = views.length;
+    const sampleLabel = measuredPublications >= minimumUsableSample ? "usable_pattern" : measuredPublications >= 2 ? "early_signal" : "too_few_to_interpret";
     return {
       platform, contentFormat, publicationCount: count, sampleLabel,
       metrics: {
@@ -72,10 +73,10 @@ export function summarizePerformanceCohorts(
         saveRate: { median: median(saves), measured: saves.length },
       },
       note: sampleLabel === "usable_pattern"
-        ? "Descriptive pattern within this platform and format only; not a causal finding or view prediction."
+        ? "Descriptive pattern within this platform and format only, based on " + measuredPublications + " posts with view counts; not a causal finding or view prediction."
         : sampleLabel === "early_signal"
-          ? "Early signal only. Collect more comparable publications before changing editorial strategy."
-          : "Too few publications to interpret. Do not rank or change editorial strategy from this sample.",
+          ? "Early signal only (" + measuredPublications + " posts have view counts). Collect more comparable publications before changing editorial strategy."
+          : "Too few posts with view counts (" + measuredPublications + ") to interpret. Do not rank or change editorial strategy from this sample.",
     };
   }).sort((a, b) => a.platform.localeCompare(b.platform) || a.contentFormat.localeCompare(b.contentFormat));
 }
