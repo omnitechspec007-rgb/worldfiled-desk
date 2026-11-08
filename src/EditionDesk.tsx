@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import StaticRoundupBuilder from "./StaticRoundupBuilder";
+import { buildEditorialIntelligence } from "./editorial-intelligence";
 
 type Loc = { country: string; basis: string };
 type SourceIndependence = {
@@ -49,52 +50,6 @@ type CreativePreview = {
 type PromptResult = { creative?: { pronunciationCheckRequired: string[]; runtime: { warnings: string[] }; voiceApproval: string } | null; saved: boolean; notInstalled?: boolean; note?: string; id?: string; version?: number; prompt: string; roles: { role: string; why: string }[]; tools: { needed: { name: string }[]; note: string }; brandChecklist: string[] };
 
 const STRUCTS = [["multi_country", "Multi-country synthesis"], ["single_country", "Single-country deep dive"], ["event_roundup", "Event-driven thematic roundup"], ["news_roundup", "Multi-topic news roundup (no shared theme)"]];
-type AutoPick = { story: Dev; score: number; reasons: string[] };
-function buildAutomaticPicks(stories: Dev[]): { picks: AutoPick[]; held: { story: Dev; reason: string }[]; notSelected: { story: Dev; reason: string }[] } {
-  const eligible: AutoPick[] = [];
-  const held: { story: Dev; reason: string }[] = [];
-  for (const story of stories) {
-    const outlets = new Set(story.sources.map((source) => source.outlet.trim().toLowerCase()).filter(Boolean));
-    const independence = story.sourceIndependence ?? {
-      namedOutlets: outlets.size, confirmedIndependentOrigins: 0, confirmedSharedOrigins: 0, status: "unknown" as const,
-      explanation: "Publisher ownership and article origin are not verified. Distinct outlet names are not proof of independent reporting."
-    };
-    const reasons: string[] = [];
-    if (!story.fresh) reasons.push(story.notFreshWhy || 'Outside the current freshness window.');
-    if (story.decision === 'rejected') reasons.push('Previously rejected by an editor.');
-    if (!["HIGH-POTENTIAL STORY", "STRONG EDITION CANDIDATE"].includes(story.recommendation)) reasons.push('Curiosity assessment is not strong enough for automatic shortlisting.');
-    if (story.evidenceStrength.label !== 'MODERATE') reasons.push('Evidence screen is below the current shortlist threshold.');
-    if (outlets.size < 2) reasons.push('Fewer than two distinct named outlets were retrieved.');
-    if (independence.status === "known_shared_origin") reasons.push(independence.explanation);
-    if (story.sensationalismFlags.length) reasons.push('Sensational or vague-attribution wording needs review.');
-    if (reasons.length) { held.push({ story, reason: reasons.join(' ') }); continue; }
-    const score = story.curiosityScore * 0.55 + Math.min(independence.confirmedIndependentOrigins, 4) * 5 + Math.max(0, 24 - (story.ageHours ?? 24)) * 0.35;
-    eligible.push({ story, score, reasons: [
-      'Curiosity rules: ' + story.curiosityScore + '/100 (editorial hypothesis, not measured audience behaviour).',
-      'Evidence screen: ' + story.evidenceStrength.label + '; ' + outlets.size + ' distinct outlet names.',
-      independence.explanation,
-      story.ageHours === null ? 'Publication age unknown.' : 'Newest report approximately ' + Math.round(story.ageHours) + ' hours old.'
-    ] });
-  }
-  const remaining = [...eligible].sort((a, b) => b.score - a.score);
-  const picks: AutoPick[] = []; const types = new Set<string>(); const places = new Set<string>();
-  while (remaining.length && picks.length < 7) {
-    let bestIndex = 0, bestValue = -Infinity;
-    remaining.forEach((candidate, index) => {
-      const place = candidate.story.locations[0]?.country ?? '';
-      const diversityBonus = (types.has(candidate.story.type) ? -8 : 4) + (place && places.has(place) ? -5 : 2);
-      const value = candidate.score + diversityBonus;
-      if (value > bestValue) { bestValue = value; bestIndex = index; }
-    });
-    const chosen = remaining.splice(bestIndex, 1)[0]; picks.push(chosen); types.add(chosen.story.type);
-    const place = chosen.story.locations[0]?.country; if (place) places.add(place);
-  }
-  const notSelected = remaining.map((candidate) => ({
-    story: candidate.story,
-    reason: "Eligible, but ranked below the seven-story balanced-roundup cap. It remains available in Review all developments."
-  }));
-  return { picks, held, notSelected };
-}
 const api = "/.netlify/functions/";
 const post = (fn: string, body: unknown) => fetch(api + fn, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const tone = (v: string) => (v === "COHERENT" ? "ok" : v === "SINGLE DEVELOPMENT" ? "" : "bad");
@@ -369,7 +324,7 @@ export default function EditionDesk() {
   );
 
   const canBuild = !!editionId && !!approval?.current;
-  const automatic = buildAutomaticPicks(desk?.developments ?? []);
+  const intelligence = buildEditorialIntelligence(desk?.developments ?? []);
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
     if (!d) return null;
@@ -401,35 +356,69 @@ export default function EditionDesk() {
 
       {desk && tab === "automatic" && (
         <div className="panel">
-          <h2>Automatic editorial shortlist</h2>
-          <p className="meta">The engine screens fresh, high-curiosity candidates with a moderate evidence screen, at least two distinct named outlets and no detected sensational wording. It checks reviewed publisher ownership and article lineage before counting independent origins. Unknown provenance is never treated as independence; known shared-origin stories are held back. This is a shortlist for your review, not an automatic fact-check or a prediction of views.</p>
+          <h2>WorldFiled Editorial Intelligence</h2>
+          <p className="meta">Research has finished. This desk separates three editorial decisions: individual text-card stories, a balanced multi-story static roundup, and a coherent narrated edition. The ranking uses transparent editorial heuristics; it is not a prediction of views or a claim to know every viewer's psychology. Evidence and attribution are eligibility gates, not points that can be offset by curiosity.</p>
           <div className="confirm">
-            <strong>{automatic.picks.length} eligible stories · maximum 7</strong>
-            <p className="meta">A quiet news cycle may produce fewer than five. The system will not fill the edition with weaker stories just to reach a target.</p>
+            <strong>{intelligence.eligibleCount} developments passed the current evidence and attribution screen</strong>
+            <p className="meta">The engine requires fresh stories, a strong existing editorial recommendation, MODERATE evidence, at least two named outlets, no detected sensational wording, no known shared upstream origin, and at least one complete named-source/date/link record. Two outlet names do not prove independent reporting.</p>
+            <p className="meta">Select a package below to open it in the production workspace. Saving, factual clearance and current human approval are still required before a production prompt can be generated.</p>
+          </div>
+
+          <h3>1. Standalone text-video picks</h3>
+          <p className="meta">The strongest individual stories that can carry their own six-second, presenter-free WorldFiled text card. These are ranked separately from the roundup.</p>
+          {intelligence.standalonePicks.length === 0 && <p>No stories currently pass the standalone production screen. Review held stories below; do not lower the evidence threshold to fill a slot.</p>}
+          {intelligence.standalonePicks.map((pick, i) => (
+            <div className="roundup-card-editor" key={pick.story.id}>
+              <p className="rank">STANDALONE PICK {String(i + 1).padStart(2, "0")} · EDITORIAL OPPORTUNITY {pick.score}/100</p>
+              <h3>{pick.story.headline}</h3>
+              <p className="meta">{pick.story.recommendation} · curiosity {pick.story.curiosityScore}/100 · evidence {pick.story.evidenceStrength.label} · {pick.story.ageHours === null ? "age unknown" : Math.round(pick.story.ageHours) + "h old"}</p>
+              <p className="why"><strong>Why it may earn attention:</strong> {pick.story.whyInteresting.join("; ") || pick.story.recommendationWhy}</p>
+              <details><summary>How the opportunity score was calculated</summary><ul className="comps">{pick.parts.map((part) => <li key={part.key}><strong>{part.label}: {part.points}/{part.max}</strong> — {part.reason}</li>)}</ul></details>
+              <div className="actions">
+                <button className="primary" onClick={() => { openSet({ ids: [pick.story.id], title: pick.story.headline, structure: "news_roundup", editionKind: "video" }); setDeliverable("static_roundup_6s"); }}>Prepare this standalone text card</button>
+                <button onClick={() => setInspect(inspect === "auto-" + pick.story.id ? null : "auto-" + pick.story.id)}>{inspect === "auto-" + pick.story.id ? "Hide source review" : "Inspect sources and reasoning"}</button>
+              </div>
+              {inspect === "auto-" + pick.story.id && <DevDetail d={pick.story} />}
+            </div>
+          ))}
+
+          <h3>2. Balanced static text roundup</h3>
+          <p className="meta">A separate selection problem: up to seven stories, chosen for a strong opening and variety across development types and places. The engine does not simply take the seven highest scores.</p>
+          <div className="confirm">
+            <strong>{intelligence.roundupPicks.length} stories selected for the roundup · maximum 7</strong>
             <div className="actions">
-              <button className="primary" disabled={!automatic.picks.length} onClick={() => openSet({ ids: automatic.picks.map((p) => p.story.id), title: "The World You Probably Missed", structure: "news_roundup", editionKind: "video" })}>Review static roundup · up to 7 stories</button>
-              <button disabled={automatic.picks.length < 2} onClick={() => { openSet({ ids: automatic.picks.slice(0, 4).map((p) => p.story.id), title: "The World, Filed — Daily Brief", structure: "news_roundup", editionKind: "video" }); setDeliverable("script_storyboard"); setDuration(90); }}>Build 90-second narrated edition · top 4 picks</button>
-              <button disabled={!automatic.picks.length} onClick={() => { setEditionKind("video"); setIds(automatic.picks.map((p) => p.story.id)); setEditionId(null); setApproval(null); setAck(false); setRes(null); setTab("developments"); }}>Use picks in current workspace</button>
+              <button className="primary" disabled={!intelligence.roundupPicks.length} onClick={() => { openSet({ ids: intelligence.roundupPicks.map((p) => p.story.id), title: "The World, Filed — Daily Roundup", structure: "news_roundup", editionKind: "video" }); setDeliverable("static_roundup_6s"); }}>Prepare static roundup</button>
             </div>
           </div>
-          {automatic.picks.length === 0 && <p>No stories currently meet every shortlist condition. Review held stories below or run fresh research; do not lower the evidence threshold just to fill a video.</p>}
-          {automatic.picks.map((p, i) => <div className="roundup-card-editor" key={p.story.id}>
-            <p className="rank">AUTO PICK {String(i + 1).padStart(2, "0")} · INTERNAL RANK {Math.round(p.score)}</p>
-            <h3>{p.story.headline}</h3>
-            <p className="meta">{p.story.recommendation} · curiosity {p.story.curiosityScore}/100 · evidence {p.story.evidenceStrength.label} · {p.story.sourceIndependence?.confirmedIndependentOrigins ?? 0} confirmed independent origin(s) · {p.story.sources.length} source records · {p.story.ageHours === null ? "age unknown" : Math.round(p.story.ageHours) + "h old"}</p>
-            <ul className="comps">{p.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
-            <button onClick={() => setInspect(inspect === "auto-" + p.story.id ? null : "auto-" + p.story.id)}>{inspect === "auto-" + p.story.id ? "Hide sources" : "Inspect sources and reasoning"}</button>
-            {inspect === "auto-" + p.story.id && <DevDetail d={p.story} />}
-          </div>)}
-          <details><summary>Held back by the automatic screen ({automatic.held.length})</summary>
-            <p className="meta">Held stories remain available in Review all developments. Reasons are screening rules, not a judgement that the underlying event is unimportant.</p>
-            <ul className="comps">{automatic.held.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reason}</li>)}</ul>
+          {intelligence.roundupPicks.map((pick, i) => <p className="why" key={pick.story.id}><strong>{String(i + 1).padStart(2, "0")}. {pick.story.headline}</strong> — opportunity {pick.score}/100; {pick.story.type || "general development"}; {pick.story.locations[0]?.country || "place not established"}</p>)}
+          {intelligence.roundupPicks.length > 0 && intelligence.roundupPicks.length < 5 && <p className="caution">Fewer than five stories passed. A shorter roundup is preferable to padding it with weaker material.</p>}
+
+          <h3>3. Narrated edition builder</h3>
+          <p className="meta">The engine selects a different story combination for each runtime and prioritises a strong opening, variety and enough room to explain the developments. The existing production blueprint will calculate actual speaking-time allocations and warn if the evidence-supported minimums do not fit.</p>
+          <div className="grid">
+            {intelligence.narrated.map((plan) => (
+              <div className="roundup-card-editor" key={plan.durationSeconds}>
+                <p className="rank">{plan.durationSeconds}-SECOND EDITION</p>
+                <h3>{plan.stories.length} stories · {plan.stories[0]?.story.headline || "No eligible lead story"}</h3>
+                <p className="meta">{plan.rationale}</p>
+                <ul className="comps">{plan.stories.map((pick, i) => <li key={pick.story.id}>{i + 1}. {pick.story.headline}</li>)}</ul>
+                <button className="primary" disabled={plan.stories.length < 2} onClick={() => { openSet({ ids: plan.stories.map((p) => p.story.id), title: "The World, Filed — " + plan.durationSeconds + "-Second Edition", structure: "news_roundup", editionKind: "video" }); setDeliverable("script_storyboard"); setDuration(plan.durationSeconds); }}>Prepare {plan.durationSeconds}-second edition</button>
+              </div>
+            ))}
+          </div>
+
+          <details><summary>Held back by the evidence and attribution screen ({intelligence.held.length})</summary>
+            <p className="meta">Held stories remain in Review all developments. The reasons identify the exact gate that failed; they do not mean the underlying event is unimportant.</p>
+            <ul className="comps">{intelligence.held.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reasons.join(" ")}</li>)}</ul>
           </details>
-          {automatic.notSelected.length > 0 && <details><summary>Eligible, but outside the top 7 ({automatic.notSelected.length})</summary>
-            <p className="meta">These stories passed the screen but were not placed in this balanced roundup. They have not been rejected or deleted; find them in Review all developments.</p>
-            <ul className="comps">{automatic.notSelected.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reason}</li>)}</ul>
+          {intelligence.notSelected.length > 0 && <details><summary>Eligible but not selected for these format caps ({intelligence.notSelected.length})</summary>
+            <p className="meta">These stories passed eligibility but did not make the current format selections. They have not been rejected or deleted.</p>
+            <ul className="comps">{intelligence.notSelected.map((item) => <li key={item.story.id}><strong>{item.story.headline}</strong>: {item.reason}</li>)}</ul>
           </details>}
-          <p className="caution">Only relationships explicitly marked verified in the Source Provenance Desk affect the independence assessment. Unreviewed ownership or article lineage remains unknown; unknown provenance is never counted as independent confirmation. Research currently relies primarily on headlines and snippets, not full article text. Open the source links and check the underlying claims before publication.</p>
+          <details><summary>How this engine works and what it cannot claim</summary>
+            <ul className="comps">{intelligence.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
+          </details>
+          <p className="caution">Only relationships explicitly marked verified in the Source Provenance Desk affect the independence assessment. Unknown ownership or article lineage is never counted as independent confirmation. Research currently relies primarily on headlines and snippets, not full article text. Open the source links and check the underlying claims before publication.</p>
         </div>
       )}
       {desk && tab === "suggested" && (
