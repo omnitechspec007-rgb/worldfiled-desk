@@ -29,7 +29,7 @@ type Desk = {
   saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
 };
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
-type WorkflowStatus = { editorialApproval: { current: boolean; decision?: string | null; membersCurrent?: boolean }; factualVerification: { ready: boolean; blocked: { storyId?: string; claimId?: string; reason: string }[] }; verificationBriefAllowed: boolean; productionPromptAllowed: boolean; blockers: string[]; note: string };
+type WorkflowStatus = { storyEditorialReview: { ready: boolean; awaitingApproval: string[]; rejectedOrReturned: string[] }; editorialApproval: { current: boolean; decision?: string | null; membersCurrent?: boolean }; factualVerification: { ready: boolean; blocked: { storyId?: string; claimId?: string; reason: string }[] }; verificationBriefAllowed: boolean; productionPromptAllowed: boolean; blockers: string[]; note: string };
 type VerificationBrief = { prompt: string; storyCount: number; sourceCount: number; directoryReviewedOn: string; note: string };
 type CreativePreview = {
   format: { key: string; label: string; why: string; overridden: boolean }; formats: { key: string; label: string; description: string }[];
@@ -525,9 +525,10 @@ export default function EditionDesk() {
             {workflow ? <>
               <p className={canBuild ? "status good" : "status bad"}>{canBuild ? "Current human editorial approval and factual verification are confirmed. Production prompt preparation is available." : "PUBLIC NEWS OUTPUT IS HELD. You can prepare verification above, but public-facing news content cannot be produced yet."}</p>
               {!canBuild && workflow.blockers.map((reason, i) => <p className="caution" key={i}>{reason}</p>)}
+              {!canBuild && workflow.storyEditorialReview.awaitingApproval.map((id) => <p className="caution" key={`awaiting-${id}`}>{devById(id)?.headline ?? id}: awaiting your decision in Editorial Review.</p>)}
               {workflow.factualVerification.blocked.slice(0, 8).map((item, i) => <p className="caution" key={`claim-${i}`}>{item.claimId ? `Claim ${item.claimId}: ` : ""}{item.reason}</p>)}
             </> : <p className="meta">Checking current editorial approval and factual verification… Production remains locked until the check is confirmed.</p>}
-            {!canBuild && <p className="meta">The verification prompt can be prepared now. Public-facing news prompts require both current human editorial approval and complete, current claim verification.</p>}
+            {!canBuild && <p className="meta">The verification prompt can be prepared now. Public-facing news prompts require three separate gates: explicit story-level Editorial Review approval, factual verification of every material claim, and current approval of this exact edition.</p>}
             {canBuild && (
               <>
                 {editionKind === "video" && <div className="row">
