@@ -22,6 +22,7 @@ export default function EditorialReview() {
   const [msg, setMsg] = useState(() => pending ? "A previous decision may not have received confirmation. Retry the same operation to safely check its result." : "");
   const [busy, setBusy] = useState(false);
   const [uncertain, setUncertain] = useState(() => Boolean(pending));
+  const [setupBlocked, setSetupBlocked] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +43,7 @@ export default function EditorialReview() {
   const submitDecision = async (operation: PendingDecision) => {
     setBusy(true);
     setMsg("");
+    setSetupBlocked(false);
     setPending(operation);
     try { sessionStorage.setItem("wf:pending-story-decision", JSON.stringify(operation)); } catch { /* in-memory retry remains available */ }
     try {
@@ -52,12 +54,18 @@ export default function EditorialReview() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data.outcome === "unknown" || res.status >= 500) {
+        if (data.outcome === "not_saved") {
+          setUncertain(false);
+          setSetupBlocked(true);
+          setMsg(data.detail || "The database did not save this decision. Your work is preserved; retry after the required setup is complete.");
+        } else if (data.outcome === "unknown" || res.status >= 500) {
+          setSetupBlocked(false);
           setUncertain(true);
           setMsg("We couldn't confirm whether this decision was saved. Your work is preserved. Retry safely using the same request.");
         } else {
           setPending(null);
           setUncertain(false);
+          setSetupBlocked(false);
           try { sessionStorage.removeItem("wf:pending-story-decision"); } catch { /* ignore unavailable storage */ }
           setMsg(data.detail || data.error || "The decision was not saved. Review the message and try again.");
         }
@@ -66,6 +74,7 @@ export default function EditorialReview() {
       }
       setPending(null);
       setUncertain(false);
+      setSetupBlocked(false);
       try { sessionStorage.removeItem("wf:pending-story-decision"); } catch { /* ignore unavailable storage */ }
       setOpen(null);
       setAck(false);
@@ -73,6 +82,7 @@ export default function EditorialReview() {
       setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Approved. It is now available in the Prompt Architect." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
       await load();
     } catch {
+      setSetupBlocked(false);
       setUncertain(true);
       setMsg("Connection interrupted. We couldn't confirm whether this decision was saved. Your work is preserved; retry safely using the same request.");
     }
@@ -80,7 +90,7 @@ export default function EditorialReview() {
   };
 
   const decide = (id: string, decision: "approved" | "rejected" | "needs_research") => {
-    if (uncertain && pending) return;
+    if ((uncertain || setupBlocked) && pending) return;
     const operation: PendingDecision = {
       storyId: id,
       decision,
@@ -95,7 +105,7 @@ export default function EditorialReview() {
     <section>
       <h1>Editorial Review</h1>
       <p className="status">Nothing moves forward without your decision. Approval means "cleared for drafting", not "verified": claims have not been checked yet.</p>
-      {msg && <div className={uncertain ? "panel state-warning" : "panel state-error"} role={uncertain ? "status" : "alert"}><p className={uncertain ? "status" : "status bad"}>{msg}</p>{uncertain && pending ? <div className="actions"><button className="primary" disabled={busy} onClick={() => void submitDecision(pending)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button><button disabled={busy} onClick={() => void load()}>Refresh shortlist</button></div> : <button onClick={() => void load()}>Refresh shortlist</button>}</div>}
+      {msg && <div className={uncertain || setupBlocked ? "panel state-warning" : "panel state-error"} role={uncertain || setupBlocked ? "status" : "alert"}><p className={uncertain || setupBlocked ? "status" : "status bad"}>{msg}</p>{pending && (uncertain || setupBlocked) ? <div className="actions"><button className="primary" disabled={busy} onClick={() => void submitDecision(pending)}>{busy ? "CHECKING…" : setupBlocked ? "RETRY AFTER SETUP" : "RETRY SAME DECISION"}</button><button disabled={busy} onClick={() => void load()}>Refresh shortlist</button></div> : <button onClick={() => void load()}>Refresh shortlist</button>}</div>}
       {!picks && !msg && <div className="panel state-loading" role="status"><p className="meta">Loading stories for review…</p></div>}
       {notInstalled && <div className="panel"><p className="caution">One-time setup needed: run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click RUN RESEARCH.</p></div>}
       {picks && picks.length === 0 && !notInstalled && <div className="panel"><p>Nothing to review yet. Click RUN RESEARCH on the Dashboard.</p></div>}
@@ -115,14 +125,14 @@ export default function EditorialReview() {
               </label>
               <label>Notes (optional)<input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} /></label>
               <div className="actions">
-                <button className="primary" disabled={!ack || busy || uncertain} onClick={() => decide(s.id, "approved")}>{busy ? "SAVING…" : "CONFIRM APPROVAL"}</button>
+                <button className="primary" disabled={!ack || busy || uncertain || setupBlocked} onClick={() => decide(s.id, "approved")}>{busy ? "SAVING…" : "CONFIRM APPROVAL"}</button>
                 <button onClick={() => { setOpen(null); setAck(false); }}>Cancel</button>
               </div>
             </div>
           ) : (
             <div className="actions">
-              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain}>Approve…</button>
-              <button onClick={() => decide(s.id, "rejected")} disabled={busy || uncertain}>Reject</button>
+              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain || setupBlocked}>Approve…</button>
+              <button onClick={() => decide(s.id, "rejected")} disabled={busy || uncertain || setupBlocked}>Reject</button>
               <button onClick={() => void decide(s.id, "needs_research")} disabled={busy || uncertain}>Needs more research</button>
               <Link to={`/evidence/${s.id}`}>Open sources</Link>
             </div>
