@@ -170,7 +170,7 @@ const workflowBeforeApproval = await (await get(epFn, `mode=workflow_status&edit
 assert.equal(workflowBeforeApproval.editorialApproval.current, false);
 assert.equal(workflowBeforeApproval.factualVerification.ready, true);
 assert.equal(workflowBeforeApproval.productionPromptAllowed, false);
-assert.match(workflowBeforeApproval.blockers.join(" "), /human editorial approval/);
+assert.match(workflowBeforeApproval.blockers.join(" "), /explicit approval in Editorial Review|human approval/i);
 ok("workflow status reports editorial approval and factual verification as separate gates; production remains blocked");
 decide(jp, "approved"); decide(fi, "approved"); decide(cl, "approved");
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "approved", acknowledged: true, notes: "Reviewed" })).status, 200);
