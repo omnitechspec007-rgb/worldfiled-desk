@@ -59,43 +59,12 @@ export function pickRoles(members: EditionMember[], ev: Evaluation, deliverable:
   return roles.slice(0, 8);
 }
 
-/** Hash of the evidence the prompt was built from. Used to detect material updates after generation. */
+/** Hash the exact source and editor-reviewed claim snapshot used by the generated prompt. */
 export function evidenceHash(members: EditionMember[]): string {
-  // Prompt freshness covers the actual source snapshot AND the human-reviewed claims/passages.
-  // A source may stay at the same URL while the claim statement, extracted passage, outcome,
-  // reviewer rationale, source eligibility or contradiction reconciliation changes.
   const canon = members.map((m) => ({
     id: m.dev.id,
-    sources: m.pack.sources.map((s) => [
-      s.url, s.title, s.published_at, s.retrieved_at, s.snippet,
-      s.content_depth, s.source_enabled, s.retrieval_status,
-    ]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
-    claims: [...(m.pack.claim_register ?? [])]
-      .map((claim) => ({
-        claimId: claim.claimId,
-        statement: claim.statement,
-        category: claim.category,
-        outcome: claim.outcome,
-        reviewerNotes: claim.reviewerNotes,
-        decidedAt: claim.decidedAt,
-        currentSupported: claim.currentSupported,
-        evidence: [...claim.evidence].map((e) => ({
-          sourceId: e.sourceId,
-          sourceTitle: e.sourceTitle,
-          sourceUrl: e.sourceUrl,
-          publisher: e.publisher,
-          publishedAt: e.publishedAt,
-          contentDepth: e.contentDepth,
-          sourceEnabled: e.sourceEnabled,
-          retrievalStatus: e.retrievalStatus,
-          passage: e.passage,
-          passageLocation: e.passageLocation,
-          extractionStatus: e.extractionStatus,
-          isContradiction: e.isContradiction,
-          createdAt: e.createdAt,
-        })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
-      }))
-      .sort((a, b) => a.claimId.localeCompare(b.claimId)),
+    sources: sourceSnapshotFingerprint(m.pack.sources),
+    claimRegister: claimRegisterFingerprint(m.pack.claim_register ?? []),
   }));
   return createHash("sha256").update(JSON.stringify(canon)).digest("hex");
 }
