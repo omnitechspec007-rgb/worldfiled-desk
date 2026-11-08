@@ -574,9 +574,13 @@ export default function EditionDesk() {
                   <label>Length<select value={duration} onChange={(e) => { setDuration(Number(e.target.value)); setDurationAuto(false); }}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
                 </div>}
                 {editionKind === "video" && deliverable !== "static_roundup_6s" && (
-                  runtimeRecommendation
-                    ? <p className="meta">Runtime {durationAuto ? "automatically recommended" : "selected manually"}: {runtimeRecommendation.minutes} minutes from the {runtimeRecommendation.storiesConsidered} strongest selected long-video prospects (average curiosity {runtimeRecommendation.averageCuriosity}/100; evidence {runtimeRecommendation.averageEvidence}/5). {runtimeRecommendation.reason} {durationAuto ? "Change the Length selector to override this recommendation." : "Your manual length is preserved until you return to automatic mode."}</p>
-                    : <p className="caution">No selected story currently meets the long-form interest and evidence threshold. A shorter update or static text-card roundup may be more appropriate; do not pad the programme.</p>
+                  runtimeRecommendation ? (
+                    <div>
+                      <p className="meta">Runtime {durationAuto ? "automatically recommended" : "selected manually"}: {runtimeRecommendation.minutes} minutes from the {runtimeRecommendation.storiesConsidered} strongest selected long-video prospects (average curiosity {runtimeRecommendation.averageCuriosity}/100; evidence {runtimeRecommendation.averageEvidence}/5). {runtimeRecommendation.reason}</p>
+                      {!durationAuto && <div className="actions"><button type="button" onClick={() => setDurationAuto(true)}>Use recommended length ({runtimeRecommendation.minutes} minutes)</button></div>}
+                      {durationAuto && <p className="meta">Choose a different length to override this recommendation.</p>}
+                    </div>
+                  ) : <p className="caution">No selected story currently meets the long-form interest and evidence threshold. A shorter update or static text-card roundup may be more appropriate; do not pad the programme.</p>
                 )}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
