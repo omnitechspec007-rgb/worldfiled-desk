@@ -5,7 +5,7 @@ type Eligible = { id: string; title: string; editionKind: "video" | "text"; them
 type Snapshot = { id: string; captured_at: string; views: number | null; completion_rate: number | null; shares: number | null; saves: number | null };
 type Publication = { id: string; edition_id: string; platform: string; content_format: string; status: string; published_at: string | null; post_url: string | null; edition: { title: string } | null; stories: { story_id: string; headline: string; position: number }[]; latestSnapshot: Snapshot | null; snapshotCount: number };
 type Cohort = { platform: string; contentFormat: string; publicationCount: number; sampleLabel: "too_few_to_interpret" | "early_signal" | "usable_pattern"; metrics: { views: { median: number | null; measured: number }; averageViewDurationSeconds: { median: number | null; measured: number }; completionRate: { median: number | null; measured: number }; shareRate: { median: number | null; measured: number }; saveRate: { median: number | null; measured: number } }; note: string };
-type Desk = { installed: boolean; publications: Publication[]; eligibleEditions: Eligible[]; performanceCohorts: Cohort[]; note?: string };
+type Desk = { installed: boolean; publications: Publication[]; eligibleEditions: Eligible[]; performanceCohorts: Cohort[]; repeatedStories: { storyId: string; headline: string; distinctEditions: number; platforms: string[]; lastPublishedAt: string | null }[]; note?: string };
 
 const api = "/.netlify/functions/publications";
 const platforms = [{ value: "facebook", label: "Facebook" }, { value: "tiktok", label: "TikTok" }, { value: "youtube", label: "YouTube" }, { value: "instagram", label: "Instagram" }, { value: "other", label: "Other" }];
@@ -98,6 +98,11 @@ export default function PublicationDesk() {
           {desk.performanceCohorts.map((cohort) => <tr key={cohort.platform + cohort.contentFormat}><td>{cohort.platform}<br /><small>{formats.find((f) => f.value === cohort.contentFormat)?.label ?? cohort.contentFormat}</small></td><td>{cohort.publicationCount} posts<br /><small>{cohort.sampleLabel === "usable_pattern" ? "Usable descriptive sample" : cohort.sampleLabel === "early_signal" ? "Early signal only" : "Too few to interpret"}</small></td><td>{number(cohort.metrics.views.median)} <small>({cohort.metrics.views.measured} measured)</small></td><td>{cohort.metrics.averageViewDurationSeconds.median === null ? "—" : cohort.metrics.averageViewDurationSeconds.median.toFixed(1) + "s"}</td><td>{pct(cohort.metrics.completionRate.median)}</td><td>{pct(cohort.metrics.shareRate.median)}</td><td>{pct(cohort.metrics.saveRate.median)}</td></tr>)}
         </tbody></table></div>}
         {desk?.performanceCohorts?.map((cohort) => <p className="meta" key={cohort.platform + cohort.contentFormat}>{cohort.platform} / {cohort.contentFormat}: {cohort.note}</p>)}
+      </div>
+      <div className="panel">
+        <h2>Recently reused stories</h2>
+        <p>Stories used in more than one distinct edition in the last 30 days. Cross-posting the same edition to several platforms does not count as a new reuse. This is an editorial warning, not an automatic ban: a meaningful development may justify a follow-up.</p>
+        {!desk?.repeatedStories?.length ? <p>No repeated stories detected in the last 30 days.</p> : <ul className="comps">{desk.repeatedStories.map((story) => <li key={story.storyId}><strong>{story.headline}</strong> · {story.distinctEditions} editions · {story.platforms.join(", ")} · last used {story.lastPublishedAt ? new Date(story.lastPublishedAt).toLocaleDateString() : "unknown"}</li>)}</ul>}
       </div>
       <div className="panel">
         <h2>Log a published edition</h2>
