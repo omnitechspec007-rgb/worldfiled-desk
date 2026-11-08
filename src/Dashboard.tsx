@@ -37,7 +37,7 @@ export default function Dashboard() {
   const [msg, setMsg] = useState("");
   const [bad, setBad] = useState(false);
   const [viewCleared, setViewCleared] = useState(false);
-  const [windowDays, setWindowDays] = useState("3");
+  const [windowDays, setWindowDays] = useState("1");
   const [region, setRegion] = useState("all");
   const lock = useRef(false);
 
@@ -108,19 +108,26 @@ export default function Dashboard() {
   const c = status?.counts;
   return (
     <section>
-      <h1>Dashboard</h1>
+      <h1>Your newsroom</h1>
       <div className="panel hero">
         <div className="row" style={{ alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
         <button className="primary big" onClick={() => void run()} disabled={busy}>
           {busy ? "RESEARCH RUNNING…" : unfinished ? "RESUME RESEARCH" : "RUN RESEARCH"}
         </button>
-        <label>Coverage window<select value={windowDays} onChange={(e) => setWindowDays(e.target.value)} disabled={busy}><option value="1">Past 24 hours</option><option value="3">Past 3 days</option><option value="7">Past 7 days</option><option value="14">Past 14 days</option></select></label>
-        <label>Region<select value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}><option value="all">All regions</option>{["Africa","Asia","Europe","Latin America","Middle East","North America","Oceania"].map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+        <label>How far back should we look?<select value={windowDays} onChange={(e) => setWindowDays(e.target.value)} disabled={busy}><option value="1">Past 24 hours</option><option value="3">Past 3 days</option><option value="7">Past 7 days</option><option value="14">Past 14 days</option></select></label>
+        <label>Coverage area<select value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}><option value="all">All regions</option>{["Africa","Asia","Europe","Latin America","Middle East","North America","Oceania"].map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
         <button type="button" onClick={() => { if (window.confirm("Clear the current Dashboard view? Saved stories, editions and research history will not be deleted.")) { setStatus(null); setStages([]); setMsg(""); setBad(false); setViewCleared(true); } }} disabled={busy || (!status && stages.length === 0 && !msg)}>CLEAR RESULTS</button>
         </div>
-        <p>The desk checks its configured source registry and coverage. You review what it discovers; a new run refreshes the feed items it finds.</p>
+        <p>Start here each day. WorldFiled searches its configured sources, groups coverage into stories and prepares automatic story selections. You review the evidence and approve content before using a production prompt.</p>
         {viewCleared && <p className="status">Dashboard results cleared from this view. Saved stories and research history remain available in Story Desk.</p>}
         {msg && <p className={bad ? "status bad" : "status"}>{msg}</p>}
+        {!busy && status?.latest?.status === "completed" && (
+          <div className="panel newsroom-next">
+            <h2>Your research is ready</h2>
+            <p>WorldFiled has finished this research run. Open your automatically prepared story selections to review standalone text-video picks, a balanced roundup and narrated-edition options.</p>
+            <Link className="primary newsroom-next-link" to="/editions">VIEW MY STORY SELECTIONS</Link>
+          </div>
+        )}
         {!viewCleared && stages.some((s) => s.status !== "pending") && (
           <ol className="steps">
             {stages.map((s) => (
@@ -155,8 +162,8 @@ export default function Dashboard() {
       </div>}
 
       <div className="panel">
-        <h2>Not built yet</h2>
-        <p>Full-text evidence retrieval, claim checking and original-source tracing are still to come. Stories are scored by rules, but every story is <strong>unverified</strong>: only headlines and short summaries have been read.</p>
+        <h2>Important: research is not final verification</h2>
+        <p>Research results are candidates, not automatically approved news. Check the supporting material, source dates, original reporting and conflicting accounts. WorldFiled will not mark a story verified or release a production prompt until you complete the human review and approval steps.</p>
       </div>
     </section>
   );
