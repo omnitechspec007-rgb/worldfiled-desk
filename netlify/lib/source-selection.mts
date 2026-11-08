@@ -15,6 +15,8 @@ export type SourceHealthRow = {
 export function shouldProbeSource(source: SourceHealthRow): boolean {
   if (typeof source.feed_url !== "string" || !source.feed_url.trim()) return false;
   if (source.retrieval_status === "healthy") return source.enabled === true;
+  if (source.enabled === true && ["failing", "degraded"].includes(source.retrieval_status ?? "")) return true;
+  if (source.enabled === false && ["failing", "degraded"].includes(source.retrieval_status ?? "")) return true;
   return source.retrieval_status === "untested"
     && source.enabled === false
     && /built-in candidate/i.test(source.reliability_note ?? "");
