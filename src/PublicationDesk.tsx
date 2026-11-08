@@ -4,7 +4,8 @@ type Member = { id: string; headline: string };
 type Eligible = { id: string; title: string; editionKind: "video" | "text"; theme: string; members: Member[] };
 type Snapshot = { id: string; captured_at: string; views: number | null; completion_rate: number | null; shares: number | null; saves: number | null };
 type Publication = { id: string; edition_id: string; platform: string; content_format: string; status: string; published_at: string | null; post_url: string | null; edition: { title: string } | null; stories: { story_id: string; headline: string; position: number }[]; latestSnapshot: Snapshot | null; snapshotCount: number };
-type Desk = { installed: boolean; publications: Publication[]; eligibleEditions: Eligible[]; note?: string };
+type Cohort = { platform: string; contentFormat: string; publicationCount: number; sampleLabel: "too_few_to_interpret" | "early_signal" | "usable_pattern"; metrics: { views: { median: number | null; measured: number }; averageViewDurationSeconds: { median: number | null; measured: number }; completionRate: { median: number | null; measured: number }; shareRate: { median: number | null; measured: number }; saveRate: { median: number | null; measured: number } }; note: string };
+type Desk = { installed: boolean; publications: Publication[]; eligibleEditions: Eligible[]; performanceCohorts: Cohort[]; note?: string };
 
 const api = "/.netlify/functions/publications";
 const platforms = [{ value: "facebook", label: "Facebook" }, { value: "tiktok", label: "TikTok" }, { value: "youtube", label: "YouTube" }, { value: "instagram", label: "Instagram" }, { value: "other", label: "Other" }];
@@ -90,6 +91,14 @@ export default function PublicationDesk() {
         <div className="stat-card"><span>Ready editions</span><strong>{desk?.eligibleEditions.length ?? 0}</strong></div>
       </div>
 
+      <div className="panel">
+        <h2>Performance patterns</h2>
+        <p>Latest available snapshot for each publication, grouped only with the same platform and content format. These are descriptive observations, not proof that a format caused better results.</p>
+        {!desk?.performanceCohorts?.length ? <p>No comparable performance data yet. Add snapshots after publishing.</p> : <div className="table-scroll"><table><thead><tr><th>Platform / format</th><th>Sample</th><th>Median views</th><th>Avg. view duration</th><th>Completion</th><th>Share rate</th><th>Save rate</th></tr></thead><tbody>
+          {desk.performanceCohorts.map((cohort) => <tr key={cohort.platform + cohort.contentFormat}><td>{cohort.platform}<br /><small>{formats.find((f) => f.value === cohort.contentFormat)?.label ?? cohort.contentFormat}</small></td><td>{cohort.publicationCount} posts<br /><small>{cohort.sampleLabel === "usable_pattern" ? "Usable descriptive sample" : cohort.sampleLabel === "early_signal" ? "Early signal only" : "Too few to interpret"}</small></td><td>{number(cohort.metrics.views.median)} <small>({cohort.metrics.views.measured} measured)</small></td><td>{cohort.metrics.averageViewDurationSeconds.median === null ? "—" : cohort.metrics.averageViewDurationSeconds.median.toFixed(1) + "s"}</td><td>{pct(cohort.metrics.completionRate.median)}</td><td>{pct(cohort.metrics.shareRate.median)}</td><td>{pct(cohort.metrics.saveRate.median)}</td></tr>)}
+        </tbody></table></div>}
+        {desk?.performanceCohorts?.map((cohort) => <p className="meta" key={cohort.platform + cohort.contentFormat}>{cohort.platform} / {cohort.contentFormat}: {cohort.note}</p>)}
+      </div>
       <div className="panel">
         <h2>Log a published edition</h2>
         <p>Only editions with current human approval and fully verified, editorially approved stories appear here. Each platform post gets its own record.</p>
