@@ -186,9 +186,8 @@ assert.match(g1.prompt, /Synthetic verified claim statement for test/);
 assert.match(g1.prompt, /Checked synthetic supporting passage for edition workflow test/);
 assert.match(g1.prompt, /only facts recorded in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/i);
 assert.match(g1.prompt, /source status: enabled \| feed health: healthy/);
-const verifiedClaims = (await get(epFn, `mode=workflow_status&editionId=${eid}`)).json
-  ? await (async () => JSON.parse(await (await get(epFn, `mode=workflow_status&editionId=${eid}`)).text()))()
-  : null;
+const verifiedClaimsResponse = await get(epFn, `mode=workflow_status&editionId=${eid}`);
+const verifiedClaims = await verifiedClaimsResponse.json();
 assert.equal(verifiedClaims.verifiedClaimsByStory[jp][0].statement, "Synthetic verified claim statement for test: " + T("stories").find((s) => s.id === jp).headline);
 ok("public prompt and static-roundup data are grounded in exact current-supported claims and eligible passages");
 assert(row1.evidence_snapshot.developments.length === 3 && row1.evidence_snapshot.developments.every((x: any) => x.pack.sources.every((s: any) => s.snippet.length <= 400 && !("full_text" in s)))); ok("stored evidence: per-development, snippets capped, no full text");
