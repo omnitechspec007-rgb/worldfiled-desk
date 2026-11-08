@@ -6,8 +6,8 @@
  */
 export type SourceHealthRow = {
   id: string;
-  enabled: boolean;
-  retrieval_status: string;
+  enabled?: boolean;
+  retrieval_status?: string;
   feed_url?: unknown;
   reliability_note?: string | null;
 };
