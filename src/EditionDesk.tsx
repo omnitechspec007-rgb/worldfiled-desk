@@ -328,13 +328,13 @@ export default function EditionDesk() {
     } catch { setMsg("Could not create the prompt."); }
     setBusy(false);
   };
-  const autoPromptSignature = [editionId ?? "", editionKind, deliverable, duration, fmt, sound, visual, pAngle, conflicts.join(";")].join("|");
+  const autoPromptSignature = [editionId ?? "", editionKind, deliverable, duration].join("|");
   useEffect(() => {
     const preflightReady = editionKind !== "video" || deliverable !== "static_roundup_6s" || roundupPreflight?.ready === true;
-    if (!canBuild || !editionId || res || !preflightReady || autoPromptKey.current === autoPromptSignature) return;
+    if (!editionId || !approval?.current || res || !preflightReady || autoPromptKey.current === autoPromptSignature) return;
     autoPromptKey.current = autoPromptSignature;
     void build();
-  }, [canBuild, editionId, editionKind, deliverable, duration, fmt, sound, visual, pAngle, conflicts, roundupPreflight?.ready, res]);
+  }, [editionId, approval?.current, editionKind, deliverable, duration, roundupPreflight?.ready, res]);
 
   const copy = async () => { try { await navigator.clipboard.writeText(res!.prompt); setCopied(true); } catch { setMsg("Copy was blocked by the browser. Select the text and copy it manually."); } };
 
