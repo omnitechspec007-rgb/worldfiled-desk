@@ -59,20 +59,36 @@ export default async (req: Request) => {
             : { ...e, policyBlocked: false, passageWithheld: false, contentPolicy: policy };
         }),
       }));
-      const safeSources = sources.filter((row) => {
-        const registryId = row.retrieved_sources?.registry_id;
-        return typeof registryId === "string" && canRetrieveMetadata(policyForSource(policies.rows, registryId));
+      const policySources = sources.flatMap((row) => {
+        const source = row.retrieved_sources;
+        const registryId = source?.registry_id;
+        if (!source || typeof registryId !== "string") return [];
+        const contentPolicy = policyForSource(policies.rows, registryId);
+        if (!canRetrieveMetadata(contentPolicy)) {
+          // Preserve a policy status for the editor without exposing blocked source metadata.
+          return [{
+            id: source.id,
+            title: null,
+            url: null,
+            publisher: null,
+            linkRole: row.role,
+            contentPolicy: "blocked",
+            enabled: false,
+            retrievalStatus: "unknown",
+          }];
+        }
+        return [{
+          ...source,
+          linkRole: row.role,
+          contentPolicy,
+          enabled: source.source_registry?.enabled === true,
+          retrievalStatus: source.source_registry?.retrieval_status ?? "unknown",
+        }];
       });
       return json({
         story: stories[0],
         claims: safeClaims,
-        sources: safeSources.map((row) => ({
-          ...row.retrieved_sources,
-          linkRole: row.role,
-          contentPolicy: policyForSource(policies.rows, row.retrieved_sources.registry_id),
-          enabled: row.retrieved_sources.source_registry?.enabled === true,
-          retrievalStatus: row.retrieved_sources.source_registry?.retrieval_status ?? "unknown",
-        })),
+        sources: policySources,
         sourceContentPolicyInstalled: policies.installed,
         sourcePolicyNote: policies.installed ? null : "Source content policies are not installed. All publishers default to metadata-only; passages remain unavailable for claim verification until a human approves extraction_allowed.",
       });
