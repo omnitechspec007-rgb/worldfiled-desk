@@ -181,6 +181,16 @@ assert.equal(g1r.status, 200); assert(g1.saved && g1.version === 1); const row1 
 assert.equal(row1.members_hash, membersKey(ids3)); assert.equal(row1.approval_decision_id, T("edition_decisions").find((x) => x.edition_id === eid).id); assert(row1.evidence_hash.length === 64); ok("prompt saved as version 1, tied to the exact members, approval and evidence hash");
 const urlJp = T("retrieved_sources").find((r) => T("story_source_links").some((l) => l.story_id === jp && l.source_id === r.id)).url;
 assert(g1.prompt.includes(urlJp) && /D1-S1/.test(g1.prompt) && /D2-S1/.test(g1.prompt) && /D3-S1/.test(g1.prompt) && g1.prompt.includes("Compare the approaches") && g1.prompt.includes("THE WORLD, FILED.")); ok("integrated prompt carries each development's real source links, namespaced refs, angle and brand");
+assert.match(g1.prompt, /CURRENT HUMAN CLAIM-VERIFICATION REGISTER/);
+assert.match(g1.prompt, /Synthetic verified claim statement for test/);
+assert.match(g1.prompt, /Checked synthetic supporting passage for edition workflow test/);
+assert.match(g1.prompt, /only facts recorded in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/i);
+assert.match(g1.prompt, /source status: enabled \| feed health: healthy/);
+const verifiedClaims = (await get(epFn, `mode=workflow_status&editionId=${eid}`)).json
+  ? await (async () => JSON.parse(await (await get(epFn, `mode=workflow_status&editionId=${eid}`)).text()))()
+  : null;
+assert.equal(verifiedClaims.verifiedClaimsByStory[jp][0].statement, "Synthetic verified claim statement for test: " + T("stories").find((s) => s.id === jp).headline);
+ok("public prompt and static-roundup data are grounded in exact current-supported claims and eligible passages");
 assert(row1.evidence_snapshot.developments.length === 3 && row1.evidence_snapshot.developments.every((x: any) => x.pack.sources.every((s: any) => s.snippet.length <= 400 && !("full_text" in s)))); ok("stored evidence: per-development, snippets capped, no full text");
 assert(T("audit_events").some((a) => a.event_type === "edition_prompt_created" && a.entity_id === eid)); ok("generation is audited");
 const g2 = await (await call(epFn, { editionId: eid, deliverable: "narrated_video", durationSeconds: 120, parentId: g1.id, conflictNotes: ["Sources differ on the date."] })).json(); assert.equal(g2.version, 2); assert(/Sources differ on the date/.test(g2.prompt) && /\[CONFLICTING\]/.test(g2.prompt)); assert.equal(T("edition_prompts")[1].parent_id, g1.id); ok("second version keeps history, links its parent, and carries the editor's conflict note");
