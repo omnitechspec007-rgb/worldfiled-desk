@@ -58,6 +58,7 @@ const tone = (v: string) => (v === "COHERENT" ? "ok" : v === "SINGLE DEVELOPMENT
 function DevDetail({ d }: { d: Dev }) {
   return (
     <div>
+      <p className="meta"><a href={"/evidence/" + d.id}>Open factual verification and the claim register →</a></p>
       <h3>Sources</h3>
       <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}<div className="meta">Ownership: {x.ownershipStatus === "verified" ? "verified" : "unknown or unverified"} · Article origin: {x.originStatus === "verified" ? x.originType : "unverified / unknown"}</div>{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
       <h3>Source independence assessment</h3>
@@ -271,6 +272,7 @@ export default function EditionDesk() {
       const data = await response.json();
       if (!response.ok) { setMsg(data.detail ?? "WorldFiled could not save this production package. No package was created."); setBusy(false); return; }
       openSet(s, data.id);
+      setConflicts([]);
       if (options.deliverable) setDeliverable(options.deliverable);
       if (options.duration) setDuration(options.duration);
       setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable: options.deliverable ?? deliverable, duration: options.duration ?? duration, pAngle, fmt, sound, visual, conflicts: [] }));
@@ -518,7 +520,7 @@ export default function EditionDesk() {
 
       <div id="workspace" className="panel">
         <h2>2. Review, order and build your {editionKind === "text" ? "text briefing" : "video bulletin"} ({ids.length} selected)</h2>
-        {editionId && <div className="confirm"><strong>Draft package saved.</strong><p>Next, open <a href="/review">Verification and approval</a> and complete factual verification for every story. Then return here to approve the edition and create the copy-ready prompt. Neither approval nor publishing happens automatically.</p></div>}
+        {editionId && <div className="confirm"><strong>Draft package saved.</strong><p>Next, <a href={"/review?ids=" + encodeURIComponent(ids.join(","))}>verify and approve the stories in this package</a>. Complete factual verification for every story. Then return here to approve the edition and create the copy-ready prompt. Neither approval nor publishing happens automatically.</p></div>}
         {ids.length === 0 ? <p className="meta">Nothing selected yet. Tick developments in "1. Select developments", or open a suggested edition.</p> : (
           <>
             <div className="row">

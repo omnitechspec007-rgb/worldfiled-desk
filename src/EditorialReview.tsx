@@ -5,7 +5,7 @@ import { Scores, type Score } from "./Scores";
 type Pick = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; hasPrimary: boolean; rank: number; reason: string; flags: string[]; scores: Score[]; editorialStatus?: string; verificationStatus?: string };
 type PendingDecision = { storyId: string; decision: "approved" | "rejected" | "needs_research"; notes: string; acknowledged: boolean; key: string };
 
-const STATUS: Record<string, string> = { in_review: "Awaiting your decision", approved: "Approved", rejected: "Rejected", needs_research: "Needs more research", pending: "Not reviewed" };
+const STATUS: Record<string, string> = { in_review: "Awaiting your decision", approved: "Editorially approved", rejected: "Rejected", needs_research: "Needs more research", pending: "Not reviewed" };
 
 export default function EditorialReview() {
   const [picks, setPicks] = useState<Pick[] | null>(null);
@@ -25,11 +25,16 @@ export default function EditorialReview() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/.netlify/functions/stories?view=shortlist");
+      const requestedIds = new URLSearchParams(window.location.search).get("ids");
+      const endpoint = requestedIds
+        ? "/.netlify/functions/stories?view=review&ids=" + encodeURIComponent(requestedIds)
+        : "/.netlify/functions/stories?view=shortlist";
+      const res = await fetch(endpoint);
       if (!res.ok) throw new Error();
       const d = await res.json();
       setNotInstalled(Boolean(d.notInstalled));
       setPicks(d.picks ?? []);
+      if (d.missing?.length) setMsg(d.missing.length + " selected story record(s) could not be found. Review the remaining stories and refresh the package.");
     } catch {
       setMsg("Could not load the shortlist.");
     }
@@ -93,7 +98,7 @@ export default function EditorialReview() {
 
   return (
     <section>
-      <h1>Editorial Review</h1>
+      <h1>Verification and approval</h1>
       <p className="status">Two separate human checks are required. First verify the material claims in the Evidence Room; then make the editorial decision here. Editorial approval does not mean the facts are verified. Production prompts remain blocked until both checks are complete.</p>
       {msg && <div className={uncertain ? "panel state-warning" : "panel state-error"} role={uncertain ? "status" : "alert"}><p className={uncertain ? "status" : "status bad"}>{msg}</p>{uncertain && pending ? <div className="actions"><button className="primary" disabled={busy} onClick={() => void submitDecision(pending)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button><button disabled={busy} onClick={() => void load()}>Refresh shortlist</button></div> : <button onClick={() => void load()}>Refresh shortlist</button>}</div>}
       {!picks && !msg && <div className="panel state-loading" role="status"><p className="meta">Loading stories for review…</p></div>}
