@@ -4,7 +4,6 @@
 import { createHash } from "node:crypto";
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
-import { loadStories } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -38,12 +37,6 @@ export default async (req: Request) => {
   const requestHash = createHash("sha256").update(canonical).digest("hex");
 
   try {
-    if (body.decision === "approved") {
-      const loaded = await loadStories([body.storyId]);
-      const story = loaded.get(body.storyId);
-      if (!story) return json({ error: "not_found", detail: "This story no longer exists." }, 404);
-      if (!story.dev.sources.some((source: any) => source.tier === "primary")) return json({ error: "primary_source_required", detail: "An official or primary source must be attached before this story can be approved for publishing." }, 409);
-    }
     const result: any = await db<any>("rpc/record_story_editorial_decision", {
       method: "POST",
       body: {
