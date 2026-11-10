@@ -234,13 +234,36 @@ export default function EditionDesk() {
       const r = await fetch(`${api}editions?id=${id}`);
       if (!r.ok) throw new Error();
       const d = await r.json();
-      openSet({ ids: d.ids, title: d.title, angle: d.angle, structure: d.structure, editionKind: d.editionKind }, id);
-      if (d.productionProfile?.format === "narrated_video") {
-        setDeliverable("script_storyboard");
-        setDuration(d.productionProfile.durationSeconds ?? 90);
-      } else if (d.productionProfile?.format === "text_card" || d.productionProfile?.format === "text_roundup") {
-        setDeliverable("static_roundup_6s");
-      }
+      const nextKind = d.editionKind === "text" ? "text" : "video";
+      const nextDeliverable = d.productionProfile?.format === "narrated_video"
+        ? "script_storyboard"
+        : d.productionProfile?.format === "text_card" || d.productionProfile?.format === "text_roundup"
+          ? "static_roundup_6s"
+          : deliverable;
+      const nextDuration = d.productionProfile?.format === "narrated_video"
+        ? (d.productionProfile.durationSeconds ?? 90)
+        : duration;
+      const nextSelections = { ...selections, [nextKind]: d.ids };
+      openSet({ ids: d.ids, title: d.title, angle: d.angle, structure: d.structure, editionKind: nextKind }, id);
+      setDeliverable(nextDeliverable);
+      setDuration(nextDuration);
+      // The selected package's saved format is part of its clean baseline, not an unsaved edit.
+      setSavedSnapshot(JSON.stringify({
+        ids: d.ids,
+        editionKind: nextKind,
+        selections: nextSelections,
+        title: d.title,
+        angle: d.angle ?? "",
+        structure: d.structure ?? "",
+        tab,
+        deliverable: nextDeliverable,
+        duration: nextDuration,
+        pAngle,
+        fmt,
+        sound,
+        visual,
+        conflicts,
+      }));
       setApproval(d.approval);
       if (d.missing?.length) setMsg("Some developments in this edition are no longer available.");
     } catch { setMsg("Could not open that edition."); }
