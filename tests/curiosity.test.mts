@@ -60,8 +60,8 @@ check("recycled story: marked not timely or low, never promoted", ["RELEVANT BUT
 
 // 7. High curiosity but insufficient evidence
 const gap = dev("gap", "Why did the minister quietly reverse the ban? Unexpected U-turn unexplained", "Government and institutional decisions", [{ outlet: "One Paper", title: "Why did the minister reverse the ban? Unexpected U-turn leaves questions", summary: "Officials did not explain; the government backtracks." }]);
-check("high curiosity, single outlet: needs more evidence, not a priority", gap.a.recommendation === "INTERESTING BUT NEEDS MORE EVIDENCE" && !gap.a.corroborated);
-check("high curiosity, single outlet: evidence strength reported separately as WEAK/LIMITED", gap.a.curiosityScore > 20 && gap.a.evidenceStrength.label !== "MODERATE");
+check("high curiosity, single outlet: passes curiosity as a draft candidate", ["HIGH-POTENTIAL STORY", "STRONG EDITION CANDIDATE"].includes(gap.a.recommendation) && !gap.a.corroborated);
+check("high curiosity, single outlet: evidence limitation remains visible separately", gap.a.curiosityScore > 20 && ["WEAK", "LIMITED"].includes(gap.a.evidenceStrength.label) && gap.a.missingEvidence.some((m) => /second outlet|official or primary/.test(m)));
 
 // 8. Low sensationalism but high public importance
 const imp = dev("imp", "Central bank raises interest rate by 0.25 points, mortgages and wages affected", "Business and economic developments", [
