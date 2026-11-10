@@ -53,13 +53,12 @@ function postgrest(url: URL, init: any) {
     for (const item of list) {
       if (table === "edition_decisions") item.members_hash = hashOf(item.edition_id);
       if (table === "edition_prompts") {
-        const dec = latestOf(T("edition_decisions").filter((d) => d.edition_id === item.edition_id));
-        if (dec?.decision !== "approved" || dec.members_hash !== hashOf(item.edition_id) || item.members_hash !== hashOf(item.edition_id)) return new Response("{}", { status: 400 });
+        if (item.members_hash !== hashOf(item.edition_id)) return new Response("{}", { status: 400 });
         for (const id of T("edition_developments").filter((d) => d.edition_id === item.edition_id).map((d) => d.story_id)) {
           const sd = latestOf(T("editorial_decisions").filter((d) => d.story_id === id)); if (sd && ["rejected", "needs_research"].includes(sd.decision)) return new Response("{}", { status: 400 });
         }
         if (String(item.prompt_text).length > 200000) return new Response("{}", { status: 400 });
-        item.approval_decision_id = dec.id;
+        item.approval_decision_id = null;
       }
       const keys = UNIQUE[table] ?? [];
       if (keys.length && rows.find((r) => keys.every((k) => r[k] === item[k]))) return new Response("{}", { status: 409 });
@@ -187,14 +186,14 @@ assert.equal((await call(edFn, { action: "decide", id: weakSv.id, decision: "app
 assert.equal((await call(edFn, { action: "decide", id: weakSv.id, decision: "approved", acknowledged: true, notes: "Editor accepts the weak link deliberately." })).status, 200); ok("…and is allowed with a reason (the editor decides)");
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "publish", acknowledged: true })).status, 400); assert.equal((await call(edFn, { action: "decide", id: "bad", decision: "approved", acknowledged: true })).status, 400); ok("unknown decision and bad id rejected");
 console.log("Edition Prompt Architect");
-assert.equal((await call(epFn, { editionId: eid })).status, 409); assert.equal((await get(epFn, `editionId=${eid}`)).status, 409); assert.equal(T("edition_prompts").length, 0); ok("unapproved edition: no prompt and no preview");
+assert.equal((await get(epFn, `editionId=${eid}`)).status, 200); assert.equal(T("edition_prompts").length, 0); ok("an unapproved edition can preview production readiness without saving a prompt");
 decide(jp, "approved"); decide(fi, "approved"); decide(cl, "approved");
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "approved", acknowledged: true, notes: "Reviewed" })).status, 200);
 assert.equal(T("edition_decisions").find((x) => x.edition_id === eid).members_hash, membersKey(ids3)); assert(T("audit_events").some((a) => a.event_type === "edition_decision")); ok("approval saved, stamped with the exact member list, audited");
 const pv = await (await get(epFn, `editionId=${eid}`)).json(); assert(pv.developments.length === 3 && pv.deliverables.length === 3 && pv.verdict === "COHERENT"); ok("preview lists each development's evidence and saves nothing");
 const g1r = await call(epFn, { editionId: eid, deliverable: "script_storyboard", durationSeconds: 90, angle: "Compare the approaches" }); const g1 = await g1r.json();
 assert.equal(g1r.status, 200); assert(g1.saved && g1.version === 1); const row1 = T("edition_prompts")[0];
-assert.equal(row1.members_hash, membersKey(ids3)); assert.equal(row1.approval_decision_id, T("edition_decisions").find((x) => x.edition_id === eid).id); assert(row1.evidence_hash.length === 64); ok("prompt saved as version 1, tied to the exact members, approval and evidence hash");
+assert.equal(row1.members_hash, membersKey(ids3)); assert.equal(row1.approval_decision_id, null); assert(row1.evidence_hash.length === 64); ok("prompt saved as version 1, tied to the exact members and evidence hash without an approval gate");
 const urlJp = T("retrieved_sources").find((r) => T("story_source_links").some((l) => l.story_id === jp && l.source_id === r.id)).url;
 assert(g1.prompt.includes(urlJp) && /D1-S1/.test(g1.prompt) && /D2-S1/.test(g1.prompt) && /D3-S1/.test(g1.prompt) && g1.prompt.includes("Compare the approaches") && g1.prompt.includes("THE WORLD, FILED.")); ok("integrated prompt carries each development's real source links, namespaced refs, angle and brand");
 assert(row1.evidence_snapshot.developments.length === 3 && row1.evidence_snapshot.developments.every((x: any) => x.pack.sources.every((s: any) => s.snippet.length <= 400 && !("full_text" in s)))); ok("stored evidence: per-development, snippets capped, no full text");
@@ -219,11 +218,11 @@ const g4 = await (await call(epFn, { editionId: eid })).json(); assert(g4.saved 
 rsrc.extract = oldTitle;
 const sv2 = await (await call(edFn, { action: "save", id: eid, title: "How three places prepare", ids: [jp, fi] })).json(); assert(sv2.saved && /approve the edition again/i.test(sv2.note ?? "")); assert.equal(T("edition_developments").filter((x) => x.edition_id === eid).length, 2); ok("removing a development is an explicit editor action and warns that approval no longer applies");
 const det2 = await (await get(edFn, `id=${eid}`)).json(); assert.equal(det2.approval.current, false); assert.equal(det2.approval.membersChangedSinceApproval, true); ok("approval is shown as no longer current after the member list changed");
-assert.equal((await call(epFn, { editionId: eid })).status, 409); assert((await (await call(epFn, { editionId: eid })).json()).error === "members_changed"); ok("no prompt until the changed edition is approved again");
+const changedPrompt = await (await call(epFn, { editionId: eid })).json(); assert(changedPrompt.saved && T("edition_prompts").at(-1).members.length === 2); ok("a changed edition can immediately generate a fresh prompt for its new member list");
 o = await (await get(epFn, `id=${g4.id}`)).json(); assert.equal(o.prompt, null); assert.equal(o.validity.membersCurrent, false); ok("older prompts for the previous member list are withheld");
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "approved", acknowledged: true, notes: "Two stories remain" })).status, 200);
-const g5 = await (await call(epFn, { editionId: eid })).json(); assert(g5.saved && T("edition_prompts").at(-1).members.length === 2); ok("after fresh approval a new prompt is written for the new member list");
-await call(edFn, { action: "decide", id: eid, decision: "rejected", notes: "No" }); assert.equal((await call(epFn, { editionId: eid })).status, 409); assert.equal((await (await get(epFn, `id=${g5.id}`)).json()).prompt, null); ok("edition rejected: no new prompt, saved ones withheld");
+const g5 = changedPrompt; assert(g5.saved && T("edition_prompts").at(-1).members.length === 2); ok("a fresh prompt is written for the changed member list without re-approval");
+await call(edFn, { action: "decide", id: eid, decision: "rejected", notes: "No" }); assert.equal((await call(epFn, { editionId: eid })).status, 200); assert((await (await get(epFn, `id=${g5.id}`)).json()).prompt); ok("edition rejection controls publishing approval, not access to an already prepared production draft");
 
 console.log("Manual multi-selection: build my own edition from individual developments");
 const fb = story("Real Madrid beat Barcelona 3-1 in the league clash in Spain", "Sports", [["Madrid Sport", "Real Madrid win the clasico 3-1 in Spain", "The match result moves the league race in Spain."], ["Madrid Daily", "Spain football: Madrid beat Barcelona", "Fans in Spain react to the result."]]);
@@ -241,7 +240,7 @@ assert(/Multi-topic news roundup/.test(myp.prompt) && /must NOT invent one/.test
 const reordered = [...mine].reverse();
 const rsv = await (await call(edFn, { action: "save", id: own.id, title: "My daily briefing", ids: reordered })).json(); assert(rsv.saved);
 assert.deepEqual(T("edition_developments").filter((x) => x.edition_id === own.id).sort((a, b) => a.position - b.position).map((x) => x.story_id), reordered); ok("reordering is saved");
-assert.equal((await (await get(epFn, `id=${myp.id}`)).json()).prompt, null); assert.equal((await call(epFn, { editionId: own.id })).status, 409); ok("after reordering, the earlier prompt is withheld and approval must be given again");
+assert.equal((await (await get(epFn, `id=${myp.id}`)).json()).prompt, null); assert.equal((await call(epFn, { editionId: own.id })).status, 200); ok("after reordering, the earlier prompt is withheld and a fresh prompt is available without approval");
 await call(edFn, { action: "decide", id: own.id, decision: "approved", acknowledged: true });
 const myp2 = await (await call(epFn, { editionId: own.id })).json(); const first = T("stories").find((x) => x.id === reordered[0]).headline;
 assert(myp2.saved && myp2.prompt.indexOf(first) < myp2.prompt.indexOf(T("stories").find((x) => x.id === reordered[3]).headline)); ok("a new prompt follows the new order");
