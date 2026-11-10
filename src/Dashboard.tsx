@@ -5,6 +5,16 @@ type ResearchSource = { name: string; status: string; items: number; newItems: n
 type ResearchReport = { coverage: "complete" | "limited" | "incomplete"; checked: number; total: number; reachable: number; needsAttention: number; policyBlocked: number; items: number; newItems: number; refreshedItems: number; sources: ResearchSource[]; note: string };
 type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; newItems: number | null; refreshedItems: number | null; stories: number | null; multiSource: number | null; shortlisted: number | null; candidates: number | null; blocked?: number | null; researchReport?: ResearchReport | null };
 type RunHistory = { id: string; status: string; created_at: string; completed_at: string | null; config: { windowDays?: number; region?: string }; newItems: number; refreshedItems: number; stories: number; newStories: number; shortlisted: number };
+type AutoPreparation = {
+  researchRunId: string;
+  status: "prepared" | "empty";
+  packageCount: number;
+  replayed: boolean;
+  requestChanged: boolean;
+  packages: { id: string; key: string; format: "text_card" | "text_roundup" | "narrated_video"; durationSeconds: number | null; title: string; storyIds: string[] }[];
+  eligibility: { eligibleCount: number; heldCount: number; standaloneCount: number; roundupCount: number; narratedCount: number };
+  note: string;
+};
 type Status = {
   history: RunHistory[];
   latest: { id: string; status: string; error_summary: string | null; created_at: string; completed_at: string | null } | null;
@@ -41,7 +51,7 @@ export default function Dashboard() {
   const [viewCleared, setViewCleared] = useState(false);
   const [windowDays, setWindowDays] = useState("1");
   const [region, setRegion] = useState("all");
-  const lock = useRef(false);
+  const lock = useRef(false);\n  const autoPrepareRuns = useRef(new Set<string>());\n  const [autoPreparation, setAutoPreparation] = useState<AutoPreparation | null>(null);\n  const [autoPreparationError, setAutoPreparationError] = useState("");\n  const [autoPreparingRun, setAutoPreparingRun] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {

@@ -38,7 +38,7 @@ type Sug = Evaluation & { key: string; excluded: { id: string; headline: string;
 type Desk = {
   note: string; developments: Dev[]; suggestions: Sug[]; weakConnections: Sug[];
   unmatched: { id: string; headline: string; recommendation: string; why: string }[]; ineligible: { id: string; headline: string; reason: string }[];
-  saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
+  saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean; productionProfile: { researchRunId: string; packageKey: string; format: "text_card" | "text_roundup" | "narrated_video"; durationSeconds: number | null } | null }[] };
 };
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
 type CreativePreview = {
