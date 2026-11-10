@@ -313,7 +313,7 @@ assert.equal((await call(decideFn, { storyId: sid, decision: "approved" })).stat
 assert.equal((await call(decideFn, { storyId: "nope", decision: "approved", acknowledged: true })).status, 400); ok("bad story id rejected");
 assert.equal((await call(decideFn, { storyId: sid, decision: "publish", acknowledged: true })).status, 400); ok("unknown decision rejected");
 assert.equal(T("editorial_decisions").length, 0); ok("refused attempts leave no decision record");
-assert.equal((await call(creativeFn, { storyId: sid })).status, 409); assert.equal(T("creative_prompts").length, 0); assert.equal((await get(creativeFn, `storyId=${sid}`)).status, 409); ok("unapproved story: no prompt and no recommendation");
+assert.equal((await get(creativeFn, `storyId=${sid}`)).status, 200); assert.equal(T("creative_prompts").length, 0); ok("a source-qualified story can be previewed before human approval or claim-register completion");
 assert.equal((await call(creativeFn, { storyId: sid }, null)).status, 401); assert.equal((await get(creativeFn, "history=1", null)).status, 401); assert.equal((await call(referenceFn, { action: "seed" }, null)).status, 401); ok("architect, history and reference library require sign-in");
 const blockedApproval = await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" }, cookie, crypto.randomUUID());
 assert.equal(blockedApproval.status, 409); ok("unverified story cannot be editorially approved");
