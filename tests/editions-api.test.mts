@@ -32,6 +32,31 @@ function postgrest(url: URL, init: any) {
   const table = url.pathname.split("/rest/v1/")[1]; const m = init.method ?? "GET"; const p = url.searchParams;
   if (failNext && failNext.table === table && failNext.method === m) { const s = failNext.status; failNext = null; return new Response("{}", { status: s }); }
   if (missing.has(table)) return new Response("{}", { status: 404 });
+  if (table === "rpc/prepare_research_output_packages" && m === "POST") {
+    const body = JSON.parse(init.body);
+    const runId = body.p_run_id;
+    const run = T("research_runs").find((item) => item.id === runId);
+    if (!run || run.status !== "completed") return new Response("{}", { status: 400 });
+    const existing = T("research_output_batches").find((batch) => batch.research_run_id === runId);
+    if (existing) {
+      const packages = T("research_output_packages").filter((item) => item.research_run_id === runId).map((item) => {
+        const edition = T("editions").find((e) => e.id === item.edition_id);
+        return { id: item.edition_id, key: item.package_key, format: item.content_format, durationSeconds: item.duration_seconds, title: edition?.title, storyIds: T("edition_developments").filter((d) => d.edition_id === item.edition_id).sort((a,b) => a.position-b.position).map((d) => d.story_id) };
+      });
+      return new Response(JSON.stringify({ status: existing.status, packageCount: existing.package_count, packages, replayed: true, requestChanged: existing.selection_hash !== JSON.stringify(body.p_packages) }), { status: 200 });
+    }
+    const packages = body.p_packages ?? [];
+    T("research_output_batches").push({ research_run_id: runId, status: packages.length ? "prepared" : "empty", package_count: packages.length, selection_hash: JSON.stringify(packages) });
+    const results = [];
+    for (const item of packages) {
+      const id = crypto.randomUUID();
+      T("editions").push({ id, title: item.title, theme: item.theme, structure: item.structure, narrative_angle: item.angle, edition_kind: "video", status: "draft", coherence: item.coherence, curiosity: item.curiosity });
+      item.storyIds.forEach((storyId: string, i: number) => T("edition_developments").push({ edition_id: id, story_id: storyId, position: i + 1 }));
+      T("research_output_packages").push({ research_run_id: runId, edition_id: id, package_key: item.key, content_format: item.format, duration_seconds: item.durationSeconds });
+      results.push({ id, key: item.key, format: item.format, durationSeconds: item.durationSeconds, title: item.title, storyIds: item.storyIds });
+    }
+    return new Response(JSON.stringify({ status: packages.length ? "prepared" : "empty", packageCount: packages.length, packages: results, replayed: false, requestChanged: false }), { status: 200 });
+  }
   const rows = T(table); const prefer = init.headers?.Prefer ?? "";
   if (m === "GET") {
     let out = rows.filter((r) => matches(r, p));
@@ -257,4 +282,43 @@ failNext = { table: "editions", method: "POST", status: 500 }; assert.equal((awa
 missing = new Set(["edition_prompts"]); const uns = await (await call(epFn, { editionId: eid })).json(); assert(uns.saved === false && uns.notInstalled && uns.prompt.length > 1000); assert((await (await get(epFn, "history=1")).json()).notInstalled); missing = new Set(); ok("before migration 004 (prompt table): prompt still works but is clearly marked NOT saved");
 missing = new Set(["editions"]); const d2 = await (await get(edFn, "")).json(); assert.equal(d2.saved.installed, false); assert(d2.suggestions.length >= 1); assert.equal((await call(edFn, { action: "save", title: "t", ids: ids3 })).status, 409); missing = new Set(); ok("before migration 004: the desk still suggests editions; saving says NOT INSTALLED and saves nothing");
 assert.equal((await get(epFn, "id=zzz")).status, 400); assert.equal((await get(epFn, "editionId=zzz")).status, 400); ok("bad ids rejected");
+console.log("Automatic post-research package setup");
+const autoRunId = crypto.randomUUID();
+T("research_runs").push({ id: autoRunId, status: "completed", config: {}, created_at: new Date().toISOString() });
+[jp, fi, cl, rt, sp].forEach((storyId, i) => T("shortlist").push({ run_id: autoRunId, story_id: storyId, selected: true, rank: i + 1, priority: 1, reason: "test shortlist" }));
+const autoResult = await call(edFn, { action: "auto_prepare", runId: autoRunId });
+assert.equal(autoResult.status, 200);
+const autoBody = await autoResult.json();
+assert.equal(autoBody.researchRunId, autoRunId);
+assert.equal(autoBody.replayed, false);
+assert.equal(T("research_output_batches").filter((row) => row.research_run_id === autoRunId).length, 1);
+assert.equal(T("research_output_packages").filter((row) => row.research_run_id === autoRunId).length, autoBody.packageCount);
+assert.equal(T("audit_events").some((row) => row.event_type === "research_output_packages_prepared" && row.entity_id === autoRunId), true);
+ok("completed research automatically creates a single durable batch; every created package is still a draft");
+
+const autoRetry = await call(edFn, { action: "auto_prepare", runId: autoRunId });
+const retryBody = await autoRetry.json();
+assert.equal(autoRetry.status, 200);
+assert.equal(retryBody.replayed, true);
+assert.equal(T("research_output_batches").filter((row) => row.research_run_id === autoRunId).length, 1);
+assert.equal(T("research_output_packages").filter((row) => row.research_run_id === autoRunId).length, autoBody.packageCount);
+ok("retrying automatic setup returns the same packages and never duplicates them");
+
+const incompleteRunId = crypto.randomUUID();
+T("research_runs").push({ id: incompleteRunId, status: "running", config: {} });
+assert.equal((await call(edFn, { action: "auto_prepare", runId: incompleteRunId })).status, 409);
+assert.equal((await call(edFn, { action: "auto_prepare", runId: "bad" })).status, 400);
+assert.equal((await call(edFn, { action: "auto_prepare", runId: autoRunId }, null)).status, 401);
+ok("automatic setup rejects incomplete runs, malformed IDs and unauthenticated requests");
+
+const missingRunId = crypto.randomUUID();
+T("research_runs").push({ id: missingRunId, status: "completed", config: {} });
+missing = new Set(["rpc/prepare_research_output_packages"]);
+const missingAuto = await call(edFn, { action: "auto_prepare", runId: missingRunId });
+assert.equal(missingAuto.status, 409);
+assert.equal((await missingAuto.json()).error, "migration_required");
+assert.equal(T("research_output_batches").some((row) => row.research_run_id === missingRunId), false);
+missing = new Set();
+ok("when migration 016 is absent, automatic setup says NOT INSTALLED and saves nothing");
+
 console.log("\nAll edition API checks passed");
