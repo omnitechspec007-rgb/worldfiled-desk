@@ -150,16 +150,16 @@ begin
     v_structure := v_package->>'structure';
     v_angle := coalesce(v_package->>'angle', '');
 
-    if v_key not in ('text_card_1','text_card_2','text_card_3','text_roundup','daily_narrated') then
+    if v_key is null or v_key not in ('text_card_1','text_card_2','text_card_3','text_roundup','daily_narrated') then
       raise exception using errcode = '22023', message = 'invalid_package_key';
     end if;
-    if v_format not in ('text_card','text_roundup','narrated_video') then
+    if v_format is null or v_format not in ('text_card','text_roundup','narrated_video') then
       raise exception using errcode = '22023', message = 'invalid_package_format';
     end if;
     if v_title = '' or char_length(v_title) > 300 or char_length(v_angle) > 1000 then
       raise exception using errcode = '22023', message = 'invalid_package_text';
     end if;
-    if v_structure not in ('multi_country','single_country','event_roundup','news_roundup') then
+    if v_structure is null or v_structure not in ('multi_country','single_country','event_roundup','news_roundup') then
       raise exception using errcode = '22023', message = 'invalid_package_structure';
     end if;
     if exists (
@@ -169,7 +169,7 @@ begin
       raise exception using errcode = '22023', message = 'invalid_story_id';
     end if;
 
-    select array_agg(x.value::uuid order by x.ordinality), count(*), count(distinct x.value::uuid)
+    select coalesce(array_agg(x.value::uuid order by x.ordinality), '{}'::uuid[]), count(*), count(distinct x.value::uuid)
     into v_story_ids, v_story_count, v_matches
     from jsonb_array_elements_text(v_package->'storyIds') with ordinality as x(value, ordinality);
 
@@ -182,7 +182,7 @@ begin
     if v_format = 'text_roundup' and (v_story_count < 5 or v_story_count > 7 or v_key <> 'text_roundup' or v_duration is not null) then
       raise exception using errcode = '22023', message = 'invalid_text_roundup_profile';
     end if;
-    if v_format = 'narrated_video' and (v_story_count > 5 or v_key <> 'daily_narrated' or v_duration not in (60,90,120)) then
+    if v_format = 'narrated_video' and (v_story_count > 5 or v_key <> 'daily_narrated' or (v_duration is null or v_duration not in (60,90,120))) then
       raise exception using errcode = '22023', message = 'invalid_narrated_video_profile';
     end if;
 
