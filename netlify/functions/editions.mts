@@ -182,11 +182,11 @@ async function autoPrepare(b: any) {
   const runId = typeof b.runId === "string" ? b.runId : "";
   if (!UUID.test(runId)) return json({ error: "bad_request", detail: "A valid completed research run is required." }, 400);
 
-  const runs = await db<any[]>(\`research_runs?id=eq.\${runId}&select=id,status\`);
+  const runs = await db<any[]>(`research_runs?id=eq.\${runId}&select=id,status`);
   if (!runs[0]) return json({ error: "not_found", detail: "That research run could not be found." }, 404);
   if (runs[0].status !== "completed") return json({ error: "run_not_completed", detail: "Production packages are prepared only after every research stage has completed." }, 409);
 
-  const shortlistRows = await db<any[]>(\`shortlist?run_id=eq.\${runId}&select=story_id,rank&order=rank.asc\`);
+  const shortlistRows = await db<any[]>(`shortlist?run_id=eq.\${runId}&select=story_id,rank&order=rank.asc`);
   const shortlistIds = new Set(shortlistRows.map((row) => row.story_id));
   const { all, decisions, flags } = await loadPool(Date.now(), 300);
   const candidates = all.filter((item) => shortlistIds.has(item.dev.id));
