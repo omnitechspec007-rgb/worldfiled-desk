@@ -70,7 +70,7 @@ export default function StoryDesk() {
             <div className="panel story" key={s.id}>
               <p className="rank">#{s.rank}</p>
               <h2><Link to={`/evidence/${s.id}`}>{s.headline}</Link></h2>
-              <p className="meta">{s.category ?? "Uncategorised"} · {s.regions?.join(", ")} · {s.outlets === 1 ? "1 publisher label" : `${s.outlets} publisher labels`}{s.hasPrimary ? " · includes an official source" : ""}</p>
+              <p className="meta">{s.category ?? "Uncategorised"} · {s.regions?.join(", ")} · {s.outlets === 1 ? "1 publisher label" : `${s.outlets} publisher labels`}{s.hasPrimary ? " · includes an official / primary source" : ""}</p>
               <p className="why"><strong>Why selected:</strong> {s.reason}</p>
               {s.flags.map((f) => <p className="caution" key={f}>⚠ {f}</p>)}
               <Scores scores={s.scores} compact />
