@@ -38,9 +38,10 @@ type Sug = Evaluation & { key: string; excluded: { id: string; headline: string;
 type Desk = {
   note: string; developments: Dev[]; suggestions: Sug[]; weakConnections: Sug[];
   unmatched: { id: string; headline: string; recommendation: string; why: string }[]; ineligible: { id: string; headline: string; reason: string }[];
-  saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
+  saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; ids: string[]; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
 };
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
+type AutoProduction = { key: string; label: string; status: "prepared" | "already_ready" | "held" | "failed"; detail: string };
 type CreativePreview = {
   format: { key: string; label: string; why: string; overridden: boolean }; formats: { key: string; label: string; description: string }[];
   voice: { engine: string; voice: string; status: string; approval: string; licence: string; configured: boolean };
@@ -121,6 +122,9 @@ export default function EditionDesk() {
   const [res, setRes] = useState<PromptResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [autoPreparing, setAutoPreparing] = useState(false);
+  const [autoProduction, setAutoProduction] = useState<AutoProduction[]>([]);
+  const autoProductionKey = useRef<string | null>(null);
   const lastEv = useRef<Evaluation | null>(null);
   const autoPromptKey = useRef<string | null>(null);
   const [draftHydrated, setDraftHydrated] = useState(false);
@@ -372,10 +376,87 @@ export default function EditionDesk() {
       sourceUrl: attributedSource?.url ?? ""
     };
   }).filter((x) => x !== null);
+
+  // Automatically prepare the standard output set after research. Existing editions are updated
+  // in place and a still-current prompt is reused rather than creating duplicate versions.
+  useEffect(() => {
+    if (!desk?.saved.installed || busy || !desk.developments.length) return;
+    const textIds = intelligence.textBriefingPicks.map((p) => p.story.id);
+    const roundupIds = intelligence.roundupPicks.map((p) => p.story.id);
+    const narration = intelligence.narrated.find((p) => p.durationSeconds === 90 && p.stories.length >= 2)
+      ?? intelligence.narrated.find((p) => p.stories.length >= 2);
+    const outputs: { key: string; label: string; title: string; kind: "text" | "video"; ids: string[]; deliverable: string; duration?: number }[] = [];
+    if (textIds.length) outputs.push({ key: "written", label: "Written news briefing", title: "The World, Filed — Daily Written Briefing", kind: "text", ids: textIds, deliverable: "text_briefing" });
+    if (roundupIds.length) outputs.push({ key: "roundup", label: "Static text roundup", title: "The World, Filed — Daily Static Roundup", kind: "video", ids: roundupIds, deliverable: "static_roundup_6s" });
+    if (narration) outputs.push({ key: "narrated", label: "Narrated news video", title: "The World, Filed — " + narration.durationSeconds + "-Second Narrated Edition", kind: "video", ids: narration.stories.map((p) => p.story.id), deliverable: "script_storyboard", duration: narration.durationSeconds });
+    for (const pick of intelligence.standalonePicks) outputs.push({ key: "card-" + pick.story.id, label: "Standalone text card", title: "The World, Filed — Text Card — " + pick.story.headline.slice(0, 150), kind: "video", ids: [pick.story.id], deliverable: "static_roundup_6s" });
+    const signature = outputs.map((o) => o.key + ":" + o.ids.join(",")).join("|");
+    if (!outputs.length) {
+      if (autoProductionKey.current !== "no-eligible-stories") {
+        autoProductionKey.current = "no-eligible-stories";
+        setAutoProduction([{ key: "none", label: "Automatic production", status: "held", detail: "No stories currently meet the official-primary-source and evidence requirements. WorldFiled will not fill the edition with weaker material." }]);
+      }
+      return;
+    }
+    if (autoProductionKey.current === signature) return;
+    autoProductionKey.current = signature;
+    setAutoPreparing(true);
+    setBusy(true);
+    void (async () => {
+      const results: AutoProduction[] = [];
+      try {
+        const historyResponse = await fetch(api + "edition-prompt?history=1");
+        if (!historyResponse.ok) throw new Error("Could not check existing prompt history.");
+        const historyData = await historyResponse.json();
+        const promptHistory: any[] = historyData.prompts ?? [];
+        for (const output of outputs) {
+          try {
+            const existing = desk.saved.editions.find((e) => e.title === output.title && e.editionKind === output.kind);
+            let outputEditionId = existing?.id;
+            const sameMembers = !!existing && existing.ids.join(",") === output.ids.join(",");
+            if (!existing || !sameMembers) {
+              const savedResponse = await post("editions", { action: "save", id: existing?.id, title: output.title, ids: output.ids, editionKind: output.kind, structure: output.ids.length === 1 ? undefined : "news_roundup" });
+              const savedData = await savedResponse.json();
+              if (!savedResponse.ok || !savedData.id) throw new Error(savedData.detail ?? "Could not save this production package.");
+              outputEditionId = savedData.id;
+            }
+            if (!outputEditionId) throw new Error("The production package has no saved edition ID.");
+            const currentPrompt = promptHistory.find((p) => p.editionId === outputEditionId && p.deliverable === output.deliverable && p.current === true);
+            if (sameMembers && currentPrompt) {
+              results.push({ key: output.key, label: output.label, status: "already_ready", detail: "The current source/evidence-based prompt is already saved." });
+              continue;
+            }
+            if (output.deliverable === "static_roundup_6s") {
+              const preflightResponse = await fetch(api + "edition-prompt?editionId=" + encodeURIComponent(outputEditionId) + "&deliverable=static_roundup_6s");
+              const preflight = await preflightResponse.json();
+              if (!preflightResponse.ok || preflight.exportReady !== true) throw new Error(preflight.detail ?? preflight.note ?? "Source attribution is incomplete; this output was held.");
+            }
+            const promptResponse = await post("edition-prompt", { editionId: outputEditionId, deliverable: output.deliverable, durationSeconds: output.duration, sound: "subtle", visual: "typographic" });
+            const promptData = await promptResponse.json();
+            if (!promptResponse.ok || !promptData.saved) throw new Error(promptData.detail ?? "The prompt was not saved.");
+            promptHistory.unshift({ editionId: outputEditionId, deliverable: output.deliverable, current: true });
+            results.push({ key: output.key, label: output.label, status: "prepared", detail: "Production package and copy-ready prompt saved." });
+          } catch (error) {
+            results.push({ key: output.key, label: output.label, status: "failed", detail: error instanceof Error ? error.message : "Could not prepare this output." });
+          }
+        }
+        setAutoProduction(results);
+        if (results.some((x) => x.status === "failed")) setMsg("WorldFiled prepared the available outputs. One or more formats were held or failed; see the Automatic production setup below.");
+        else setMsg("WorldFiled automatically prepared the written briefing, video packages and eligible standalone text cards. Open Prompt History to review and copy them.");
+        void loadDesk();
+      } catch (error) {
+        setAutoProduction([{ key: "error", label: "Automatic production setup", status: "failed", detail: error instanceof Error ? error.message : "Could not prepare the outputs." }]);
+        setMsg("Automatic production setup could not finish. Your research results remain saved.");
+      } finally {
+        setAutoPreparing(false);
+        setBusy(false);
+      }
+    })();
+  }, [desk?.saved.installed, desk?.saved.editions, desk?.developments, intelligence.textBriefingPicks, intelligence.roundupPicks, intelligence.narrated, intelligence.standalonePicks, busy, loadDesk]);
   return (
     <section>
       <h1>Your story selections</h1>
-      <p className="meta">After research, WorldFiled prepares individual text-video picks, a balanced text roundup and narrated-edition options. Review the reasons and evidence, then choose what to prepare. You remain the final editor. {desk?.note}</p>
+      <p className="meta">After research, WorldFiled automatically prepares the written briefing, static text roundup, narrated video and eligible standalone text cards. Review the source basis and editorial reasoning; you remain in control of what gets published. {desk?.note}</p>
       {msg && <p className={`status ${/Could not|not saved|no longer|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
       {desk && !desk.saved.installed && <div className="panel"><p className="status bad">DATABASE SETUP REQUIRED: run migration 004, then migration 006, before saving and generating daily video or text editions. You can still explore suggestions and check coherence.</p></div>}
 
@@ -384,6 +465,15 @@ export default function EditionDesk() {
         <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Six-second static text video · standalone card or 5–7-story roundup</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
         <p className="meta">The written briefing and video editions use the same source-screened research but keep separate story selections and prompt histories. A quiet news day should produce a shorter edition, never filler. Human approval controls publishing, not preparation.</p>
       </div>
+      {(autoPreparing || autoProduction.length > 0) && (
+        <div className="panel">
+          <h2>Automatic production setup</h2>
+          <p className="meta">{autoPreparing ? "Preparing and saving today's production packages and prompts…" : "The automatic output setup for the current research results."} <a href="/history">Open Prompt History →</a></p>
+          {autoProduction.map((item) => (
+            <p className="meta" key={item.key}><strong>{item.label}:</strong> {item.status === "prepared" ? "Prepared" : item.status === "already_ready" ? "Already ready" : item.status === "held" ? "Held" : "Needs attention"} — {item.detail}</p>
+          ))}
+        </div>
+      )}
       <div className="tabs">
         {([["automatic", "Automatic story selections"], ["developments", "All research results"], ["suggested", "Suggested story combinations"], ["mine", "Saved work"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
       </div>
