@@ -73,7 +73,7 @@ export default function PromptHistory() {
       {items && items.length > 0 && (
         <div className="panel">
           <table>
-            <thead><tr><th>Story</th><th>Version</th><th>Approach</th><th>Created</th><th>Approval</th><th></th></tr></thead>
+            <thead><tr><th>Story</th><th>Version</th><th>Approach</th><th>Created</th><th>Availability</th><th></th></tr></thead>
             <tbody>
               {items.map((i) => (
                 <tr key={i.id}>
