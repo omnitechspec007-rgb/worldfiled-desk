@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; newItems: number | null; refreshedItems: number | null; stories: number | null; multiSource: number | null; shortlisted: number | null; candidates: number | null };
+type ResearchSource = { name: string; status: string; items: number; newItems: number; refreshedItems: number; error: string | null; policy: string | null };
+type ResearchReport = { coverage: "complete" | "limited" | "incomplete"; checked: number; total: number; reachable: number; needsAttention: number; policyBlocked: number; items: number; newItems: number; refreshedItems: number; sources: ResearchSource[]; note: string };
+type Stage = { stage: string; status: string; error: string | null; finished: number | null; total: number | null; healthy: number | null; problems: number | null; items: number | null; newItems: number | null; refreshedItems: number | null; stories: number | null; multiSource: number | null; shortlisted: number | null; candidates: number | null; blocked?: number | null; researchReport?: ResearchReport | null };
 type RunHistory = { id: string; status: string; created_at: string; completed_at: string | null; config: { windowDays?: number; region?: string }; newItems: number; refreshedItems: number; stories: number; newStories: number; shortlisted: number };
 type Status = {
   history: RunHistory[];
@@ -22,7 +24,7 @@ const newKey = () => crypto.randomUUID().replace(/-/g, "");
 
 function describe(s: Stage) {
   if (s.status === "completed" && s.stage === "discover")
-    return `${s.healthy} of ${s.total} sources reachable · ${s.newItems ?? 0} new · ${s.refreshedItems ?? 0} refreshed${s.problems ? ` · ${s.problems} need attention` : ""}`;
+    return `${s.healthy} of ${s.total} sources reachable · ${s.newItems ?? 0} new · ${s.refreshedItems ?? 0} refreshed${s.problems ? ` · ${s.problems} need attention` : ""}${s.blocked ? ` · ${s.blocked} skipped by policy` : ""}`;
   if (s.status === "completed" && s.stage === "cluster") return `${s.stories} stories (${s.multiSource} covered by more than one outlet)`;
   if (s.status === "completed" && s.stage === "rank") return `${s.shortlisted} stories shortlisted from ${s.candidates} candidates`;
   if (s.status === "running" && s.stage === "discover") return `${s.finished ?? 0} of ${s.total ?? "…"} sources checked`;
@@ -37,7 +39,7 @@ export default function Dashboard() {
   const [msg, setMsg] = useState("");
   const [bad, setBad] = useState(false);
   const [viewCleared, setViewCleared] = useState(false);
-  const [windowDays, setWindowDays] = useState("3");
+  const [windowDays, setWindowDays] = useState("1");
   const [region, setRegion] = useState("all");
   const lock = useRef(false);
 
@@ -108,19 +110,26 @@ export default function Dashboard() {
   const c = status?.counts;
   return (
     <section>
-      <h1>Dashboard</h1>
+      <h1>Your newsroom</h1>
       <div className="panel hero">
         <div className="row" style={{ alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
         <button className="primary big" onClick={() => void run()} disabled={busy}>
           {busy ? "RESEARCH RUNNING…" : unfinished ? "RESUME RESEARCH" : "RUN RESEARCH"}
         </button>
-        <label>Coverage window<select value={windowDays} onChange={(e) => setWindowDays(e.target.value)} disabled={busy}><option value="1">Past 24 hours</option><option value="3">Past 3 days</option><option value="7">Past 7 days</option><option value="14">Past 14 days</option></select></label>
-        <label>Region<select value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}><option value="all">All regions</option>{["Africa","Asia","Europe","Latin America","Middle East","North America","Oceania"].map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+        <label>How far back should we look?<select value={windowDays} onChange={(e) => setWindowDays(e.target.value)} disabled={busy}><option value="1">Past 24 hours</option><option value="3">Past 3 days</option><option value="7">Past 7 days</option><option value="14">Past 14 days</option></select></label>
+        <label>Coverage area<select value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}><option value="all">All regions</option>{["Africa","Asia","Europe","Latin America","Middle East","North America","Oceania"].map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
         <button type="button" onClick={() => { if (window.confirm("Clear the current Dashboard view? Saved stories, editions and research history will not be deleted.")) { setStatus(null); setStages([]); setMsg(""); setBad(false); setViewCleared(true); } }} disabled={busy || (!status && stages.length === 0 && !msg)}>CLEAR RESULTS</button>
         </div>
-        <p>The desk checks its configured source registry and coverage. You review what it discovers; a new run refreshes the feed items it finds.</p>
+        <p>Start here each day. WorldFiled searches its configured sources, groups coverage into stories and prepares automatic story selections. You review the evidence and approve content before using a production prompt.</p>
         {viewCleared && <p className="status">Dashboard results cleared from this view. Saved stories and research history remain available in Story Desk.</p>}
         {msg && <p className={bad ? "status bad" : "status"}>{msg}</p>}
+        {!busy && status?.latest?.status === "completed" && (
+          <div className="panel newsroom-next">
+            <h2>Your research is ready</h2>
+            <p>WorldFiled has finished this research run. Open the Edition Desk and it will automatically save the written briefing, static text roundup, narrated video and eligible standalone text cards with their copy-ready prompts. Human approval is required before publishing, not before preparation.</p>
+            <Link className="primary newsroom-next-link" to="/editions">OPEN AUTOMATIC PRODUCTION DESK</Link>
+          </div>
+        )}
         {!viewCleared && stages.some((s) => s.status !== "pending") && (
           <ol className="steps">
             {stages.map((s) => (
@@ -131,6 +140,39 @@ export default function Dashboard() {
             ))}
           </ol>
         )}
+        {!viewCleared && stages.find((s) => s.stage === "discover" && s.status !== "pending" && (s.researchReport?.total ?? 0) > 0)?.researchReport && (() => {
+          const report = stages.find((s) => s.stage === "discover")!.researchReport!;
+          return (
+            <div className="panel research-report">
+              <div className="row" style={{ alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                <h2>Research coverage report</h2>
+                <span className={report.coverage === "complete" ? "status" : "status bad"}>{report.coverage === "complete" ? "All configured sources checked" : report.coverage === "limited" ? "Limited coverage" : "Incomplete coverage"}</span>
+              </div>
+              <p>{report.note}</p>
+              <p className="meta">“New” means a feed URL WorldFiled had not stored before; it does not prove the underlying event is new. “Refreshed” means a previously known URL was retrieved again. Story freshness is assessed separately.</p>
+              <div className="grid">
+                <div className="stat"><span className="stat-label">Sources checked</span><span className="stat-value">{report.checked}/{report.total}</span></div>
+                <div className="stat"><span className="stat-label">Reachable</span><span className="stat-value">{report.reachable}</span></div>
+                <div className="stat"><span className="stat-label">Need attention</span><span className="stat-value">{report.needsAttention}</span></div>
+                <div className="stat"><span className="stat-label">Skipped by policy</span><span className="stat-value">{report.policyBlocked}</span></div>
+                <div className="stat"><span className="stat-label">Feed items</span><span className="stat-value">{report.items}</span></div>
+                <div className="stat"><span className="stat-label">New / refreshed</span><span className="stat-value">{report.newItems} / {report.refreshedItems}</span></div>
+              </div>
+              <details>
+                <summary>See source-by-source results ({report.sources.length})</summary>
+                <div className="research-source-list">
+                  {report.sources.map((source) => (
+                    <div className="source" key={source.name}>
+                      <strong>{source.name}</strong> · <span className={source.status === "healthy" ? "source-ok" : "source-issue"}>{source.status.replace(/_/g, " ")}</span>
+                      <p className="meta">{source.items} items · {source.newItems} new · {source.refreshedItems} refreshed{source.policy ? " · policy: " + source.policy : ""}</p>
+                      {source.error && <p className="meta">{source.error}</p>}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          );
+        })()}
         {!viewCleared && status?.latest?.error_summary && !busy && <p className="status bad">Last run note: {status.latest.error_summary}</p>}
         {!viewCleared && (msg + (status?.latest?.error_summary ?? "")).includes("002_scoring.sql") && (
           <p className="caution">One-time setup needed: open Supabase, go to SQL Editor, paste the contents of supabase/migrations/002_scoring.sql from your repo, run it, then click Resume.</p>
@@ -155,8 +197,8 @@ export default function Dashboard() {
       </div>}
 
       <div className="panel">
-        <h2>Not built yet</h2>
-        <p>Full-text evidence retrieval, claim checking and original-source tracing are still to come. Stories are scored by rules, but every story is <strong>unverified</strong>: only headlines and short summaries have been read.</p>
+        <h2>Important: research is not final verification</h2>
+        <p>Research results are candidates, not automatically approved news. Check the supporting material, source dates, original reporting and conflicting accounts. WorldFiled will not mark a story verified or release a production prompt until you complete the human review and approval steps.</p>
       </div>
     </section>
   );

@@ -3,7 +3,7 @@
 //   POST {editionId,...}  generate and save as the next version in the edition's prompt history
 //   GET  ?history=1       saved edition prompts (no text) with validity
 //   GET  ?id=ID           one saved prompt; the text is withheld if it is no longer valid (history is kept)
-// Gates: this function checks approval, member list, member decisions; the database trigger checks them again at insert time.
+// Draft preparation is source-first; human approval is a separate publishing decision.
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { buildEditionPrompt, EditionPromptTooLarge, MAX_EDITION_PROMPT_CHARS } from "../lib/edition-prompt.mts";
@@ -16,7 +16,7 @@ import type { StyleRuleIn } from "../lib/prompt-architect.mts";
 import { loadCreative } from "../lib/creative-data.mts";
 import { FORMATS, configHash, approvalState, selectFormat, type SoundOpt } from "../lib/presenter.mts";
 import { buildBlueprint } from "../lib/blueprint.mts";
-import { UUID, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, packsFor, promptValidity } from "../lib/edition-data.mts";
+import { UUID, loadStories, memberIds, latestDecisions, packsFor, promptValidity } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -68,25 +68,22 @@ export default async (req: Request) => {
   }
 };
 
-/** Everything that must be true before a prompt may be written. Returns a reason string if not. */
+/** Draft preparation requires a saved edition with usable source records. Human approval is a publishing decision, not a prompt-generation gate. */
 async function readiness(editionId: string) {
   const rows = await db<any[]>(`editions?id=eq.${editionId}&select=id,title,structure,narrative_angle,edition_kind`);
   const ed = rows[0];
   if (!ed) return { fail: json({ error: "not_found" }, 404) };
   const ids = await memberIds(editionId);
   if (!ids.length) return { fail: json({ error: "empty_edition", detail: "This edition has no developments." }, 409) };
-  const dec = await latestEditionDecision(editionId);
-  if (dec?.decision !== "approved") return { fail: json({ error: "not_approved", detail: "The edition has no current human approval." }, 409) };
-  if (dec.members_hash !== membersKey(ids)) return { fail: json({ error: "members_changed", detail: "The developments changed after approval. Approve the edition again." }, 409) };
   const decs = await latestDecisions(ids);
   const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(decs.get(i)?.decision ?? ""));
-  if (blocked.length) return { fail: json({ error: "member_blocked", detail: "A development in this edition was rejected or sent back for research.", blocked }, 409) };
-  const clearance = await editionClaimClearance(ids);
-  if (!clearance.ready) return { fail: json({ error: "verification_blocked", detail: "Prompt generation is blocked because one or more edition stories have incomplete or unresolved factual verification.", blockedClaims: clearance.blocked }, 409) };
+  if (blocked.length) return { fail: json({ error: "member_blocked", detail: "A development in this edition was explicitly rejected or sent back for research. Remove it or resolve that editorial decision before preparing a prompt.", blocked }, 409) };
   const loaded = await loadStories(ids);
   const missing = ids.filter((i) => !loaded.has(i));
   if (missing.length) return { fail: json({ error: "not_found", detail: "A development is no longer available.", missing }, 404) };
-  return { ed, ids, dec, loaded };
+  const missingPrimary = ids.filter((id) => !loaded.get(id)!.dev.sources.some((source: any) => source.tier === "primary"));
+  if (missingPrimary.length) return { fail: json({ error: "primary_source_required", detail: "Draft preparation is limited to stories with at least one official or primary source. These stories are held until a suitable original source is found.", blocked: missingPrimary.map((id) => loaded.get(id)!.dev.headline) }, 409) };
+  return { ed, ids, loaded };
 }
 
 async function preview(editionId: string, req: Request) {
@@ -111,12 +108,10 @@ async function preview(editionId: string, req: Request) {
       editionKind: r.ed.edition_kind ?? "video",
       deliverable: "static_roundup_6s",
       exportReady: r.ed.edition_kind !== "text" && attributionReady,
-      approval: { decision: r.dec.decision, membersHash: r.dec.members_hash, current: true },
-      factualClearance: { ready: true, stories: r.ids.length },
       attribution: { ready: attributionReady, missingStories: missingAttribution },
       note: !attributionReady
         ? `Export blocked: ${missingAttribution.length} selected story or stories lack a named source, publication date or source link. Resolve the missing attribution in the story evidence records, then check again.`
-        : "Server-side preflight passed: this exact saved edition has current human approval, factual clearance and named source, publication date and source link for every story. This is an export preflight, not a public publishing action."
+        : "Source-attribution preflight passed: every story has a named source, publication date and source link. This is a draft/export check, not a public publishing action."
     });
   }
   const ev = evaluateEdition(r.ids.map((i) => r.loaded.get(i)!.dev), { now: Date.now(), structure: r.ed.structure as Structure });
@@ -198,7 +193,7 @@ async function generate(req: Request) {
     await db("audit_events", { method: "POST", prefer: "return=minimal", body: { event_type: "edition_prompt_created", entity_type: "edition", entity_id: editionId, actor: "editor", detail: { version, edition_kind: r.ed.edition_kind ?? "video", structure, deliverable: savedDeliverable, developments: r.ids.length, prompt_id: saved?.id ?? null, approved_style_rules: rules.length, rules_installed: rulesInstalled } } });
     return json({ ...reply, saved: true, id: saved?.id ?? null, version });
   } catch (e) {
-    if (e instanceof DbError && e.upstream === 400) return json({ error: "refused_by_database", detail: "The database refused this record (an approval is no longer current, the members changed, or a size limit was exceeded). Nothing was saved." }, 409);
+    if (e instanceof DbError && e.upstream === 400) return json({ error: "refused_by_database", detail: "The database refused this record (the edition members changed or a size limit was exceeded). Nothing was saved." }, 409);
     if (e instanceof DbError && e.upstream === 409) return json({ error: "version_conflict", detail: "Another prompt was saved at the same moment. Please try again." }, 409);
     throw e;
   }
@@ -217,7 +212,7 @@ async function history() {
     const v = await promptValidity(r, Date.now(), false);
     // history list checks approval, members and member decisions only (cheap); the full evidence check runs when a prompt is opened
     const stale = await creativeStale(r);
-    out.push({ id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.approvalCurrent && v.membersCurrent && v.storiesOk && !stale, reasons: stale ? [...v.reasons, stale] : v.reasons });
+    out.push({ id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, developments: (r.members ?? []).length, createdAt: r.created_at, current: v.membersCurrent && v.storiesOk && !stale, reasons: stale ? [...v.reasons, stale] : v.reasons });
   }
   return json({ prompts: out });
 }
@@ -233,7 +228,7 @@ async function one(id: string) {
   return json({
     id: r.id, editionId: r.edition_id, title: r.title, editionKind: r.edition_kind ?? "video", version: r.version, structure: r.structure, deliverable: r.deliverable, createdAt: r.created_at, brandVersion: r.brand_spec_version,
     developments: (r.members ?? []).length, coherence: r.coherence, roles: r.roles, rationale: r.rationale, tools: r.tools,
-    valid: v.current, validity: { approvalCurrent: v.approvalCurrent, membersCurrent: v.membersCurrent, storiesOk: v.storiesOk, evidenceCurrent: v.evidenceCurrent }, reasons: v.reasons,
+    valid: v.current, validity: { membersCurrent: v.membersCurrent, storiesOk: v.storiesOk, evidenceCurrent: v.evidenceCurrent }, reasons: v.reasons,
     prompt: v.current ? r.prompt_text : null,
     withheld: v.current ? undefined : "This prompt may no longer be valid and is kept as history only: " + v.reasons.join(" ") + " Re-approve or adjust the edition and generate a new version.",
   });

@@ -15,6 +15,7 @@ export type Dev = {
   hypothesisNote: string; themes: string[]; locations: Loc[]; geographicInterest: string; outlets: number;
   fresh: boolean; notFreshWhy: string | null; ageHours: number | null;
   sourceIndependence: SourceIndependence;
+  keyQuestions?: string[]; accountability?: string[];
   sources: {
     outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string;
     sourceRegistryId: string | null; retrievedSourceId: string | null; ownershipStatus: string; publisherGroupKey: string | null;
@@ -37,9 +38,10 @@ type Sug = Evaluation & { key: string; excluded: { id: string; headline: string;
 type Desk = {
   note: string; developments: Dev[]; suggestions: Sug[]; weakConnections: Sug[];
   unmatched: { id: string; headline: string; recommendation: string; why: string }[]; ineligible: { id: string; headline: string; reason: string }[];
-  saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
+  saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; ids: string[]; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
 };
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
+type AutoProduction = { key: string; label: string; status: "prepared" | "already_ready" | "held" | "failed"; detail: string };
 type CreativePreview = {
   format: { key: string; label: string; why: string; overridden: boolean }; formats: { key: string; label: string; description: string }[];
   voice: { engine: string; voice: string; status: string; approval: string; licence: string; configured: boolean };
@@ -57,6 +59,7 @@ const tone = (v: string) => (v === "COHERENT" ? "ok" : v === "SINGLE DEVELOPMENT
 function DevDetail({ d }: { d: Dev }) {
   return (
     <div>
+      <p className="meta"><a href={"/evidence/" + d.id}>Inspect source records and evidence limits →</a></p>
       <h3>Sources</h3>
       <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}<div className="meta">Ownership: {x.ownershipStatus === "verified" ? "verified" : "unknown or unverified"} · Article origin: {x.originStatus === "verified" ? x.originType : "unverified / unknown"}</div>{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
       <h3>Source independence assessment</h3>
@@ -65,6 +68,8 @@ function DevDetail({ d }: { d: Dev }) {
       <p className="why"><strong>What changed:</strong> {d.whatChanged}</p>
       <p className="why"><strong>Why it may be interesting:</strong> {d.whyInteresting.join("; ") || "nothing specific found"}</p>
       <p className="why"><strong>Audience question:</strong> {d.audienceQuestion}</p>
+      {d.keyQuestions?.length ? <><h3>Questions to answer before scripting</h3><ul className="comps">{d.keyQuestions.map((question) => <li key={question}>{question}</li>)}</ul></> : null}
+      {d.accountability?.length ? <p className="why"><strong>Accountability signals to investigate:</strong> {d.accountability.join(", ")}</p> : null}
       {d.surprisingElement && <p className="why"><strong>Surprising element:</strong> {d.surprisingElement}</p>}
       {d.humanConsequences && <p className="why"><strong>Human consequences:</strong> {d.humanConsequences}</p>}
       {d.possibleImplications && <p className="why"><strong>Possible implications (not established):</strong> {d.possibleImplications}</p>}
@@ -117,7 +122,11 @@ export default function EditionDesk() {
   const [res, setRes] = useState<PromptResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [autoPreparing, setAutoPreparing] = useState(false);
+  const [autoProduction, setAutoProduction] = useState<AutoProduction[]>([]);
+  const autoProductionKey = useRef<string | null>(null);
   const lastEv = useRef<Evaluation | null>(null);
+  const autoPromptKey = useRef<string | null>(null);
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const draftKey = "worldfiled:edition-desk:draft:v1";
@@ -217,10 +226,10 @@ export default function EditionDesk() {
   useEffect(() => { if (ev && !title.trim()) setTitle(ev.title); }, [ev, title]);
 
   const openSet = (s: { ids: string[]; title: string; angle?: string; structure?: string; editionKind?: "video" | "text" }, id: string | null = null) => {
-    lastEv.current = null; setPrevScore(null);
+    lastEv.current = null; autoPromptKey.current = null; setPrevScore(null);
     const kind = s.editionKind ?? editionKind;
     setEditionKind(kind); setSelections((prev) => ({ ...prev, [kind]: s.ids }));
-    setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setAck(false); setNotes(""); setMsg("");
+    setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setRoundupPreflight(null); setAck(false); setNotes(""); setMsg("");
     setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
     setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
@@ -258,10 +267,31 @@ export default function EditionDesk() {
     } catch { setMsg("Could not save the edition."); }
     setBusy(false);
   };
-  const openSavedQuiet = async (id: string) => { const r = await fetch(`${api}editions?id=${id}`); if (r.ok) setApproval((await r.json()).approval); };
+  const openSavedQuiet = async (id: string) => { const r = await fetch(api + "editions?id=" + encodeURIComponent(id)); if (r.ok) setApproval((await r.json()).approval); };
+  const prepareSet = async (
+    s: { ids: string[]; title: string; angle?: string; structure?: string; editionKind?: "video" | "text" },
+    options: { deliverable?: string; duration?: number } = {},
+  ) => {
+    setBusy(true); setMsg("");
+    try {
+      const kind = s.editionKind ?? "video";
+      const response = await post("editions", { action: "save", title: s.title, ids: s.ids, editionKind: kind, angle: s.angle ?? "", structure: s.structure || undefined });
+      const data = await response.json();
+      if (!response.ok) { setMsg(data.detail ?? "WorldFiled could not save this production package. No package was created."); setBusy(false); return; }
+      openSet(s, data.id);
+      setConflicts([]);
+      if (options.deliverable) setDeliverable(options.deliverable);
+      if (options.duration) setDuration(options.duration);
+      setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable: options.deliverable ?? deliverable, duration: options.duration ?? duration, pAngle, fmt, sound, visual, conflicts: [] }));
+      await openSavedQuiet(data.id);
+      setMsg("Draft package saved. WorldFiled is preparing the copy-ready production prompt now. Human editorial approval is required before publishing, not before draft preparation.");
+      void loadDesk();
+    } catch { setMsg("Could not save the production package. Your research results are unchanged."); }
+    setBusy(false);
+  };
   const decide = async (decision: string) => {
     if (!editionId) return;
-    setBusy(true); setMsg("");
+    setBusy(true); setMsg(""); setRes(null); autoPromptKey.current = null;
     try {
       const r = await post("editions", { action: "decide", id: editionId, decision, notes, acknowledged: ack });
       const d = await r.json();
@@ -279,8 +309,8 @@ export default function EditionDesk() {
         const data = await r.json();
         if (!active) return;
         setRoundupPreflight(r.ok && data.exportReady === true
-          ? { ready: true, note: data.note ?? "Server-side factual and editorial clearance confirmed." }
-          : { ready: false, note: data.detail ?? data.note ?? "Export is blocked until this edition passes current approval and factual verification." });
+          ? { ready: true, note: data.note ?? "Source-attribution preflight passed." }
+          : { ready: false, note: data.detail ?? data.note ?? "Export is blocked until every story has a named source, date and link." });
       })
       .catch(() => { if (active) setRoundupPreflight({ ready: false, note: "Could not confirm current server-side clearance. Export is disabled until the check succeeds." }); });
     return () => { active = false; };
@@ -302,6 +332,14 @@ export default function EditionDesk() {
     } catch { setMsg("Could not create the prompt."); }
     setBusy(false);
   };
+  const autoPromptSignature = [editionId ?? "", editionKind, deliverable, duration].join("|");
+  useEffect(() => {
+    const preflightReady = editionKind !== "video" || deliverable !== "static_roundup_6s" || roundupPreflight?.ready === true;
+    if (busy || !editionId || res || !preflightReady || autoPromptKey.current === autoPromptSignature) return;
+    autoPromptKey.current = autoPromptSignature;
+    void build();
+  }, [busy, editionId, editionKind, deliverable, duration, roundupPreflight?.ready, res]);
+
   const copy = async () => { try { await navigator.clipboard.writeText(res!.prompt); setCopied(true); } catch { setMsg("Copy was blocked by the browser. Select the text and copy it manually."); } };
 
   const shown = (s: Sug) => !rejectedLinks.includes(s.key);
@@ -317,13 +355,13 @@ export default function EditionDesk() {
       {s.uncertainties.length > 0 && <p className="caution">Uncertain: {s.uncertainties.slice(0, 2).join(" ")}</p>}
       {s.excluded?.length > 0 && <details><summary>Left out ({s.excluded.length}) and why</summary><ul className="comps">{s.excluded.map((x) => <li key={x.id}><strong>{x.headline}</strong>: {x.reason}</li>)}</ul></details>}
       <div className="actions">
-        <button className="primary" onClick={() => openSet({ ids: s.ids, title: s.title, angle: s.angle, structure: s.structure })}>{weak ? "Inspect" : "Open in workspace"}</button>
+        <button className="primary" onClick={() => weak ? openSet({ ids: s.ids, title: s.title, angle: s.angle, structure: s.structure }) : void prepareSet({ ids: s.ids, title: s.title, angle: s.angle, structure: s.structure, editionKind: "video" })} disabled={busy}>{weak ? "Inspect" : "Prepare this edition"}</button>
         {weak && <button onClick={() => setRejectedLinks((r) => [...r, s.key])}>Reject this connection</button>}
       </div>
     </div>
   );
 
-  const canBuild = !!editionId && !!approval?.current;
+  const canBuild = !!editionId;
   const intelligence = buildEditorialIntelligence(desk?.developments ?? []);
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
@@ -338,31 +376,117 @@ export default function EditionDesk() {
       sourceUrl: attributedSource?.url ?? ""
     };
   }).filter((x) => x !== null);
+
+  // Automatically prepare the standard output set after research. Existing editions are updated
+  // in place and a still-current prompt is reused rather than creating duplicate versions.
+  useEffect(() => {
+    if (!desk?.saved.installed || busy || !desk.developments.length) return;
+    const textIds = intelligence.textBriefingPicks.map((p) => p.story.id);
+    const roundupIds = intelligence.roundupPicks.map((p) => p.story.id);
+    const narration = intelligence.narrated.find((p) => p.durationSeconds === 90 && p.stories.length >= 2)
+      ?? intelligence.narrated.find((p) => p.stories.length >= 2);
+    const outputs: { key: string; label: string; title: string; kind: "text" | "video"; ids: string[]; deliverable: string; duration?: number }[] = [];
+    if (textIds.length) outputs.push({ key: "written", label: "Written news briefing", title: "The World, Filed — Daily Written Briefing", kind: "text", ids: textIds, deliverable: "text_briefing" });
+    if (roundupIds.length) outputs.push({ key: "roundup", label: "Static text roundup", title: "The World, Filed — Daily Static Roundup", kind: "video", ids: roundupIds, deliverable: "static_roundup_6s" });
+    if (narration) outputs.push({ key: "narrated", label: "Narrated news video", title: "The World, Filed — " + narration.durationSeconds + "-Second Narrated Edition", kind: "video", ids: narration.stories.map((p) => p.story.id), deliverable: "script_storyboard", duration: narration.durationSeconds });
+    for (const pick of intelligence.standalonePicks) outputs.push({ key: "card-" + pick.story.id, label: "Standalone text card", title: "The World, Filed — Text Card — " + pick.story.headline.slice(0, 150), kind: "video", ids: [pick.story.id], deliverable: "static_roundup_6s" });
+    const signature = outputs.map((o) => o.key + ":" + o.ids.join(",")).join("|");
+    if (!outputs.length) {
+      if (autoProductionKey.current !== "no-eligible-stories") {
+        autoProductionKey.current = "no-eligible-stories";
+        setAutoProduction([{ key: "none", label: "Automatic production", status: "held", detail: "No stories currently meet the official-primary-source and evidence requirements. WorldFiled will not fill the edition with weaker material." }]);
+      }
+      return;
+    }
+    if (autoProductionKey.current === signature) return;
+    autoProductionKey.current = signature;
+    setAutoPreparing(true);
+    setBusy(true);
+    void (async () => {
+      const results: AutoProduction[] = [];
+      try {
+        const historyResponse = await fetch(api + "edition-prompt?history=1");
+        if (!historyResponse.ok) throw new Error("Could not check existing prompt history.");
+        const historyData = await historyResponse.json();
+        const promptHistory: any[] = historyData.prompts ?? [];
+        for (const output of outputs) {
+          try {
+            const existing = desk.saved.editions.find((e) => e.title === output.title && e.editionKind === output.kind);
+            let outputEditionId = existing?.id;
+            const sameMembers = !!existing && existing.ids.join(",") === output.ids.join(",");
+            if (!existing || !sameMembers) {
+              const savedResponse = await post("editions", { action: "save", id: existing?.id, title: output.title, ids: output.ids, editionKind: output.kind, structure: output.ids.length === 1 ? undefined : "news_roundup" });
+              const savedData = await savedResponse.json();
+              if (!savedResponse.ok || !savedData.id) throw new Error(savedData.detail ?? "Could not save this production package.");
+              outputEditionId = savedData.id;
+            }
+            if (!outputEditionId) throw new Error("The production package has no saved edition ID.");
+            const currentPrompt = promptHistory.find((p) => p.editionId === outputEditionId && p.deliverable === output.deliverable && p.current === true);
+            if (sameMembers && currentPrompt) {
+              results.push({ key: output.key, label: output.label, status: "already_ready", detail: "The current source/evidence-based prompt is already saved." });
+              continue;
+            }
+            if (output.deliverable === "static_roundup_6s") {
+              const preflightResponse = await fetch(api + "edition-prompt?editionId=" + encodeURIComponent(outputEditionId) + "&deliverable=static_roundup_6s");
+              const preflight = await preflightResponse.json();
+              if (!preflightResponse.ok || preflight.exportReady !== true) throw new Error(preflight.detail ?? preflight.note ?? "Source attribution is incomplete; this output was held.");
+            }
+            const promptResponse = await post("edition-prompt", { editionId: outputEditionId, deliverable: output.deliverable, durationSeconds: output.duration, sound: "subtle", visual: "typographic" });
+            const promptData = await promptResponse.json();
+            if (!promptResponse.ok || !promptData.saved) throw new Error(promptData.detail ?? "The prompt was not saved.");
+            promptHistory.unshift({ editionId: outputEditionId, deliverable: output.deliverable, current: true });
+            results.push({ key: output.key, label: output.label, status: "prepared", detail: "Production package and copy-ready prompt saved." });
+          } catch (error) {
+            results.push({ key: output.key, label: output.label, status: "failed", detail: error instanceof Error ? error.message : "Could not prepare this output." });
+          }
+        }
+        setAutoProduction(results);
+        if (results.some((x) => x.status === "failed")) setMsg("WorldFiled prepared the available outputs. One or more formats were held or failed; see the Automatic production setup below.");
+        else setMsg("WorldFiled automatically prepared the written briefing, video packages and eligible standalone text cards. Open Prompt History to review and copy them.");
+        void loadDesk();
+      } catch (error) {
+        setAutoProduction([{ key: "error", label: "Automatic production setup", status: "failed", detail: error instanceof Error ? error.message : "Could not prepare the outputs." }]);
+        setMsg("Automatic production setup could not finish. Your research results remain saved.");
+      } finally {
+        setAutoPreparing(false);
+        setBusy(false);
+      }
+    })();
+  }, [desk?.saved.installed, desk?.saved.editions, desk?.developments, intelligence.textBriefingPicks, intelligence.roundupPicks, intelligence.narrated, intelligence.standalonePicks, busy, loadDesk]);
   return (
     <section>
-      <h1>Edition Desk</h1>
-      <p className="meta">Two independently curated daily products from one researched story pool. The six-second video is one static, text-led international news poster; the written briefing remains a separate product. {desk?.note}</p>
+      <h1>Your story selections</h1>
+      <p className="meta">After research, WorldFiled automatically prepares the written briefing, static text roundup, narrated video and eligible standalone text cards. Review the source basis and editorial reasoning; you remain in control of what gets published. {desk?.note}</p>
       {msg && <p className={`status ${/Could not|not saved|no longer|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
       {desk && !desk.saved.installed && <div className="panel"><p className="status bad">DATABASE SETUP REQUIRED: run migration 004, then migration 006, before saving and generating daily video or text editions. You can still explore suggestions and check coherence.</p></div>}
 
       <div className="panel">
-        <h2>Daily edition profile</h2>
+        <h2>What would you like to prepare?</h2>
         <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Six-second static text video · standalone card or 5–7-story roundup</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
-        <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
+        <p className="meta">The written briefing and video editions use the same source-screened research but keep separate story selections and prompt histories. A quiet news day should produce a shorter edition, never filler. Human approval controls publishing, not preparation.</p>
       </div>
+      {(autoPreparing || autoProduction.length > 0) && (
+        <div className="panel">
+          <h2>Automatic production setup</h2>
+          <p className="meta">{autoPreparing ? "Preparing and saving today's production packages and prompts…" : "The automatic output setup for the current research results."} <a href="/history">Open Prompt History →</a></p>
+          {autoProduction.map((item) => (
+            <p className="meta" key={item.key}><strong>{item.label}:</strong> {item.status === "prepared" ? "Prepared" : item.status === "already_ready" ? "Already ready" : item.status === "held" ? "Held" : "Needs attention"} — {item.detail}</p>
+          ))}
+        </div>
+      )}
       <div className="tabs">
-        {([["automatic", "1. Automatic picks"], ["developments", "Review all developments"], ["suggested", "Suggested editions"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
+        {([["automatic", "Automatic story selections"], ["developments", "All research results"], ["suggested", "Suggested story combinations"], ["mine", "Saved work"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!desk && !msg && <p className="meta">Loading…</p>}
 
       {desk && tab === "automatic" && (
         <div className="panel">
-          <h2>WorldFiled Editorial Intelligence</h2>
+          <h2>Automatic story selections</h2>
           <p className="meta">Research has finished. This desk separates three editorial decisions: individual text-card stories, a balanced multi-story static roundup, and a coherent narrated edition. The ranking uses transparent editorial heuristics; it is not a prediction of views or a claim to know every viewer's psychology. Evidence and attribution are eligibility gates, not points that can be offset by curiosity.</p>
           <div className="confirm">
             <strong>{intelligence.eligibleCount} developments passed the current evidence and attribution screen</strong>
             <p className="meta">The engine requires fresh stories, a strong existing editorial recommendation, MODERATE evidence, at least two named outlets, no detected sensational wording, no known shared upstream origin, and at least one complete named-source/date/link record. Two outlet names do not prove independent reporting.</p>
-            <p className="meta">Select a package below to open it in the production workspace. Saving, factual clearance and current human approval are still required before a production prompt can be generated.</p>
+            <p className="meta">Select a package below to open it in the production workspace. Once saved, its production prompt is generated automatically. Stories without a primary source are held out of automatic selections.</p>
           </div>
 
           <h3>1. Standalone text-video picks</h3>
@@ -376,7 +500,7 @@ export default function EditionDesk() {
               <p className="why"><strong>Why it may earn attention:</strong> {pick.story.whyInteresting.join("; ") || pick.story.recommendationWhy}</p>
               <details><summary>How the opportunity score was calculated</summary><ul className="comps">{pick.parts.map((part) => <li key={part.key}><strong>{part.label}: {part.points}/{part.max}</strong> — {part.reason}</li>)}</ul></details>
               <div className="actions">
-                <button className="primary" onClick={() => { openSet({ ids: [pick.story.id], title: pick.story.headline, structure: "news_roundup", editionKind: "video" }); setDeliverable("static_roundup_6s"); }}>Prepare this standalone text card</button>
+                <button className="primary" onClick={() => void prepareSet({ ids: [pick.story.id], title: pick.story.headline, editionKind: "video" }, { deliverable: "static_roundup_6s" })} disabled={busy}>Prepare this standalone text card</button>
                 <button onClick={() => setInspect(inspect === "auto-" + pick.story.id ? null : "auto-" + pick.story.id)}>{inspect === "auto-" + pick.story.id ? "Hide source review" : "Inspect sources and reasoning"}</button>
               </div>
               {inspect === "auto-" + pick.story.id && <DevDetail d={pick.story} />}
@@ -390,7 +514,7 @@ export default function EditionDesk() {
           <div className="confirm">
             <strong>{intelligence.roundupPicks.length} stories selected for the roundup · maximum 7</strong>
             <div className="actions">
-              <button className="primary" disabled={!intelligence.roundupPicks.length} onClick={() => { openSet({ ids: intelligence.roundupPicks.map((p) => p.story.id), title: "The World, Filed — Daily Roundup", structure: "news_roundup", editionKind: "video" }); setDeliverable("static_roundup_6s"); }}>Prepare static roundup</button>
+              <button className="primary" onClick={() => void prepareSet({ ids: intelligence.roundupPicks.map((p) => p.story.id), title: "The World, Filed — Daily Roundup", structure: "news_roundup", editionKind: "video" }, { deliverable: "static_roundup_6s" })} disabled={busy || !intelligence.roundupPicks.length}>Prepare static roundup</button>
             </div>
           </div>
           {intelligence.roundupPicks.map((pick, i) => <p className="why" key={pick.story.id}><strong>{String(i + 1).padStart(2, "0")}. {pick.story.headline}</strong> — opportunity {pick.score}/100; {pick.story.type || "general development"}; {pick.story.locations[0]?.country || "place not established"}</p>)}
@@ -405,7 +529,7 @@ export default function EditionDesk() {
                 <h3>{plan.stories.length} stories · {plan.stories[0]?.story.headline || "No eligible lead story"}</h3>
                 <p className="meta">{plan.rationale}</p>
                 <ul className="comps">{plan.stories.map((pick, i) => <li key={pick.story.id}>{i + 1}. {pick.story.headline}</li>)}</ul>
-                <button className="primary" disabled={plan.stories.length < 2} onClick={() => { openSet({ ids: plan.stories.map((p) => p.story.id), title: "The World, Filed — " + plan.durationSeconds + "-Second Edition", structure: "news_roundup", editionKind: "video" }); setDeliverable("script_storyboard"); setDuration(plan.durationSeconds); }}>Prepare {plan.durationSeconds}-second edition</button>
+                <button className="primary" onClick={() => void prepareSet({ ids: plan.stories.map((p) => p.story.id), title: "The World, Filed — " + plan.durationSeconds + "-Second Edition", structure: "news_roundup", editionKind: "video" }, { deliverable: "script_storyboard", duration: plan.durationSeconds })} disabled={busy || plan.stories.length < 2}>Prepare {plan.durationSeconds}-second edition</button>
               </div>
             ))}
           </div>
@@ -421,7 +545,7 @@ export default function EditionDesk() {
           <details><summary>How this engine works and what it cannot claim</summary>
             <ul className="comps">{intelligence.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
           </details>
-          <p className="caution">Only relationships explicitly marked verified in the Source Provenance Desk affect the independence assessment. Unknown ownership or article lineage is never counted as independent confirmation. Research currently relies primarily on headlines and snippets, not full article text. Open the source links and check the underlying claims before publication.</p>
+          <p className="caution">Only relationships explicitly marked verified in the Source Provenance Desk affect the independence assessment. Unknown ownership or article lineage is never counted as independent confirmation. Research currently relies primarily on headlines and snippets, not full article text. An official source confirms what that institution published; corroborate claims that go beyond its original announcement before publication.</p>
         </div>
       )}
       {desk && tab === "suggested" && (
@@ -467,7 +591,7 @@ export default function EditionDesk() {
                   <Fragment key={d.id}>
                     <tr className={ids.includes(d.id) ? "picked" : ""}>
                       <td><input type="checkbox" aria-label={`Select ${d.headline}`} checked={ids.includes(d.id)} disabled={d.decision === "rejected"} onChange={() => toggle(d.id)} /></td>
-                      <td>{winInfo?.map[d.id] && <span className={`chip ${winInfo.map[d.id].candidate ? "" : "bad"}`} title={winInfo.map[d.id].reason}>{({ NEW: "New", UPDATE: "Update", RENEWED: "Renewed", HELD_OVER: "Held over", ALREADY_PUBLISHED: "Already published", NEVER_VERIFIED: "Never verified", REJECTED_EARLIER: "Left out earlier", REJECTED: "Rejected" } as Record<string, string>)[winInfo.map[d.id].cls] ?? winInfo.map[d.id].cls}</span>} {d.headline}{winInfo?.map[d.id] && <div className="meta">{winInfo.map[d.id].reason}</div>}<div className="meta">{d.type} · {d.outlets} outlet{d.outlets === 1 ? "" : "s"} · {d.ageHours !== null ? `${d.ageHours}h old` : "age unknown"} · {d.decision === "rejected" ? "REJECTED (cannot be selected)" : d.decision ?? "not yet reviewed"}{!d.fresh && d.decision !== "rejected" ? ` · ${d.notFreshWhy}` : ""}</div></td>
+                      <td>{winInfo?.map[d.id] && <span className={`chip ${winInfo.map[d.id].candidate ? "" : "bad"}`} title={winInfo.map[d.id].reason}>{({ NEW: "New", UPDATE: "Update", RENEWED: "Renewed", HELD_OVER: "Held over", ALREADY_PUBLISHED: "Already published", NEVER_VERIFIED: "Never verified", REJECTED_EARLIER: "Left out earlier", REJECTED: "Rejected" } as Record<string, string>)[winInfo.map[d.id].cls] ?? winInfo.map[d.id].cls}</span>} {d.headline}{winInfo?.map[d.id] && <div className="meta">{winInfo.map[d.id].reason}</div>}<div className="meta">{d.type} · {d.outlets} outlet{d.outlets === 1 ? "" : "s"} · {d.ageHours !== null ? `${d.ageHours}h old` : "age unknown"} · {d.decision === "rejected" ? "REJECTED (cannot be selected)" : d.decision ?? "not yet reviewed"}{!d.fresh && d.decision !== "rejected" ? ` · ${d.notFreshWhy}` : ""}</div><div className="meta"><strong>Why it may hold attention:</strong> {d.whyInteresting.join("; ") || d.audienceQuestion}</div></td>
                       <td>{d.recommendation}</td><td>{d.curiosityScore}/100</td><td>{d.evidenceStrength.label}{d.corroborated ? "" : " · single outlet"}</td>
                       <td>{d.locations.map((l) => l.country).join(", ") || "none established"}</td>
                       <td><button onClick={() => setInspect(inspect === d.id ? null : d.id)}>{inspect === d.id ? "Hide" : "Evidence"}</button></td>
@@ -497,6 +621,7 @@ export default function EditionDesk() {
 
       <div id="workspace" className="panel">
         <h2>2. Review, order and build your {editionKind === "text" ? "text briefing" : "video bulletin"} ({ids.length} selected)</h2>
+        {editionId && <div className="confirm"><strong>Draft package saved.</strong><p>Your copy-ready prompt is prepared automatically. You can review, edit and copy it here. Human editorial approval is required before publishing; it does not block draft preparation.</p></div>}
         {ids.length === 0 ? <p className="meta">Nothing selected yet. Tick developments in "1. Select developments", or open a suggested edition.</p> : (
           <>
             <div className="row">
@@ -542,7 +667,7 @@ export default function EditionDesk() {
                 {ev.uncertainties.length > 0 && <p className="caution">Uncertainties: {ev.uncertainties.join(" ")}</p>}
               </>
             )}
-            <div className="actions"><button className="primary" onClick={() => void save()} disabled={busy || !title.trim() || !ids.length}>{editionId ? "Save changes" : "Save edition (needed before approval)"}</button></div>
+            <div className="actions"><button className="primary" onClick={() => void save()} disabled={busy || !title.trim() || !ids.length}>{editionId ? "Save changes" : "Save edition"}</button></div>
 
             {editionId && (
               <div className="confirm">
@@ -559,7 +684,7 @@ export default function EditionDesk() {
             )}
 
             <h3>4. Create the {editionKind === "text" ? "written briefing" : deliverable === "static_roundup_6s" ? "six-second static roundup" : "video production prompt"}</h3>
-            {!canBuild && <p className="meta">Available once the saved edition has a current approval.</p>}
+            {!canBuild && <p className="meta">Available as soon as the edition is saved. Approval is required before publishing, not before preparing drafts.</p>}
             {canBuild && (
               <>
                 {editionKind === "video" && <div className="row">
@@ -569,7 +694,11 @@ export default function EditionDesk() {
                 {editionKind === "video" && deliverable !== "static_roundup_6s" && <p className="meta">For the daily narrated edition, 90 seconds is the starting recommendation. The selected runtime is a ceiling, not a quota: if the evidence supports less, the script must be shorter rather than padded. Use 60 seconds for a tighter bulletin or 120 seconds when the sourced material justifies more depth.</p>}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
-                  <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true} preflightNote={roundupPreflight?.note ?? "Checking current approval and factual clearance…"} />
+                  <>
+                    <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true} preflightNote={roundupPreflight?.note ?? "Checking source attribution…"} />
+                    <p className="meta">The builder can export the branded static six-second video directly. WorldFiled also prepares a separate AI video prompt for your chosen creation tool.</p>
+                    <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy || roundupPreflight?.ready !== true}>{busy ? "GENERATING…" : res ? "Regenerate AI video prompt" : "Generate AI video prompt"}</button></div>
+                  </>
                 )}
                 {!(editionKind === "video" && deliverable === "static_roundup_6s") && <>
                 {editionKind === "video" && deliverable !== "static_roundup_6s" && cpv && (
@@ -593,11 +722,11 @@ export default function EditionDesk() {
                 )}
                 <label>Prompt angle override (optional)<input type="text" value={pAngle} onChange={(e) => setPAngle(e.target.value)} maxLength={200} /></label>
                 {ids.map((id, i) => <label key={id}>Conflict note for D{i + 1} (only if you found accounts that disagree)<input type="text" value={conflicts[i] ?? ""} maxLength={600} onChange={(e) => setConflicts((c) => c.map((x, j) => (j === i ? e.target.value : x)))} /></label>)}
-                <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy}>{busy ? "CREATING…" : editionKind === "text" ? "Create text briefing prompt" : "Create video production prompt"}</button></div>
+                <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy}>{busy ? "CREATING…" : res ? "Regenerate production prompt" : editionKind === "text" ? "Create text briefing prompt" : "Create video production prompt"}</button></div>
                 </>}
               </>
             )}
-            {res && !(editionKind === "video" && deliverable === "static_roundup_6s") && (
+            {res && (
               <div>
                 {res.saved ? <p className="status good">Saved to Edition Prompt History as version {res.version}.</p> : <p className="status bad">{res.note ?? "This prompt was NOT saved."}</p>}
                 {res.creative && res.creative.pronunciationCheckRequired.length > 0 && <p className="caution">PRONUNCIATION CHECK REQUIRED: {res.creative.pronunciationCheckRequired.join(", ")}. This list is also inside the prompt.</p>}

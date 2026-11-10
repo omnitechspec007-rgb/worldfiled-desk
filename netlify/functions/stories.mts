@@ -103,6 +103,26 @@ async function shortlistView(policies: ContentPolicyRow[]) {
   };
 }
 
+async function productionReviewView(rawIds: string, policies: ContentPolicyRow[]) {
+  const ids = rawIds.split(",").map((id) => id.trim()).filter(Boolean);
+  const valid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!ids.length || ids.length > 18 || ids.some((id) => !valid.test(id)) || new Set(ids).size !== ids.length) {
+    return { error: "bad_review_ids", detail: "Provide 1–18 unique story IDs from the saved production package." };
+  }
+  const rows = await db<any[]>("stories?id=in.(" + ids.join(",") + ")&select=" + FIELDS);
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const scores = await scoresFor(ids);
+  const picks = ids.flatMap((id, index) => {
+    const story = byId.get(id);
+    if (!story) return [];
+    return [{
+      ...shape(story, true, policies), rank: index + 1,
+      reason: "Selected for a production package. Complete factual verification and editorial approval before production.",
+      flags: [], patterns: [], scores: scores.get(id) ?? [],
+    }];
+  });
+  return { view: "review", picks, missing: ids.filter((id) => !byId.has(id)) };
+}
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
   if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
@@ -125,6 +145,7 @@ export default async (req: Request) => {
       const decisions = await db<any[]>(`editorial_decisions?story_id=eq.${id}&select=decision,notes,decided_by,created_at&order=created_at.desc&limit=10`);
       return json({ story: { ...shape(rows[0], true, policies), scores, decisions } });
     }
+    if (view === "review") { const result = await productionReviewView(url.searchParams.get("ids") ?? "", policies); return json(result, "error" in result ? 400 : 200); }
     if (view === "shortlist") return json(await shortlistView(policies));
     if (view === "approved") {
       const rows = await db<any[]>(`stories?editorial_status=eq.approved&select=${FIELDS}&order=created_at.desc&limit=30`);

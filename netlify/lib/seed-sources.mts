@@ -6,7 +6,7 @@
 // Middle East, North America, Oceania, Global.
 // tier: "primary" = the institution itself (official statements, journals, legislation);
 //       "reporting" = a news organisation reporting on events.
-// US and UK sources are deliberately capped (see SEED_SOURCES tests).
+// Primary-source entries are reserved for the original institution, regulator, court, federation, journal or official record. Regional coverage should expand as verified source endpoints are curated.
 
 export type Seed = {
   name: string;
@@ -79,7 +79,13 @@ export const SEED_SOURCES: Seed[] = [
   // North America (US and UK entries are intentionally few)
   { name: "CBC Top Stories", publisher: "Canadian Broadcasting Corporation", scope: "North America · Canada", category: G, feed: "https://www.cbc.ca/webfeed/rss/rss-topstories", site: "https://www.cbc.ca/news", tier: "reporting" },
   { name: "NASA News", publisher: "NASA", scope: "North America · United States", category: S, feed: "https://www.nasa.gov/feed/", site: "https://www.nasa.gov/news", tier: "primary" },
-  { name: "JURIST", publisher: "JURIST", scope: "North America · United States", category: L, feed: "https://www.jurist.org/news/feed/", site: "https://www.jurist.org", tier: "reporting" },
+  { name: "White House News Room", publisher: "The White House", scope: "North America · United States", category: G, feed: "https://www.whitehouse.gov/news/feed/", site: "https://www.whitehouse.gov/news/", tier: "primary" },
+  { name: "White House Briefings & Statements", publisher: "The White House", scope: "North America · United States", category: G, feed: "https://www.whitehouse.gov/briefings-statements/feed/", site: "https://www.whitehouse.gov/briefings-statements/", tier: "primary" },
+  { name: "GOV.UK News and Communications", publisher: "UK Government", scope: "Europe · United Kingdom", category: G, feed: "https://www.gov.uk/search/news-and-communications.atom", site: "https://www.gov.uk/search/news-and-communications", tier: "primary" },
+  { name: "UK Prime Minister's Office", publisher: "Prime Minister's Office", scope: "Europe · United Kingdom", category: G, feed: "https://www.gov.uk/government/organisations/prime-ministers-office-10-downing-street.atom", site: "https://www.gov.uk/government/organisations/prime-ministers-office-10-downing-street", tier: "primary" },
+  { name: "Government of Canada News Releases", publisher: "Government of Canada", scope: "North America · Canada", category: G, feed: "https://api.io.canada.ca/io-server/gc/news/en/v2?type=newsreleases&sort=publishedDate&orderBy=desc&publishedDate%3E=2021-10-25&pick=100&format=atom&atomtitle=news%20releases", site: "https://www.canada.ca/en/news.html", tier: "primary" },
+  { name: "Government of Canada Statements", publisher: "Government of Canada", scope: "North America · Canada", category: G, feed: "https://api.io.canada.ca/io-server/gc/news/en/v2?type=statements&sort=publishedDate&orderBy=desc&publishedDate%3E=2021-10-25&pick=100&format=atom&atomtitle=statements", site: "https://www.canada.ca/en/news/subscribe-emails.html", tier: "primary" },
+  { name: "Prime Minister of Canada News", publisher: "Prime Minister of Canada", scope: "North America · Canada", category: G, feed: "https://www.pm.gc.ca/en/news.rss", site: "https://www.pm.gc.ca/en/news", tier: "primary" },
   { name: "UK Legislation (new)", publisher: "The National Archives", scope: "Europe · United Kingdom", category: L, feed: "https://www.legislation.gov.uk/new/data.feed", site: "https://www.legislation.gov.uk", tier: "primary" },
 ];
 

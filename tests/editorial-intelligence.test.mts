@@ -28,7 +28,7 @@ const make = (id: number, overrides: Partial<EditorialStory> = {}): EditorialSto
   themes: [],
   locations: [{ country: ["Japan", "Canada", "Brazil", "Kenya", "United Kingdom"][id % 5] }],
   sources: [
-    { outlet: `Outlet ${id}A`, url: `https://a.example/${id}`, publishedAt: "2026-11-07T10:00:00Z" },
+    { outlet: `Outlet ${id}A`, url: `https://a.example/${id}`, publishedAt: "2026-11-07T10:00:00Z", tier: "primary" },
     { outlet: `Outlet ${id}B`, url: `https://b.example/${id}`, publishedAt: "2026-11-07T11:00:00Z" },
   ],
   sourceIndependence: { status: "unknown", confirmedIndependentOrigins: 0, explanation: "Publisher ownership and article lineage are unknown." },
@@ -67,7 +67,13 @@ assert(guarded.held.find((x) => x.story.id === "23")?.reasons.some((x) => /cover
 assert(guarded.held.find((x) => x.story.id === "24")?.reasons.some((x) => /Sensational/.test(x)));
 console.log("PASS: weak evidence, shared origin, missing attribution, stale and sensational candidates are held regardless of curiosity score");
 
-const unknown = make(25, { sourceIndependence: { status: "unknown", confirmedIndependentOrigins: 0, explanation: "Unknown provenance." } });
+const noPrimary = make(25, { sources: [{ outlet: "Outlet 25A", url: "https://a.example/25", publishedAt: "2026-11-07T10:00:00Z", tier: "reporting" }, { outlet: "Outlet 25B", url: "https://b.example/25", publishedAt: "2026-11-07T11:00:00Z", tier: "reporting" }] });
+const noPrimaryResult = buildEditorialIntelligence([noPrimary]);
+assert.equal(noPrimaryResult.eligibleCount, 0);
+assert(noPrimaryResult.held[0].reasons.some((x) => /official or primary source/.test(x)));
+console.log("PASS: stories supported only by reporting outlets are excluded from automatic production selection");
+
+const unknown = make(26, { sourceIndependence: { status: "unknown", confirmedIndependentOrigins: 0, explanation: "Unknown provenance." } });
 const unknownResult = buildEditorialIntelligence([unknown]);
 assert.equal(unknownResult.eligibleCount, 1);
 assert(unknownResult.standalonePicks[0].reasons.some((x) => /Unknown provenance/.test(x)));

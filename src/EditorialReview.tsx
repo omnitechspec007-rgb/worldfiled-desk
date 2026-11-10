@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Scores, type Score } from "./Scores";
 
-type Pick = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; hasPrimary: boolean; rank: number; reason: string; flags: string[]; scores: Score[]; editorialStatus?: string };
+type Pick = { id: string; headline: string; category: string | null; outlets: number; regions: string[]; hasPrimary: boolean; rank: number; reason: string; flags: string[]; scores: Score[]; editorialStatus?: string; verificationStatus?: string };
 type PendingDecision = { storyId: string; decision: "approved" | "rejected" | "needs_research"; notes: string; acknowledged: boolean; key: string };
 
-const STATUS: Record<string, string> = { in_review: "Awaiting your decision", approved: "Approved", rejected: "Rejected", needs_research: "Needs more research", pending: "Not reviewed" };
+const STATUS: Record<string, string> = { in_review: "Awaiting your decision", approved: "Editorially approved", rejected: "Rejected", needs_research: "Needs more research", pending: "Not reviewed" };
 
 export default function EditorialReview() {
   const [picks, setPicks] = useState<Pick[] | null>(null);
@@ -25,11 +25,16 @@ export default function EditorialReview() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/.netlify/functions/stories?view=shortlist");
+      const requestedIds = new URLSearchParams(window.location.search).get("ids");
+      const endpoint = requestedIds
+        ? "/.netlify/functions/stories?view=review&ids=" + encodeURIComponent(requestedIds)
+        : "/.netlify/functions/stories?view=shortlist";
+      const res = await fetch(endpoint);
       if (!res.ok) throw new Error();
       const d = await res.json();
       setNotInstalled(Boolean(d.notInstalled));
       setPicks(d.picks ?? []);
+      if (d.missing?.length) setMsg(d.missing.length + " selected story record(s) could not be found. Review the remaining stories and refresh the package.");
     } catch {
       setMsg("Could not load the shortlist.");
     }
@@ -70,7 +75,7 @@ export default function EditorialReview() {
       setOpen(null);
       setAck(false);
       setNotes("");
-      setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Approved. It is now available in the Prompt Architect." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
+      setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Editorially approved. This decision controls publishing; draft preparation is already available." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
       await load();
     } catch {
       setUncertain(true);
@@ -93,15 +98,17 @@ export default function EditorialReview() {
 
   return (
     <section>
-      <h1>Editorial Review</h1>
-      <p className="status">Nothing moves forward without your decision. Approval means "cleared for drafting", not "verified": claims have not been checked yet.</p>
+      <h1>Editorial decisions</h1>
+      {new URLSearchParams(window.location.search).has("ids") && <p className="meta"><a href="/editions">← Return to your prepared production package</a></p>}
+      <p className="status">WorldFiled applies its source-quality standard during research and excludes stories without an official or primary source from automatic production selections. Use this page to make editorial decisions and control what may be published. You do not need to complete a manual claim register to prepare drafts or prompts.</p>
       {msg && <div className={uncertain ? "panel state-warning" : "panel state-error"} role={uncertain ? "status" : "alert"}><p className={uncertain ? "status" : "status bad"}>{msg}</p>{uncertain && pending ? <div className="actions"><button className="primary" disabled={busy} onClick={() => void submitDecision(pending)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button><button disabled={busy} onClick={() => void load()}>Refresh shortlist</button></div> : <button onClick={() => void load()}>Refresh shortlist</button>}</div>}
       {!picks && !msg && <div className="panel state-loading" role="status"><p className="meta">Loading stories for review…</p></div>}
       {notInstalled && <div className="panel"><p className="caution">One-time setup needed: run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click RUN RESEARCH.</p></div>}
       {picks && picks.length === 0 && !notInstalled && <div className="panel"><p>Nothing to review yet. Click RUN RESEARCH on the Dashboard.</p></div>}
       {picks?.map((s) => (
         <div className="panel story" key={s.id}>
-          <p className="rank">#{s.rank} · {STATUS[s.editorialStatus ?? "pending"]}</p>
+          <p className="rank">#{s.rank} · EDITORIAL: {STATUS[s.editorialStatus ?? "pending"]}</p>
+          <p className={s.hasPrimary ? "status good" : "status bad"}>SOURCE BASIS: {s.hasPrimary ? "Includes an official or primary source" : "No official or primary source attached"} · <Link to={`/evidence/${s.id}`}>Inspect source records →</Link></p>
           <h2><Link to={`/evidence/${s.id}`}>{s.headline}</Link></h2>
           <p className="meta">{s.category ?? "Uncategorised"} · {s.regions?.join(", ")} · {s.outlets === 1 ? "single outlet" : `${s.outlets} outlets`}{s.hasPrimary ? " · includes an official source" : ""}</p>
           <p className="why"><strong>Why selected:</strong> {s.reason}</p>
@@ -111,17 +118,17 @@ export default function EditorialReview() {
             <div className="confirm">
               <label className="inline">
                 <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
-                I have opened the sources in the Evidence Room. I understand the claims are not yet verified and I take responsibility for this decision.
+                I have reviewed the available source records and understand that editorial approval is a publishing decision, not a claim that every statement has independent corroboration.
               </label>
               <label>Notes (optional)<input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} /></label>
               <div className="actions">
-                <button className="primary" disabled={!ack || busy || uncertain} onClick={() => decide(s.id, "approved")}>{busy ? "SAVING…" : "CONFIRM APPROVAL"}</button>
+                <button className="primary" disabled={!ack || busy || uncertain || !s.hasPrimary} onClick={() => decide(s.id, "approved")}>{busy ? "SAVING…" : "CONFIRM APPROVAL"}</button>
                 <button onClick={() => { setOpen(null); setAck(false); }}>Cancel</button>
               </div>
             </div>
           ) : (
             <div className="actions">
-              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain}>Approve…</button>
+              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain || !s.hasPrimary}>{s.hasPrimary ? "Approve for editorial use…" : "Primary source required before approval"}</button>
               <button onClick={() => decide(s.id, "rejected")} disabled={busy || uncertain}>Reject</button>
               <button onClick={() => void decide(s.id, "needs_research")} disabled={busy || uncertain}>Needs more research</button>
               <Link to={`/evidence/${s.id}`}>Open sources</Link>

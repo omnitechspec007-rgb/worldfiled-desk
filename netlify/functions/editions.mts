@@ -9,7 +9,7 @@
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { evaluateEdition, suggestEditions, membersKey, STRUCTURE_LABEL, type Structure, type Dev } from "../lib/editions.mts";
-import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, attachSourceProvenance, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
+import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, attachSourceProvenance, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
 import { summarizeSourceIndependence } from "../lib/source-independence.mts";
 
 const json = (body: unknown, status = 200) =>
@@ -32,7 +32,7 @@ const devSummary = (d: Dev, decision: string | null, flag?: { fresh: boolean; wh
   id: d.id, headline: d.headline, category: d.category, decision,
   type: d.a.typeLabel, recommendation: d.a.recommendation, recommendationWhy: d.a.recommendationWhy,
   curiosityScore: d.a.curiosityScore, evidenceStrength: d.a.evidenceStrength, corroborated: d.a.corroborated,
-  whatChanged: d.a.whatChanged, whyInteresting: d.a.whyInteresting, audienceQuestion: d.a.audienceQuestion, surprisingElement: d.a.surprisingElement,
+  whatChanged: d.a.whatChanged, whyInteresting: d.a.whyInteresting, audienceQuestion: d.a.audienceQuestion, keyQuestions: d.a.keyQuestions, accountability: d.a.accountability, surprisingElement: d.a.surprisingElement,
   humanConsequences: d.a.humanConsequences, possibleImplications: d.a.possibleImplications, missingEvidence: d.a.missingEvidence,
   sensationalismFlags: d.a.sensationalismFlags, hypothesisNote: d.a.hypothesisNote,
   themes: d.a.themes.map((t: any) => t.label ?? t.id ?? String(t)), locations: d.a.locations, geographicInterest: d.a.geographicInterest, outlets: d.outlets.size,
@@ -71,7 +71,7 @@ async function savedEditions() {
     for (const r of rows) {
       const dec = await latestEditionDecision(r.id);
       const ids = await memberIds(r.id);
-      out.push({ id: r.id, title: r.title, theme: r.theme, editionKind: r.edition_kind ?? "video", structure: r.structure, structureLabel: STRUCTURE_LABEL[r.structure as Structure] ?? r.structure, verdict: r.coherence?.verdict ?? null, score: r.coherence?.score ?? null, members: ids.length, updatedAt: r.updated_at, decision: dec?.decision ?? null, approvalCurrent: dec?.decision === "approved" && dec.members_hash === membersKey(ids) });
+      out.push({ id: r.id, title: r.title, theme: r.theme, editionKind: r.edition_kind ?? "video", structure: r.structure, structureLabel: STRUCTURE_LABEL[r.structure as Structure] ?? r.structure, verdict: r.coherence?.verdict ?? null, score: r.coherence?.score ?? null, members: ids.length, ids, updatedAt: r.updated_at, decision: dec?.decision ?? null, approvalCurrent: dec?.decision === "approved" && dec.members_hash === membersKey(ids) });
     }
     return { installed: true, editions: out };
   } catch (e) {
@@ -207,13 +207,13 @@ async function decide(b: any) {
     if (b.acknowledged !== true) return json({ error: "acknowledgement_required", detail: "Approval needs you to confirm you reviewed the coherence check." }, 400);
     const r = await evaluateIds(ids);
     if ("missing" in r) return json({ error: "not_found", detail: "A development is no longer available.", missing: r.missing }, 404);
+    const missingPrimary = ids.filter((storyId) => !r.loaded.get(storyId)!.dev.sources.some((source: any) => source.tier === "primary"));
+    if (missingPrimary.length) return json({ error: "primary_source_required", detail: "Every story needs at least one official or primary source before an edition can be approved for publishing.", blocked: missingPrimary.map((storyId) => r.loaded.get(storyId)!.dev.headline) }, 409);
     const verdict = r.ev.coherence.verdict;
     if (verdict !== "COHERENT" && verdict !== "SINGLE DEVELOPMENT" && rows[0].structure !== "news_roundup" && notes.length < 10) return json({ error: "reason_required", detail: `The coherence check says ${verdict}. Write a short reason (at least 10 characters) to approve it anyway.` }, 400);
     const memberDecs = await latestDecisions(ids);
     const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(memberDecs.get(i)?.decision ?? ""));
     if (blocked.length) return json({ error: "member_blocked", detail: "A development in this edition was rejected or sent back for research. Remove it or re-approve it first.", blocked }, 409);
-    const clearance = await editionClaimClearance(ids);
-    if (!clearance.ready) return json({ error: "verification_blocked", detail: "Every story in an edition must have a complete claim register, checked supporting passages and current supported editor decisions before edition approval.", blockedClaims: clearance.blocked }, 409);
   }
   try {
     await db("edition_decisions", { method: "POST", prefer: "return=minimal", body: { edition_id: id, decision, decided_by: "editor", notes: notes || null } });

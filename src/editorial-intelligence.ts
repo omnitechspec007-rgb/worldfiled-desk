@@ -53,6 +53,7 @@ function eligibilityReasons(story: EditorialStory): string[] {
   if (["rejected", "needs_research"].includes(story.decision || "")) reasons.push("An editor has rejected this story or sent it back for research.");
   if (!["HIGH-POTENTIAL STORY", "STRONG EDITION CANDIDATE"].includes(story.recommendation)) reasons.push("The existing editorial assessment does not rate it as a strong candidate.");
   if (story.evidenceStrength.label !== "MODERATE") reasons.push("Evidence is below the current MODERATE eligibility threshold.");
+  if (!story.sources.some((source) => source.tier === "primary")) reasons.push("No official or primary source is attached. Reporting outlets alone are not enough for an automatically selected production story.");
   if (outlets.size < 2) reasons.push("Fewer than two distinct named outlets were retrieved; outlet count does not prove independent reporting.");
   if (story.sourceIndependence?.status === "known_shared_origin") reasons.push("Reviewed provenance identifies a shared upstream origin; copies are not independent corroboration.");
   if (story.sensationalismFlags.length) reasons.push("Sensational or vague-attribution wording requires editorial review: " + story.sensationalismFlags.join("; "));
@@ -99,6 +100,7 @@ export function buildEditorialIntelligence(stories: EditorialStory[]) {
   const standalonePicks = standalonePool.slice(0, 5);
   const standaloneNotSelected = ranked.filter((p) => p.story.recommendation !== "HIGH-POTENTIAL STORY");
   const roundupPicks = diverseOrder(eligible, 7);
+  const textBriefingPicks = diverseOrder(eligible, 18);
   const narrated: NarratedPlan[] = [
     { durationSeconds: 60, stories: diverseOrder(eligible, 3), estimatedStoryCount: Math.min(3, eligible.length), rationale: "Up to three developments, leaving room for a clear opening, factual context and close. The production blueprint allocates the actual speaking time." },
     { durationSeconds: 90, stories: diverseOrder(eligible, 4), estimatedStoryCount: Math.min(4, eligible.length), rationale: "Up to four developments, with enough room for a useful explanation rather than headline-speed compression." },
@@ -115,13 +117,15 @@ export function buildEditorialIntelligence(stories: EditorialStory[]) {
     standalonePicks,
     standaloneNotSelected,
     roundupPicks,
+    textBriefingPicks,
     narrated,
     held,
     notSelected,
     limitations: [
       "This is an explainable editorial hypothesis, not a prediction of views or a claim that an algorithm knows every viewer's psychology.",
       "Evidence eligibility is a hard gate; curiosity, novelty or significance cannot compensate for weak evidence.",
-      "Research currently relies primarily on headlines and snippets. Editors must inspect source material and verify claims.",
+      "Automatic production selection requires at least one official or primary source; reporting outlets alone are not sufficient.",
+      "Retrieved evidence is limited to source metadata and short excerpts where available; attribute institutional statements and do not present them as independently established fact.",
       "Unknown publisher ownership or article lineage is not counted as independent corroboration.",
       "The narrated story counts are selection ceilings. The production blueprint must allocate actual runtime and may produce a shorter edition.",
     ],
