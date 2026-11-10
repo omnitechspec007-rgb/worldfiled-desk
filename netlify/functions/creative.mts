@@ -1,10 +1,9 @@
-// Creative Prompt Architect API. Approved stories only. Builds a story-specific Claude production prompt.
+// Creative Prompt Architect API. Source-screened stories only; human approval is a publishing decision.
 //   GET  ?storyId=ID            recommendation preview (nothing is saved)
 //   POST {storyId, ...}         generate a prompt and save it as the next version in Prompt History
 //   GET  ?history=1             list saved prompts (no prompt text)
-//   GET  ?id=ID                 one saved prompt; the text is withheld if its approval is no longer current
-// Two independent approval gates: this function checks the newest human decision, and the database
-// trigger on creative_prompts checks it again at insert time.
+//   GET  ?id=ID                 one saved prompt; the text is withheld if its source evidence or editorial decision is no longer current
+// Draft generation does not require an approval or manual claim register. Explicit rejections still block it.
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { buildEvidencePack, classCounts, PackTooLarge, type EvStory } from "../lib/evidence-pack.mts";
@@ -93,12 +92,13 @@ export default async (req: Request) => {
 
 async function preview(storyId: string) {
   const dec = await latestDecision(storyId);
-  if (dec?.decision !== "approved") return json({ error: "not_approved" }, 409);
+  if (dec && ["rejected", "needs_research"].includes(dec.decision)) return json({ error: "member_blocked", detail: "This story was explicitly rejected or sent back for research." }, 409);
   const loaded = await loadStory(storyId);
   if (!loaded) return json({ error: "not_found" }, 404);
   if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "This story has no sources currently permitted by the content-access policy. Review its source links before creating a production prompt." }, 409);
+  if (!loaded.story.sources.some((source) => source.tier === "primary")) return json({ error: "primary_source_required", detail: "A story needs at least one official or primary source before WorldFiled can prepare a production prompt." }, 409);
   const rec = recommendTreatment(loaded.story);
-  const pack = buildEvidencePack(loaded.story, { decisionNote: dec.notes });
+  const pack = buildEvidencePack(loaded.story);
   return json({
     storyId,
     headline: loaded.story.headline,
@@ -125,14 +125,15 @@ async function generate(req: Request) {
   const parentId = typeof b.parentId === "string" && UUID.test(b.parentId) ? b.parentId : null;
 
   const dec = await latestDecision(storyId);
-  if (dec?.decision !== "approved") return json({ error: "not_approved" }, 409);
+  if (dec && ["rejected", "needs_research"].includes(dec.decision)) return json({ error: "member_blocked", detail: "This story was explicitly rejected or sent back for research." }, 409);
   const loaded = await loadStory(storyId);
   if (!loaded) return json({ error: "not_found" }, 404);
   if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "This story has no sources currently permitted by the content-access policy. Review its source links before creating a production prompt." }, 409);
+  if (!loaded.story.sources.some((source) => source.tier === "primary")) return json({ error: "primary_source_required", detail: "A story needs at least one official or primary source before WorldFiled can prepare a production prompt." }, 409);
 
   const rec = recommendTreatment(loaded.story);
   const treatment = (typeof b.treatmentKey === "string" && getTreatment(b.treatmentKey)) || rec.treatment;
-  const pack = buildEvidencePack(loaded.story, { conflictNote: typeof b.conflictNote === "string" ? b.conflictNote : null, decisionNote: dec.notes });
+  const pack = buildEvidencePack(loaded.story, { conflictNote: typeof b.conflictNote === "string" ? b.conflictNote : null });
   const { rules, installed: rulesInstalled } = await approvedRules();
   const out = buildArchitectPrompt({
     pack,
@@ -191,7 +192,7 @@ async function generate(req: Request) {
     });
     return json({ ...reply, saved: true, id: saved?.id ?? null, version });
   } catch (e) {
-    if (e instanceof DbError && e.upstream === 400) return json({ error: "refused_by_database", detail: "The database refused this record (the approval is no longer current, or the record exceeds a size limit). Nothing was saved." }, 409);
+    if (e instanceof DbError && e.upstream === 400) return json({ error: "refused_by_database", detail: "The database refused this record (the story was rejected or sent back for research, or the record exceeds a size limit). Nothing was saved." }, 409);
     if (e instanceof DbError && e.upstream === 409) return json({ error: "version_conflict", detail: "Another prompt was saved at the same moment. Please try again." }, 409);
     throw e;
   }
@@ -207,12 +208,12 @@ async function history() {
   }
   const ids = [...new Set(rows.map((r) => r.story_id))];
   const names = new Map<string, string>();
-  const current = new Map<string, string | null>();
+  const current = new Map<string, { id: string | null; blocked: boolean }>();
   for (let i = 0; i < ids.length; i += 30) {
     const part = ids.slice(i, i + 30).join(",");
     for (const s of await db<any[]>(`stories?id=in.(${part})&select=id,headline`)) names.set(s.id, s.headline);
     for (const d of await db<any[]>(`editorial_decisions?story_id=in.(${part})&select=id,story_id,decision,created_at&order=created_at.desc,id.desc`)) {
-      if (!current.has(d.story_id)) current.set(d.story_id, d.decision === "approved" ? d.id : null);
+      if (!current.has(d.story_id)) current.set(d.story_id, { id: d.id, blocked: ["rejected", "needs_research"].includes(d.decision) });
     }
   }
   return json({
@@ -223,7 +224,7 @@ async function history() {
       version: r.version,
       treatment: r.treatment_key,
       createdAt: r.created_at,
-      approvalCurrent: current.get(r.story_id) === r.approval_decision_id && !!r.approval_decision_id,
+      decisionCurrent: !current.get(r.story_id)?.blocked && (current.get(r.story_id)?.id ?? null) === (r.approval_decision_id ?? null),
     })),
   });
 }
@@ -238,8 +239,8 @@ async function one(id: string) {
   const currentUrls = new Set((loaded?.story.sources ?? []).map((source) => source.url));
   const snapshotUrls = (r.evidence_snapshot?.sources ?? []).map((source: any) => source.url).filter((url: unknown): url is string => typeof url === "string");
   const evidenceAccessible = Boolean(loaded?.story.sources.length) && snapshotUrls.every((url: string) => currentUrls.has(url));
-  const approvalCurrent = dec?.decision === "approved" && dec.id === r.approval_decision_id;
-  const current = approvalCurrent && evidenceAccessible;
+  const decisionCurrent = !(dec && ["rejected", "needs_research"].includes(dec.decision)) && (dec?.id ?? null) === (r.approval_decision_id ?? null);
+  const current = decisionCurrent && evidenceAccessible;
   return json({
     id: r.id,
     storyId: r.story_id,
@@ -247,13 +248,13 @@ async function one(id: string) {
     treatment: r.treatment_key,
     createdAt: r.created_at,
     brandVersion: r.brand_spec_version,
-    approvalCurrent,
+    decisionCurrent,
     evidenceAccessible,
     roles: r.roles,
     rationale: r.rationale,
     tools: r.tools,
     evidenceClasses: classCounts(r.evidence_snapshot),
     prompt: current ? r.prompt_text : null,
-    withheld: current ? undefined : !approvalCurrent ? "This story's approval is no longer current (it was rejected, sent back for research, or approved again later). The prompt is kept as history but cannot be copied. Re-approve the story and regenerate." : "One or more source links in this saved prompt are no longer permitted by the current content-access policy. The prompt is retained as history but cannot be copied; regenerate using currently permitted evidence.",
+    withheld: current ? undefined : !decisionCurrent ? "This story was rejected, sent back for research, or received a newer editorial decision. The prompt is kept as history but cannot be copied; resolve the story and generate a fresh version." : "One or more source links in this saved prompt are no longer permitted by the current content-access policy. The prompt is retained as history but cannot be copied; regenerate using currently permitted evidence.",
   });
 }
