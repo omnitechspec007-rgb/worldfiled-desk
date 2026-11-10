@@ -116,9 +116,9 @@ function postgrest(url: URL, init: any) {
       if (table === "creative_prompts") {
         // Emulates the database triggers/checks (the real SQL is tested separately on a real Postgres).
         const dec = T("editorial_decisions").filter((d) => d.story_id === item.story_id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
-        if (dec?.decision !== "approved") return new Response("{}", { status: 400 });
+        if (dec && ["rejected", "needs_research"].includes(dec.decision)) return new Response("{}", { status: 400 });
         if (String(item.prompt_text).length > 120000) return new Response("{}", { status: 400 });
-        item.approval_decision_id = dec.id;
+        item.approval_decision_id = dec?.id ?? null;
       }
       const dup = keys.length ? rows.find((r) => keys.every((k) => r[k] === item[k])) : null;
       if (dup) { if (prefer.includes("merge-duplicates")) Object.assign(dup, item); continue; }
