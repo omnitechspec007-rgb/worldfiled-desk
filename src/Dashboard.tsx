@@ -126,8 +126,8 @@ export default function Dashboard() {
         {!busy && status?.latest?.status === "completed" && (
           <div className="panel newsroom-next">
             <h2>Your research is ready</h2>
-            <p>WorldFiled has finished this research run. Open your automatically prepared story selections to review standalone text-video picks, a balanced roundup and narrated-edition options.</p>
-            <Link className="primary newsroom-next-link" to="/editions">VIEW MY STORY SELECTIONS</Link>
+            <p>WorldFiled has finished this research run. Open the Edition Desk and it will automatically save the written briefing, static text roundup, narrated video and eligible standalone text cards with their copy-ready prompts. Human approval is required before publishing, not before preparation.</p>
+            <Link className="primary newsroom-next-link" to="/editions">OPEN AUTOMATIC PRODUCTION DESK</Link>
           </div>
         )}
         {!viewCleared && stages.some((s) => s.status !== "pending") && (
