@@ -256,13 +256,10 @@ export async function editionClaimClearance(storyIds: string[]): Promise<ClaimCl
   return { ready: blocked.length === 0, blocked };
 }
 
-export type Validity = { current: boolean; reasons: string[]; approvalCurrent: boolean; membersCurrent: boolean; storiesOk: boolean; evidenceCurrent: boolean | null };
+export type Validity = { current: boolean; reasons: string[]; membersCurrent: boolean; storiesOk: boolean; evidenceCurrent: boolean | null };
 /** Decide whether a saved edition prompt is still valid. Kept history is never deleted; this only controls reuse. */
 export async function promptValidity(p: any, now = Date.now(), checkEvidence = true): Promise<Validity> {
   const reasons: string[] = [];
-  const dec = await latestEditionDecision(p.edition_id);
-  const approvalCurrent = dec?.decision === "approved" && dec.id === p.approval_decision_id;
-  if (!approvalCurrent) reasons.push("The edition's approval is no longer current (it was rejected, sent back for changes, or approved again later).");
   const ids = await memberIds(p.edition_id);
   const membersCurrent = membersKey(ids) === p.members_hash;
   if (!membersCurrent) reasons.push("The edition's developments or their order changed after this prompt was written.");
@@ -278,6 +275,6 @@ export async function promptValidity(p: any, now = Date.now(), checkEvidence = t
       if (!evidenceCurrent) reasons.push("The retrieved evidence for one or more developments has changed since this prompt was written.");
     } else { evidenceCurrent = false; reasons.push("A development in this edition is no longer available in the database."); }
   }
-  return { current: reasons.length === 0, reasons, approvalCurrent, membersCurrent, storiesOk, evidenceCurrent };
+  return { current: reasons.length === 0, reasons, membersCurrent, storiesOk, evidenceCurrent };
 }
 export { DbError };
