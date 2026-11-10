@@ -101,7 +101,7 @@ export default function PromptHistory() {
         </div>
       )}
       <h2>Edition prompts</h2>
-      <p className="meta">Edition prompts are saved unchanged with the exact developments and evidence they used. A prompt can only be copied while the edition's approval, its developments and their evidence are all unchanged.</p>
+      <p className="meta">Edition prompts are saved unchanged with the exact developments and evidence they used. A prompt can be copied while its selected stories and source evidence remain current. Human editorial approval is required before publishing, not before copying a production draft.</p>
       {eMissing && <div className="panel"><p className="status bad">NOT INSTALLED: Edition Prompt History needs migrations 004 and 006. Run them in order before generating daily editions.</p></div>}
       {eItems && eItems.length === 0 && !eMissing && <div className="panel"><p>No edition prompts saved yet.</p></div>}
       {eItems && eItems.length > 0 && (
