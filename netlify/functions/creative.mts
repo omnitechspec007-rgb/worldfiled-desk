@@ -4,6 +4,8 @@
 //   GET  ?history=1             list saved prompts (no prompt text)
 //   GET  ?id=ID                 one saved prompt; the text is withheld if its source evidence or editorial decision is no longer current
 // Draft generation does not require an approval or manual claim register. Explicit rejections still block it.
+// Source role (primary vs reporting) is evidence metadata, not a universal prompt-generation gate.
+// The approved source-pool membership is enforced by research/source registry configuration; source quality and uncertainty remain visible in the evidence pack.
 import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { buildEvidencePack, classCounts, PackTooLarge, type EvStory } from "../lib/evidence-pack.mts";
@@ -96,7 +98,6 @@ async function preview(storyId: string) {
   const loaded = await loadStory(storyId);
   if (!loaded) return json({ error: "not_found" }, 404);
   if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "This story has no sources currently permitted by the content-access policy. Review its source links before creating a production prompt." }, 409);
-  if (!loaded.story.sources.some((source) => source.tier === "primary")) return json({ error: "primary_source_required", detail: "A story needs at least one official or primary source before WorldFiled can prepare a production prompt." }, 409);
   const rec = recommendTreatment(loaded.story);
   const pack = buildEvidencePack(loaded.story);
   return json({
