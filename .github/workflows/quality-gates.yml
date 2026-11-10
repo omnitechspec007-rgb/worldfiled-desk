@@ -46,7 +46,7 @@ jobs:
       - name: Install isolated PostgreSQL test client
         run: npm install --no-save --no-audit --no-fund pg
       - name: Run real PostgreSQL migration and transaction tests
-        run: node tests/db/migration008.test.mjs && node tests/db/migration015.test.mjs
+        run: node tests/db/migration008.test.mjs && node tests/db/migration015.test.mjs && node tests/db/migration016.test.mjs
       - name: Generate Vercel API router
         run: npm run build:api
       - name: Run complete automated test suite
