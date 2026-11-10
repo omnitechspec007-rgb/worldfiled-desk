@@ -235,6 +235,12 @@ export default function EditionDesk() {
       if (!r.ok) throw new Error();
       const d = await r.json();
       openSet({ ids: d.ids, title: d.title, angle: d.angle, structure: d.structure, editionKind: d.editionKind }, id);
+      if (d.productionProfile?.format === "narrated_video") {
+        setDeliverable("script_storyboard");
+        setDuration(d.productionProfile.durationSeconds ?? 90);
+      } else if (d.productionProfile?.format === "text_card" || d.productionProfile?.format === "text_roundup") {
+        setDeliverable("static_roundup_6s");
+      }
       setApproval(d.approval);
       if (d.missing?.length) setMsg("Some developments in this edition are no longer available.");
     } catch { setMsg("Could not open that edition."); }
@@ -393,6 +399,20 @@ export default function EditionDesk() {
         <div className="panel">
           <h2>Automatic story selections</h2>
           <p className="meta">Research has finished. This desk separates three editorial decisions: individual text-card stories, a balanced multi-story static roundup, and a coherent narrated edition. The ranking uses transparent editorial heuristics; it is not a prediction of views or a claim to know every viewer's psychology. Evidence and attribution are eligibility gates, not points that can be offset by curiosity.</p>
+          {desk.saved.editions.some((e) => e.productionProfile) && (
+            <div className="panel">
+              <h3>Automatically prepared from completed research</h3>
+              <p className="meta">Saved drafts created from your completed research runs. Open a package to inspect its exact story selection. Factual verification and human editorial approval are still required; nothing has been published.</p>
+              {desk.saved.editions.filter((e) => e.productionProfile).map((e) => (
+                <div className="roundup-card-editor" key={e.id}>
+                  <p className="rank">{e.productionProfile!.format === "text_card" ? "SIX-SECOND TEXT CARD" : e.productionProfile!.format === "text_roundup" ? "SIX-SECOND TEXT ROUNDUP" : "NARRATED VIDEO · " + e.productionProfile!.durationSeconds + " SECONDS"}</p>
+                  <strong>{e.title}</strong>
+                  <p className="meta">{e.members} stor{e.members === 1 ? "y" : "ies"} · {e.approvalCurrent ? "approval current" : "not approved"}</p>
+                  <button className="primary" onClick={() => void openSaved(e.id)} disabled={busy}>Open prepared package</button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="confirm">
             <strong>{intelligence.eligibleCount} developments passed the current evidence and attribution screen</strong>
             <p className="meta">The engine requires fresh stories, a strong existing editorial recommendation, MODERATE evidence, at least two named outlets, no detected sensational wording, no known shared upstream origin, and at least one complete named-source/date/link record. Two outlet names do not prove independent reporting.</p>
@@ -521,7 +541,7 @@ export default function EditionDesk() {
             <table>
               <thead><tr><th>Edition</th><th>Profile</th><th>Structure</th><th>Coherence</th><th>Developments</th><th>Approval</th><th></th></tr></thead>
               <tbody>{desk.saved.editions.map((e) => (
-                <tr key={e.id}><td>{e.title}</td><td>{e.editionKind === "text" ? "Text briefing" : "Video bulletin"}</td><td>{e.structureLabel}</td><td>{e.verdict ?? "—"}{e.score !== null ? ` ${e.score}` : ""}</td><td>{e.members}</td>
+                <tr key={e.id}><td>{e.title}</td><td>{e.productionProfile ? (e.productionProfile.format === "text_card" ? "Six-second text card" : e.productionProfile.format === "text_roundup" ? "Six-second text roundup" : "Narrated video · " + e.productionProfile.durationSeconds + "s") : e.editionKind === "text" ? "Text briefing" : "Video bulletin"}</td><td>{e.structureLabel}</td><td>{e.verdict ?? "—"}{e.score !== null ? ` ${e.score}` : ""}</td><td>{e.members}</td>
                   <td className={e.approvalCurrent ? "ok" : "bad"}>{e.approvalCurrent ? "approved (current)" : e.decision ? `${e.decision.replace(/_/g, " ")}${e.decision === "approved" ? " (no longer current)" : ""}` : "not decided"}</td>
                   <td><button onClick={() => void openSaved(e.id)}>Open</button></td></tr>))}</tbody>
             </table>

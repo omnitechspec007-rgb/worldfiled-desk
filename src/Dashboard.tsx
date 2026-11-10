@@ -51,7 +51,11 @@ export default function Dashboard() {
   const [viewCleared, setViewCleared] = useState(false);
   const [windowDays, setWindowDays] = useState("1");
   const [region, setRegion] = useState("all");
-  const lock = useRef(false);\n  const autoPrepareRuns = useRef(new Set<string>());\n  const [autoPreparation, setAutoPreparation] = useState<AutoPreparation | null>(null);\n  const [autoPreparationError, setAutoPreparationError] = useState("");\n  const [autoPreparingRun, setAutoPreparingRun] = useState<string | null>(null);
+  const lock = useRef(false);
+  const autoPrepareRuns = useRef(new Set<string>());
+  const [autoPreparation, setAutoPreparation] = useState<AutoPreparation | null>(null);
+  const [autoPreparationError, setAutoPreparationError] = useState("");
+  const [autoPreparingRun, setAutoPreparingRun] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -72,6 +76,34 @@ export default function Dashboard() {
   }, [load]);
 
   const unfinished = status?.latest && ["created", "running", "incomplete"].includes(status.latest.status);
+
+  const prepareOutputs = useCallback(async (runId: string) => {
+    if (autoPrepareRuns.current.has(runId)) return;
+    autoPrepareRuns.current.add(runId);
+    setAutoPreparingRun(runId);
+    setAutoPreparationError("");
+    try {
+      const response = await fetch("/.netlify/functions/editions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "auto_prepare", runId }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data) throw new Error(data?.detail ?? "Automatic production setup failed.");
+      setAutoPreparation(data as AutoPreparation);
+    } catch (error) {
+      autoPrepareRuns.current.delete(runId);
+      setAutoPreparationError(error instanceof Error ? error.message : "Automatic production setup failed.");
+    } finally {
+      setAutoPreparingRun(null);
+    }
+  }, []);
+
+  // Recover the latest completed run after a refresh or interrupted browser session.
+  // The server-side batch is idempotent, so repeated calls do not create duplicates.
+  useEffect(() => {
+    if (status?.latest?.status === "completed") void prepareOutputs(status.latest.id);
+  }, [status?.latest?.id, status?.latest?.status, prepareOutputs]);
 
   const run = async () => {
     if (lock.current) return; // ignore double clicks while a run is in progress
@@ -136,8 +168,33 @@ export default function Dashboard() {
         {!busy && status?.latest?.status === "completed" && (
           <div className="panel newsroom-next">
             <h2>Your research is ready</h2>
-            <p>WorldFiled has finished this research run. Open your automatically prepared story selections to review standalone text-video picks, a balanced roundup and narrated-edition options.</p>
-            <Link className="primary newsroom-next-link" to="/editions">VIEW MY STORY SELECTIONS</Link>
+            <p>WorldFiled has finished the research stages. It is preparing separate text-card drafts and one narrated-video draft from stories that pass the evidence and attribution screen.</p>
+            {autoPreparingRun === status.latest.id && <p className="status">Preparing your production packages…</p>}
+            {autoPreparationError && (
+              <div className="status bad">
+                <p>{autoPreparationError}</p>
+                <button type="button" onClick={() => void prepareOutputs(status.latest!.id)}>RETRY AUTOMATIC SETUP</button>
+              </div>
+            )}
+            {autoPreparation?.researchRunId === status.latest.id && (
+              <>
+                {autoPreparation.status === "empty" ? (
+                  <p>No stories passed the current production eligibility rules, so WorldFiled created no drafts rather than filling the schedule with weaker material. Review the held-story reasons in Story Selections.</p>
+                ) : (
+                  <>
+                    <p><strong>{autoPreparation.packageCount} draft packages prepared.</strong> {autoPreparation.eligibility.eligibleCount} stories passed the screen; {autoPreparation.eligibility.heldCount} were held back.</p>
+                    <ul className="comps">
+                      {autoPreparation.packages.map((p) => (
+                        <li key={p.key}><strong>{p.format === "text_card" ? "Six-second text card" : p.format === "text_roundup" ? "Six-second text roundup" : "Narrated video (" + p.durationSeconds + " seconds)"}</strong> — {p.title} ({p.storyIds.length} stor{p.storyIds.length === 1 ? "y" : "ies"})</li>
+                      ))}
+                    </ul>
+                    {autoPreparation.replayed && <p className="meta">These are the original packages for this research run; retrying did not create duplicates.</p>}
+                  </>
+                )}
+                <p className="meta">These are drafts only. Human factual verification and editorial approval remain required. Nothing has been exported or published.</p>
+                <Link className="primary newsroom-next-link" to="/editions">OPEN MY PREPARED PACKAGES</Link>
+              </>
+            )}
           </div>
         )}
         {!viewCleared && stages.some((s) => s.status !== "pending") && (
