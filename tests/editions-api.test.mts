@@ -97,11 +97,11 @@ function story(headline: string, category: string, srcs: [string, string, string
 }
 const jp = story("Japan orders new emergency preparedness plan with stockpiles for families", "Government and institutional decisions", [["Tokyo Gazette", "Japan updates national preparedness and stockpile directive", "Government ministry orders households and local councils to stockpile water and food for disasters.", true], ["Tokyo Times", "Tokyo tightens emergency readiness rules", "Families must keep supplies; shelters and early warning expanded in Japan."]]);
 const fi = story("Finland publishes civil defence guide on household resilience and shelters", "Public policy", [["Helsinki Gazette", "Finland issues civil defence guidance for every household", "Agency tells citizens to prepare emergency supplies; shelters and resilience plan updated.", true], ["Helsinki Times", "Finnish residents get preparedness booklet", "Authorities say crisis plan and readiness for disruption has been rewritten in Finland."]]);
-const cl = story("Chile launches earthquake early warning and evacuation programme", "Public policy", [["Santiago Gazette", "Chile expands early warning and evacuation drills nationwide", "The government programme improves disaster readiness and shelters in Chile."], ["Santiago Times", "Chile rolls out emergency alert system", "Authorities in Chile say preparedness for earthquakes and tsunami evacuation will be tested."]]);
+const cl = story("Chile launches earthquake early warning and evacuation programme", "Public policy", [["Santiago Gazette", "Chile expands early warning and evacuation drills nationwide", "The government programme improves disaster readiness and shelters in Chile.", true], ["Santiago Times", "Chile rolls out emergency alert system", "Authorities in Chile say preparedness for earthquakes and tsunami evacuation will be tested."]]);
 const mx = story("Mixed registry and relationship ownership review fixture", "Public policy", [["Metro Gazette", "Metro Gazette original report", "A reviewed original report."], ["Metro Daily", "Metro Daily original report", "A reviewed original report."]]);
 const rt = story("Central bank in Brazil raises interest rates as inflation climbs", "Business and economic developments", [["Brasilia Gazette", "Brazil raises interest rates to fight inflation", "The central bank decision affects mortgages, prices and wages."], ["Brasilia Times", "Brazilian central bank hikes rate", "Inflation and currency pressure drive the rate rise in Brazil."]]);
-const sp = story("Telescope finds exoplanet atmosphere with water signal, researchers say", "Scientific discoveries", [["Canberra Gazette", "Telescope detects water in exoplanet atmosphere", "Astronomers report a new finding from the space telescope."], ["Canberra Times", "Astronomers find water vapour on distant planet", "Researchers say the telescope study is a breakthrough."]]);
-const old = story("Spain republishes old earthquake preparedness guide", "Public policy", [["Madrid Gazette", "Spain preparedness guide", "Old"]]); T("retrieved_sources").filter((r) => r.title === "Spain preparedness guide").forEach((r) => (r.published_at = at(24 * 40)));
+const sp = story("Telescope finds exoplanet atmosphere with water signal, researchers say", "Scientific discoveries", [["Canberra Gazette", "Telescope detects water in exoplanet atmosphere", "Astronomers report a new finding from the space telescope.", true], ["Canberra Times", "Astronomers find water vapour on distant planet", "Researchers say the telescope study is a breakthrough."]]);
+const old = story("Spain republishes old earthquake preparedness guide", "Public policy", [["Madrid Gazette", "Spain preparedness guide", "Old", true]]); T("retrieved_sources").filter((r) => r.title === "Spain preparedness guide").forEach((r) => (r.published_at = at(24 * 40)));
 const decide = (sid: string, decision: string) => T("editorial_decisions").push({ id: crypto.randomUUID(), story_id: sid, decision, decided_by: "ed", created_at: new Date(Date.now() + seq++).toISOString() });
 
 // Provenance integration fixtures: reviewed records only; unknown defaults must remain unknown.
@@ -225,8 +225,8 @@ const g5 = changedPrompt; assert(g5.saved && T("edition_prompts").at(-1).members
 await call(edFn, { action: "decide", id: eid, decision: "rejected", notes: "No" }); assert.equal((await call(epFn, { editionId: eid })).status, 200); assert((await (await get(epFn, `id=${g5.id}`)).json()).prompt); ok("edition rejection controls publishing approval, not access to an already prepared production draft");
 
 console.log("Manual multi-selection: build my own edition from individual developments");
-const fb = story("Real Madrid beat Barcelona 3-1 in the league clash in Spain", "Sports", [["Madrid Sport", "Real Madrid win the clasico 3-1 in Spain", "The match result moves the league race in Spain."], ["Madrid Daily", "Spain football: Madrid beat Barcelona", "Fans in Spain react to the result."]]);
-const ctr = story("French minister faces criticism after incident at public event in France", "Politics", [["Paris Gazette", "French minister under pressure after incident in France", "The controversy over the incident grows in France; opponents demand an explanation."], ["Paris Times", "Minister in France apologises after incident", "Critics in France say the incident raised questions."]]);
+const fb = story("Real Madrid beat Barcelona 3-1 in the league clash in Spain", "Sports", [["Madrid Sport", "Real Madrid win the clasico 3-1 in Spain", "The match result moves the league race in Spain.", true], ["Madrid Daily", "Spain football: Madrid beat Barcelona", "Fans in Spain react to the result."]]);
+const ctr = story("French minister faces criticism after incident at public event in France", "Politics", [["Paris Gazette", "French minister under pressure after incident in France", "The controversy over the incident grows in France; opponents demand an explanation.", true], ["Paris Times", "Minister in France apologises after incident", "Critics in France say the incident raised questions."]]);
 const mine = [sp, fb, ctr, old];
 const mev = await (await get(edFn, `ids=${mine.join(",")}`)).json();
 assert.equal(mev.evaluation.structure, "news_roundup"); assert.equal(mev.evaluation.roundup, true); assert(/do not share a genuine theme/.test(mev.evaluation.check.belongTogether)); assert.equal(mev.evaluation.ids.length, 4); ok("four hand-picked unrelated developments (one older than the window) are accepted and recommended as a multi-topic news roundup, no theme invented");
@@ -256,4 +256,19 @@ failNext = { table: "editions", method: "POST", status: 500 }; assert.equal((awa
 missing = new Set(["edition_prompts"]); const uns = await (await call(epFn, { editionId: eid })).json(); assert(uns.saved === false && uns.notInstalled && uns.prompt.length > 1000); assert((await (await get(epFn, "history=1")).json()).notInstalled); missing = new Set(); ok("before migration 004 (prompt table): prompt still works but is clearly marked NOT saved");
 missing = new Set(["editions"]); const d2 = await (await get(edFn, "")).json(); assert.equal(d2.saved.installed, false); assert(d2.suggestions.length >= 1); assert.equal((await call(edFn, { action: "save", title: "t", ids: ids3 })).status, 409); missing = new Set(); ok("before migration 004: the desk still suggests editions; saving says NOT INSTALLED and saves nothing");
 assert.equal((await get(epFn, "id=zzz")).status, 400); assert.equal((await get(epFn, "editionId=zzz")).status, 400); ok("bad ids rejected");
+
+const preapprovalEdition = await (await call(edFn, { action: "save", title: "Prompt before publishing approval", ids: [jp] })).json();
+const preapprovalPrompt = await call(epFn, { editionId: preapprovalEdition.id, deliverable: "script_storyboard", durationSeconds: 60 });
+assert.equal(preapprovalPrompt.status, 200);
+assert.equal(T("edition_prompts").at(-1).approval_decision_id, null);
+assert.equal(T("edition_decisions").some((d) => d.edition_id === preapprovalEdition.id), false);
+ok("a copy-ready production prompt is generated and saved before any human publishing approval");
+
+const unqualified = story("A report with no official primary source attached", "Public policy", [["Unverified Gazette", "A single-source report", "An unsupported claim without an original source."]]);
+const unqualifiedEdition = await (await call(edFn, { action: "save", title: "Primary source test", ids: [unqualified] })).json();
+const unqualifiedPrompt = await call(epFn, { editionId: unqualifiedEdition.id });
+assert.equal(unqualifiedPrompt.status, 409);
+assert.equal((await unqualifiedPrompt.json()).error, "primary_source_required");
+assert.equal((await call(edFn, { action: "decide", id: unqualifiedEdition.id, decision: "approved", acknowledged: true })).status, 409);
+ok("stories without an official or primary source are blocked from prompt generation and publication approval");
 console.log("\nAll edition API checks passed");
