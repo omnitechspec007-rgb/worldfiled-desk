@@ -315,8 +315,12 @@ assert.equal((await call(decideFn, { storyId: sid, decision: "publish", acknowle
 assert.equal(T("editorial_decisions").length, 0); ok("refused attempts leave no decision record");
 assert.equal((await get(creativeFn, `storyId=${sid}`)).status, 200); assert.equal(T("creative_prompts").length, 0); ok("a source-qualified story can be previewed before human approval or claim-register completion");
 assert.equal((await call(creativeFn, { storyId: sid }, null)).status, 401); assert.equal((await get(creativeFn, "history=1", null)).status, 401); assert.equal((await call(referenceFn, { action: "seed" }, null)).status, 401); ok("architect, history and reference library require sign-in");
-const blockedApproval = await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" }, cookie, crypto.randomUUID());
-assert.equal(blockedApproval.status, 409); ok("unverified story cannot be editorially approved");
+const sourceFirstApproval = await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Reviewed primary source" }, cookie, crypto.randomUUID());
+assert.equal(sourceFirstApproval.status, 200); ok("source-first editorial approval does not require a manual claim register");
+const earlyPromptResponse = await call(creativeFn, { storyId: sid, deliverable: "script_storyboard", durationSeconds: 60, angle: "Before claim-register completion" });
+const earlyPrompt = await earlyPromptResponse.json();
+assert.equal(earlyPromptResponse.status, 200); assert.equal(earlyPrompt.saved, true); assert.equal(earlyPrompt.version, 1);
+ok("a source-qualified single-story production prompt can be generated before manual claim verification");
 const sourceLink = T("story_source_links").find((x) => x.story_id === sid);
 const sourceRecord = T("retrieved_sources").find((x) => x.id === sourceLink.source_id);
 const claimId = crypto.randomUUID();
