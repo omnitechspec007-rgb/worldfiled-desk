@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 
-type Item = { id: string; storyId: string; headline: string; version: number; treatment: string; createdAt: string; approvalCurrent: boolean };
+type Item = { id: string; storyId: string; headline: string; version: number; treatment: string; createdAt: string; decisionCurrent: boolean };
 type EItem = { id: string; editionId: string; title: string; editionKind?: "video" | "text"; version: number; structure: string; deliverable: string; developments: number; createdAt: string; current: boolean; reasons: string[] };
 type EDetail = { id: string; version: number; title: string; editionKind?: "video" | "text"; prompt: string | null; withheld?: string; valid: boolean; reasons: string[] };
-type Detail = { id: string; version: number; prompt: string | null; withheld?: string; approvalCurrent: boolean; treatment: string };
+type Detail = { id: string; version: number; prompt: string | null; withheld?: string; decisionCurrent: boolean; treatment: string };
 
 export default function PromptHistory() {
   const [items, setItems] = useState<Item[] | null>(null);
@@ -79,7 +79,7 @@ export default function PromptHistory() {
                 <tr key={i.id}>
                   <td>{i.headline}</td><td>v{i.version}</td><td>{i.treatment.replace(/_/g, " ")}</td>
                   <td>{new Date(i.createdAt).toLocaleString()}</td>
-                  <td className={i.approvalCurrent ? "ok" : "bad"}>{i.approvalCurrent ? "current" : "no longer current"}</td>
+                  <td className={i.decisionCurrent ? "ok" : "bad"}>{i.decisionCurrent ? "current" : "no longer current"}</td>
                   <td><button onClick={() => void view(i.id)}>Open</button></td>
                 </tr>
               ))}
