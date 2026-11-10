@@ -114,8 +114,8 @@ export function assessDevelopment(s: Scored, sources: EvSource[], now = Date.now
     // pass the curiosity check on one source, with its single-source limitation preserved.
     const sensationalRisk = sensational.length > 0;
     if (recycled.length && s.get("novelty") <= 2) return { r: "RELEVANT BUT NOT TIMELY", w: "Wording suggests background or recycled reporting, and novelty is low." };
-    if (s.get("recency") <= 1 && s.newest && !s.hasPrimary && curiosity >= 25) return { r: "RELEVANT BUT NOT TIMELY", w: "Interesting, but the newest report is older than two days." };
-    if (live.length || (uncertainWords.length >= 2 && !s.hasPrimary)) return { r: "HOLD FOR FUTURE DEVELOPMENTS", w: "Details are provisional or still developing; wait for a confirmed outcome." };
+    if (s.get("recency") <= 1 && s.newest && curiosity >= 25) return { r: "RELEVANT BUT NOT TIMELY", w: "Interesting, but the newest report is older than two days." };
+    if (live.length || uncertainWords.length >= 2) return { r: "HOLD FOR FUTURE DEVELOPMENTS", w: "Details are provisional or still developing; wait for a confirmed outcome." };
     if (sensationalRisk && (curiosity >= 25 || sig >= 3)) return { r: "INTERESTING BUT NEEDS MORE EVIDENCE", w: "Sensational wording or vague attribution needs editorial scrutiny; retain the curiosity signal, but do not promote this as a routine production candidate." };
     if (!sensationalRisk && curiosity >= 45) return { r: "HIGH-POTENTIAL STORY", w: `Strong curiosity mechanisms. Evidence status is ${corroborated ? "corroborated or official" : "single-source / not independently corroborated"} and must remain explicit in the production brief.` };
     if (!sensationalRisk && (themes.length > 0 || countries.length > 0) && (curiosity >= 25 || sig >= 3)) return { r: "STRONG EDITION CANDIDATE", w: `Curiosity check passed and carries ${themes.length ? `the theme "${themes[0].label}"` : "a clear place"}. Evidence status is ${corroborated ? "corroborated or official" : "single-source / not independently corroborated"}; do not present unverified details as established fact.` };
