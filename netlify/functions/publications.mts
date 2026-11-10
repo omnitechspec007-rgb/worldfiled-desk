@@ -106,11 +106,11 @@ async function loadEligibleEditions() {
   });
   const allStoryIds = [...new Set(candidates.flatMap((c) => c.ids))];
   if (!allStoryIds.length) return [];
-  const stories = await db<any[]>(`stories?id=in.(${allStoryIds.join(",")})&select=id,headline,verification_status,editorial_status`);
+  const stories = await db<any[]>(`stories?id=in.(${allStoryIds.join(",")})&select=id,headline`);
   const storyMap = new Map(stories.map((s) => [s.id, s]));
   return candidates.flatMap(({ edition, ids }) => {
     const rows = ids.map((id) => storyMap.get(id));
-    if (rows.some((s) => !s || s.verification_status !== "verified" || s.editorial_status !== "approved")) return [];
+    if (rows.some((s) => !s)) return [];
     return [{ id: edition.id, title: edition.title, editionKind: edition.edition_kind ?? "video", theme: edition.theme, members: rows.map((s) => ({ id: s!.id, headline: s!.headline })) }];
   });
 }
@@ -128,7 +128,7 @@ async function recordPublication(b: any) {
 
   const eligible = await loadEligibleEditions();
   const edition = eligible.find((e) => e.id === b.editionId);
-  if (!edition) return json({ error: "edition_not_cleared", detail: "Only editions with current human approval and fully verified, editorially approved stories can be logged as published." }, 409);
+  if (!edition) return json({ error: "edition_not_cleared", detail: "Only editions with current human editorial approval can be logged as published." }, 409);
   const created = await db<any[]>("publication_records", {
     method: "POST", prefer: "return=representation",
     body: { edition_id: edition.id, platform: b.platform, content_format: b.contentFormat, status: "published", published_at: publishedAt.toISOString(), post_url: postUrl || null, platform_post_id: platformPostId || null, account_label: accountLabel || null, notes: notes || null, recorded_by: "editor" },
