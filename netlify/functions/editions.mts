@@ -11,6 +11,7 @@ import { db, DbError } from "../lib/db.mts";
 import { evaluateEdition, suggestEditions, membersKey, STRUCTURE_LABEL, type Structure, type Dev } from "../lib/editions.mts";
 import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, attachSourceProvenance, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
 import { summarizeSourceIndependence } from "../lib/source-independence.mts";
+import { buildResearchOutputPackages } from "../lib/research-output-packages.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -53,6 +54,7 @@ export default async (req: Request) => {
       let b: any;
       try { b = JSON.parse(await req.text()); } catch { return json({ error: "bad_request" }, 400); }
       if (b.action === "save") return await save(b);
+      if (b.action === "auto_prepare") return await autoPrepare(b);
       if (b.action === "decide") return await decide(b);
       if (b.action === "archive") return await archive(b);
       return json({ error: "bad_request" }, 400);
@@ -64,14 +66,34 @@ export default async (req: Request) => {
   }
 };
 
+async function outputProfiles(editionIds: string[]) {
+  const profiles = new Map<string, any>();
+  if (!editionIds.length) return profiles;
+  try {
+    const rows = await db<any[]>(`research_output_packages?edition_id=in.(${editionIds.join(",")})&select=edition_id,research_run_id,package_key,content_format,duration_seconds`);
+    for (const row of rows) profiles.set(row.edition_id, {
+      researchRunId: row.research_run_id,
+      packageKey: row.package_key,
+      format: row.content_format,
+      durationSeconds: row.duration_seconds ?? null,
+    });
+  } catch (e) {
+    // Older databases remain usable for manual editions; auto-package metadata appears
+    // only after migration 016 is installed.
+    if (!(e instanceof DbError) || e.upstream !== 404) throw e;
+  }
+  return profiles;
+}
+
 async function savedEditions() {
   try {
     const rows = await db<any[]>("editions?status=eq.draft&select=id,title,theme,structure,edition_kind,coherence,created_at,updated_at&order=updated_at.desc&limit=40");
+    const profiles = await outputProfiles(rows.map((r) => r.id));
     const out = [];
     for (const r of rows) {
       const dec = await latestEditionDecision(r.id);
       const ids = await memberIds(r.id);
-      out.push({ id: r.id, title: r.title, theme: r.theme, editionKind: r.edition_kind ?? "video", structure: r.structure, structureLabel: STRUCTURE_LABEL[r.structure as Structure] ?? r.structure, verdict: r.coherence?.verdict ?? null, score: r.coherence?.score ?? null, members: ids.length, updatedAt: r.updated_at, decision: dec?.decision ?? null, approvalCurrent: dec?.decision === "approved" && dec.members_hash === membersKey(ids) });
+      out.push({ id: r.id, title: r.title, theme: r.theme, editionKind: r.edition_kind ?? "video", structure: r.structure, structureLabel: STRUCTURE_LABEL[r.structure as Structure] ?? r.structure, verdict: r.coherence?.verdict ?? null, score: r.coherence?.score ?? null, members: ids.length, updatedAt: r.updated_at, decision: dec?.decision ?? null, approvalCurrent: dec?.decision === "approved" && dec.members_hash === membersKey(ids), productionProfile: profiles.get(r.id) ?? null });
     }
     return { installed: true, editions: out };
   } catch (e) {
@@ -136,6 +158,7 @@ async function detail(id: string) {
   const e = rows[0];
   if (!e) return json({ error: "not_found" }, 404);
   const ids = await memberIds(id);
+  const profiles = await outputProfiles([id]);
   const dec = await latestEditionDecision(id);
   const decisions = await db<any[]>(`edition_decisions?edition_id=eq.${id}&select=id,decision,notes,decided_by,created_at,members_hash&order=created_at.desc,id.desc&limit=20`);
   const r = await evaluateIds(ids, e.structure);
@@ -143,7 +166,7 @@ async function detail(id: string) {
   const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(memberDecs.get(i)?.decision ?? ""));
   if ("loaded" in r) await attachSourceProvenance([...r.loaded.values()]);
   return json({
-    id, title: e.title, theme: e.theme, editionKind: e.edition_kind ?? "video", structure: e.structure, structureLabel: STRUCTURE_LABEL[e.structure as Structure], angle: e.narrative_angle, status: e.status,
+    id, title: e.title, theme: e.theme, editionKind: e.edition_kind ?? "video", structure: e.structure, structureLabel: STRUCTURE_LABEL[e.structure as Structure], angle: e.narrative_angle, status: e.status, productionProfile: profiles.get(id) ?? null,
     ids, membersKey: membersKey(ids), updatedAt: e.updated_at,
     approval: { decision: dec?.decision ?? null, notes: dec?.notes ?? null, decidedAt: dec?.created_at ?? null, current: dec?.decision === "approved" && dec.members_hash === membersKey(ids) && blocked.length === 0, membersChangedSinceApproval: dec?.decision === "approved" && dec.members_hash !== membersKey(ids), blockedMembers: blocked },
     decisions,
@@ -152,6 +175,89 @@ async function detail(id: string) {
     missing: "missing" in r ? r.missing : [],
     savedAssessment: { coherence: e.coherence, curiosity: e.curiosity },
   });
+}
+
+
+async function autoPrepare(b: any) {
+  const runId = typeof b.runId === "string" ? b.runId : "";
+  if (!UUID.test(runId)) return json({ error: "bad_request", detail: "A valid completed research run is required." }, 400);
+
+  const runs = await db<any[]>(`research_runs?id=eq.\${runId}&select=id,status`);
+  if (!runs[0]) return json({ error: "not_found", detail: "That research run could not be found." }, 404);
+  if (runs[0].status !== "completed") return json({ error: "run_not_completed", detail: "Production packages are prepared only after every research stage has completed." }, 409);
+
+  const shortlistRows = await db<any[]>(`shortlist?run_id=eq.\${runId}&select=story_id,rank&order=rank.asc`);
+  const shortlistIds = new Set(shortlistRows.map((row) => row.story_id));
+  const { all, decisions, flags } = await loadPool(Date.now(), 300);
+  const candidates = all.filter((item) => shortlistIds.has(item.dev.id));
+  await attachSourceProvenance(candidates);
+  const stories = candidates.map((item) => devSummary(
+    item.dev,
+    decisions.get(item.dev.id)?.decision ?? null,
+    flags.get(item.dev.id),
+  ));
+  const selection = buildResearchOutputPackages(stories);
+  const packages = [];
+
+  for (const plan of selection.packages) {
+    const forcedStructure = plan.storyIds.length > 1 ? "news_roundup" : undefined;
+    const evaluated = await evaluateIds(plan.storyIds, forcedStructure);
+    if ("missing" in evaluated) {
+      return json({ error: "selection_changed", detail: "A shortlisted story disappeared before package preparation. No packages were saved; refresh the research results and try again." }, 409);
+    }
+    const ev = evaluated.ev;
+    packages.push({
+      key: plan.key,
+      format: plan.format,
+      durationSeconds: plan.durationSeconds,
+      title: plan.title,
+      storyIds: plan.storyIds,
+      structure: ev.structure,
+      theme: ev.theme,
+      angle: plan.angle,
+      coherence: {
+        score: ev.coherence.score,
+        verdict: ev.coherence.verdict,
+        components: ev.coherence.components,
+        structureOverride: !!evaluated.out.structureOverride,
+        suggestedStructure: ev.structure,
+        weak: ev.check.weaklyConnected,
+        evaluatedAt: new Date().toISOString(),
+      },
+      curiosity: {
+        ...ev.metrics,
+        theme: ev.theme,
+        hypothesis: "Editorial hypothesis, not measured audience behaviour.",
+      },
+    });
+  }
+
+  try {
+    const result = await db<any>("rpc/prepare_research_output_packages", {
+      method: "POST",
+      body: { p_run_id: runId, p_packages: packages },
+    });
+    return json({
+      ...result,
+      researchRunId: runId,
+      eligibility: {
+        eligibleCount: selection.eligibleCount,
+        heldCount: selection.heldCount,
+        standaloneCount: selection.standaloneCount,
+        roundupCount: selection.roundupCount,
+        narratedCount: selection.narratedCount,
+      },
+      note: "Draft packages were prepared from this completed run. Human factual verification and editorial approval remain required; nothing was published.",
+    });
+  } catch (e) {
+    if (e instanceof DbError && [400, 404].includes(e.upstream ?? 0)) {
+      return json({
+        error: "migration_required",
+        detail: "Automatic post-research package storage is not installed in this database yet. Apply migration 016_automatic_research_outputs.sql after review, then retry. No packages were created.",
+      }, 409);
+    }
+    throw e;
+  }
 }
 
 async function save(b: any) {
