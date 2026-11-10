@@ -385,7 +385,7 @@ console.log("Withdrawal: an old approval never authorizes a new prompt");
 assert.equal((await call(decideFn, { storyId: sid, decision: "rejected", notes: "Changed my mind" })).status, 200);
 const nBefore = T("creative_prompts").length;
 assert.equal((await call(creativeFn, { storyId: sid })).status, 409); assert.equal((await get(creativeFn, `storyId=${sid}`)).status, 409); assert.equal(T("creative_prompts").length, nBefore); ok("after rejection: no new prompt and no recommendation");
-const stale = await (await get(creativeFn, `id=${g1.id}`)).json(); assert.equal(stale.prompt, null); assert(/no longer current/.test(stale.withheld)); assert.equal(stale.decisionCurrent, false); ok("after rejection: saved prompt is kept but withheld from copying");
+const stale = await (await get(creativeFn, `id=${g1.id}`)).json(); assert.equal(stale.prompt, null); assert(/rejected|sent back for research|newer editorial decision/.test(stale.withheld)); assert.equal(stale.decisionCurrent, false); ok("after rejection: saved prompt is kept but withheld from copying");
 const hist2 = await (await get(creativeFn, "history=1")).json(); assert(hist2.prompts.every((h: any) => h.decisionCurrent === false)); ok("history marks them 'no longer current'");
 await call(decideFn, { storyId: sid, decision: "needs_research" }); assert.equal((await call(creativeFn, { storyId: sid })).status, 409); ok("sent back for research: still blocked");
 assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true })).status, 200);
