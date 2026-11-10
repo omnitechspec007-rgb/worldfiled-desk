@@ -81,6 +81,8 @@ async function readiness(editionId: string) {
   const loaded = await loadStories(ids);
   const missing = ids.filter((i) => !loaded.has(i));
   if (missing.length) return { fail: json({ error: "not_found", detail: "A development is no longer available.", missing }, 404) };
+  const missingPrimary = ids.filter((id) => !loaded.get(id)!.dev.sources.some((source: any) => source.tier === "primary"));
+  if (missingPrimary.length) return { fail: json({ error: "primary_source_required", detail: "Draft preparation is limited to stories with at least one official or primary source. These stories are held until a suitable original source is found.", blocked: missingPrimary.map((id) => loaded.get(id)!.dev.headline) }, 409) };
   return { ed, ids, loaded };
 }
 
