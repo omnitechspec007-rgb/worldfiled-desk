@@ -71,7 +71,7 @@ async function savedEditions() {
     for (const r of rows) {
       const dec = await latestEditionDecision(r.id);
       const ids = await memberIds(r.id);
-      out.push({ id: r.id, title: r.title, theme: r.theme, editionKind: r.edition_kind ?? "video", structure: r.structure, structureLabel: STRUCTURE_LABEL[r.structure as Structure] ?? r.structure, verdict: r.coherence?.verdict ?? null, score: r.coherence?.score ?? null, members: ids.length, updatedAt: r.updated_at, decision: dec?.decision ?? null, approvalCurrent: dec?.decision === "approved" && dec.members_hash === membersKey(ids) });
+      out.push({ id: r.id, title: r.title, theme: r.theme, editionKind: r.edition_kind ?? "video", structure: r.structure, structureLabel: STRUCTURE_LABEL[r.structure as Structure] ?? r.structure, verdict: r.coherence?.verdict ?? null, score: r.coherence?.score ?? null, members: ids.length, ids, updatedAt: r.updated_at, decision: dec?.decision ?? null, approvalCurrent: dec?.decision === "approved" && dec.members_hash === membersKey(ids) });
     }
     return { installed: true, editions: out };
   } catch (e) {
