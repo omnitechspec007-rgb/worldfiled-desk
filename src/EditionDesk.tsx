@@ -309,8 +309,8 @@ export default function EditionDesk() {
         const data = await r.json();
         if (!active) return;
         setRoundupPreflight(r.ok && data.exportReady === true
-          ? { ready: true, note: data.note ?? "Server-side factual and editorial clearance confirmed." }
-          : { ready: false, note: data.detail ?? data.note ?? "Export is blocked until this edition passes current approval and factual verification." });
+          ? { ready: true, note: data.note ?? "Source-attribution preflight passed." }
+          : { ready: false, note: data.detail ?? data.note ?? "Export is blocked until every story has a named source, date and link." });
       })
       .catch(() => { if (active) setRoundupPreflight({ ready: false, note: "Could not confirm current server-side clearance. Export is disabled until the check succeeds." }); });
     return () => { active = false; };
@@ -695,7 +695,7 @@ export default function EditionDesk() {
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
                   <>
-                    <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true} preflightNote={roundupPreflight?.note ?? "Checking current approval and factual clearance…"} />
+                    <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true} preflightNote={roundupPreflight?.note ?? "Checking source attribution…"} />
                     <p className="meta">The builder can export the branded static six-second video directly. WorldFiled also prepares a separate AI video prompt for your chosen creation tool.</p>
                     <div className="actions"><button className="primary" onClick={() => void build()} disabled={busy || roundupPreflight?.ready !== true}>{busy ? "GENERATING…" : res ? "Regenerate AI video prompt" : "Generate AI video prompt"}</button></div>
                   </>
