@@ -106,8 +106,8 @@ export default function PublicationDesk() {
       </div>
       <div className="panel">
         <h2>Log a published edition</h2>
-        <p>Only editions with current human approval and fully verified, editorially approved stories appear here. Each platform post gets its own record.</p>
-        {!desk?.eligibleEditions.length ? <p className="status">No cleared editions are available yet. Finish factual verification and editorial approval, then approve the edition before logging a post.</p> : (
+        <p>Only editions with current human editorial approval appear here. Every story must also have an official or primary source; each platform post gets its own record.</p>
+        {!desk?.eligibleEditions.length ? <p className="status">No publishable editions are available yet. Prepare source-qualified stories, make your editorial decision and approve the edition before logging a post.</p> : (
           <form onSubmit={savePublication} className="form-grid">
             <label className="field wide">Approved edition<select required value={editionId} onChange={(e) => setEditionId(e.target.value)}><option value="">Choose an edition</option>{desk.eligibleEditions.map((e) => <option key={e.id} value={e.id}>{e.title} · {e.members.length} stories</option>)}</select></label>
             {selectedEdition && <div className="field wide"><small>Stories linked to this publication:</small><ul>{selectedEdition.members.map((s) => <li key={s.id}>{s.headline}</li>)}</ul></div>}
