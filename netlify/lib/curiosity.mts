@@ -109,15 +109,18 @@ export function assessDevelopment(s: Scored, sources: EvSource[], now = Date.now
   const curiosity = s.curiosity;
   const sig = s.get("editorial_significance");
   const rec = ((): { r: Recommendation; w: string } => {
-    const weak = !corroborated || sensational.length > 0;
+    // Source count / primary status describe evidence strength; they do not decide whether a
+    // story is interesting enough to prepare as a draft. A story from the approved pool can
+    // pass the curiosity check on one source, with its single-source limitation preserved.
+    const sensationalRisk = sensational.length > 0;
     if (recycled.length && s.get("novelty") <= 2) return { r: "RELEVANT BUT NOT TIMELY", w: "Wording suggests background or recycled reporting, and novelty is low." };
     if (s.get("recency") <= 1 && s.newest && !s.hasPrimary && curiosity >= 25) return { r: "RELEVANT BUT NOT TIMELY", w: "Interesting, but the newest report is older than two days." };
     if (live.length || (uncertainWords.length >= 2 && !s.hasPrimary)) return { r: "HOLD FOR FUTURE DEVELOPMENTS", w: "Details are provisional or still developing; wait for a confirmed outcome." };
-    if (weak && (curiosity >= 25 || sig >= 3)) return { r: "INTERESTING BUT NEEDS MORE EVIDENCE", w: `${!corroborated ? "Only one outlet and no official source" : "Sensational wording or vague attribution"}: curiosity cannot compensate for weak evidence, so it is not a priority until supported.` };
-    if (!weak && curiosity >= 45) return { r: "HIGH-POTENTIAL STORY", w: "Strong curiosity mechanisms and at least a corroborated or official source." };
-    if (!weak && (themes.length > 0 || countries.length > 0) && (curiosity >= 25 || sig >= 3)) return { r: "STRONG EDITION CANDIDATE", w: `Supported by ${s.hasPrimary ? "an official source" : "multiple outlets"} and carries ${themes.length ? `the theme "${themes[0].label}"` : "a clear place"}, so it may gain value alongside related developments.` };
-    if (!weak && sig >= 3.5) return { r: "HIGH-POTENTIAL STORY", w: "Quiet but consequential: significant institutional or scientific change with supporting evidence." };
-    if (weak) return { r: "LOW EDITORIAL CURIOSITY", w: "Weak evidence and no strong curiosity mechanism." };
+    if (sensationalRisk && (curiosity >= 25 || sig >= 3)) return { r: "INTERESTING BUT NEEDS MORE EVIDENCE", w: "Sensational wording or vague attribution needs editorial scrutiny; retain the curiosity signal, but do not promote this as a routine production candidate." };
+    if (!sensationalRisk && curiosity >= 45) return { r: "HIGH-POTENTIAL STORY", w: `Strong curiosity mechanisms. Evidence status is ${corroborated ? "corroborated or official" : "single-source / not independently corroborated"} and must remain explicit in the production brief.` };
+    if (!sensationalRisk && (themes.length > 0 || countries.length > 0) && (curiosity >= 25 || sig >= 3)) return { r: "STRONG EDITION CANDIDATE", w: `Curiosity check passed and carries ${themes.length ? `the theme "${themes[0].label}"` : "a clear place"}. Evidence status is ${corroborated ? "corroborated or official" : "single-source / not independently corroborated"}; do not present unverified details as established fact.` };
+    if (!sensationalRisk && sig >= 3.5) return { r: "HIGH-POTENTIAL STORY", w: `Quiet but consequential: significant institutional or scientific change. Evidence status is ${corroborated ? "corroborated or official" : "single-source / not independently corroborated"}.` };
+    if (sensationalRisk) return { r: "LOW EDITORIAL CURIOSITY", w: "Sensational wording or vague attribution is not supported by a sufficiently strong curiosity case." };
     return { r: "LOW EDITORIAL CURIOSITY", w: "No strong curiosity mechanism and modest significance." };
   })();
 
