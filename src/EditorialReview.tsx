@@ -122,7 +122,7 @@ export default function EditorialReview() {
               </label>
               <label>Notes (optional)<input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} /></label>
               <div className="actions">
-                <button className="primary" disabled={!ack || busy || uncertain} onClick={() => decide(s.id, "approved")}>{busy ? "SAVING…" : "CONFIRM APPROVAL"}</button>
+                <button className="primary" disabled={!ack || busy || uncertain || !s.hasPrimary} onClick={() => decide(s.id, "approved")}>{busy ? "SAVING…" : "CONFIRM APPROVAL"}</button>
                 <button onClick={() => { setOpen(null); setAck(false); }}>Cancel</button>
               </div>
             </div>
