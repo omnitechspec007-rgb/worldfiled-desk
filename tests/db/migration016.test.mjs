@@ -15,8 +15,10 @@ try {
   await admin.query("create database " + dbName);
   await db.connect();
   for (const role of ["anon", "authenticated", "service_role"]) {
-    await db.query("do $$ begin create role " + role + " nologin; exception when duplicate_object then null; end $$");
+    await db.query("do $ begin create role " + role + " nologin; exception when duplicate_object then null; end $");
   }
+  // Supabase's service_role bypasses RLS; model that production behaviour in this isolated test DB.
+  await db.query("alter role service_role bypassrls");
   await db.query(fs.readFileSync(root + "schema.sql", "utf8"));
   await db.query(fs.readFileSync(root + "migrations/002_scoring.sql", "utf8"));
   await db.query(fs.readFileSync(root + "migrations/003_creative_prompts.sql", "utf8"));
