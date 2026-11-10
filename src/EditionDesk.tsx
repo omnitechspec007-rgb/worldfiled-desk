@@ -59,7 +59,7 @@ const tone = (v: string) => (v === "COHERENT" ? "ok" : v === "SINGLE DEVELOPMENT
 function DevDetail({ d }: { d: Dev }) {
   return (
     <div>
-      <p className="meta"><a href={"/evidence/" + d.id}>Open factual verification and the claim register →</a></p>
+      <p className="meta"><a href={"/evidence/" + d.id}>Inspect source records and evidence limits →</a></p>
       <h3>Sources</h3>
       <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}<div className="meta">Ownership: {x.ownershipStatus === "verified" ? "verified" : "unknown or unverified"} · Article origin: {x.originStatus === "verified" ? x.originType : "unverified / unknown"}</div>{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
       <h3>Source independence assessment</h3>
@@ -545,7 +545,7 @@ export default function EditionDesk() {
           <details><summary>How this engine works and what it cannot claim</summary>
             <ul className="comps">{intelligence.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
           </details>
-          <p className="caution">Only relationships explicitly marked verified in the Source Provenance Desk affect the independence assessment. Unknown ownership or article lineage is never counted as independent confirmation. Research currently relies primarily on headlines and snippets, not full article text. Open the source links and check the underlying claims before publication.</p>
+          <p className="caution">Only relationships explicitly marked verified in the Source Provenance Desk affect the independence assessment. Unknown ownership or article lineage is never counted as independent confirmation. Research currently relies primarily on headlines and snippets, not full article text. An official source confirms what that institution published; corroborate claims that go beyond its original announcement before publication.</p>
         </div>
       )}
       {desk && tab === "suggested" && (
