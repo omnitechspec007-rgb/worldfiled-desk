@@ -100,6 +100,7 @@ export function buildEditorialIntelligence(stories: EditorialStory[]) {
   const standalonePicks = standalonePool.slice(0, 5);
   const standaloneNotSelected = ranked.filter((p) => p.story.recommendation !== "HIGH-POTENTIAL STORY");
   const roundupPicks = diverseOrder(eligible, 7);
+  const textBriefingPicks = diverseOrder(eligible, 18);
   const narrated: NarratedPlan[] = [
     { durationSeconds: 60, stories: diverseOrder(eligible, 3), estimatedStoryCount: Math.min(3, eligible.length), rationale: "Up to three developments, leaving room for a clear opening, factual context and close. The production blueprint allocates the actual speaking time." },
     { durationSeconds: 90, stories: diverseOrder(eligible, 4), estimatedStoryCount: Math.min(4, eligible.length), rationale: "Up to four developments, with enough room for a useful explanation rather than headline-speed compression." },
@@ -116,6 +117,7 @@ export function buildEditorialIntelligence(stories: EditorialStory[]) {
     standalonePicks,
     standaloneNotSelected,
     roundupPicks,
+    textBriefingPicks,
     narrated,
     held,
     notSelected,
