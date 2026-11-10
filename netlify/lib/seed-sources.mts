@@ -79,7 +79,8 @@ export const SEED_SOURCES: Seed[] = [
   // North America (US and UK entries are intentionally few)
   { name: "CBC Top Stories", publisher: "Canadian Broadcasting Corporation", scope: "North America · Canada", category: G, feed: "https://www.cbc.ca/webfeed/rss/rss-topstories", site: "https://www.cbc.ca/news", tier: "reporting" },
   { name: "NASA News", publisher: "NASA", scope: "North America · United States", category: S, feed: "https://www.nasa.gov/feed/", site: "https://www.nasa.gov/news", tier: "primary" },
-  { name: "JURIST", publisher: "JURIST", scope: "North America · United States", category: L, feed: "https://www.jurist.org/news/feed/", site: "https://www.jurist.org", tier: "reporting" },
+  { name: "White House News Room", publisher: "The White House", scope: "North America · United States", category: G, feed: "https://www.whitehouse.gov/news/feed/", site: "https://www.whitehouse.gov/news/", tier: "primary" },
+  { name: "White House Briefings & Statements", publisher: "The White House", scope: "North America · United States", category: G, feed: "https://www.whitehouse.gov/briefings-statements/feed/", site: "https://www.whitehouse.gov/briefings-statements/", tier: "primary" },
   { name: "UK Legislation (new)", publisher: "The National Archives", scope: "Europe · United Kingdom", category: L, feed: "https://www.legislation.gov.uk/new/data.feed", site: "https://www.legislation.gov.uk", tier: "primary" },
 ];
 
