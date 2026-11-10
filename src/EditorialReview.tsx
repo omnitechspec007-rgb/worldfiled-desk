@@ -75,7 +75,7 @@ export default function EditorialReview() {
       setOpen(null);
       setAck(false);
       setNotes("");
-      setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Editorially approved. This is not factual verification; production remains blocked until the claim register is verified." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
+      setMsg(data.replayed ? "Already saved. No duplicate decision was created." : operation.decision === "approved" ? "Editorially approved. This decision controls publishing; draft preparation is already available." : operation.decision === "rejected" ? "Rejected." : "Marked as needing more research.");
       await load();
     } catch {
       setUncertain(true);
@@ -98,9 +98,9 @@ export default function EditorialReview() {
 
   return (
     <section>
-      <h1>Verification and approval</h1>
+      <h1>Editorial decisions</h1>
       {new URLSearchParams(window.location.search).has("ids") && <p className="meta"><a href="/editions">← Return to your prepared production package</a></p>}
-      <p className="status">Two separate human checks are required. First verify the material claims in the Evidence Room; then make the editorial decision here. Editorial approval does not mean the facts are verified. Production prompts remain blocked until both checks are complete.</p>
+      <p className="status">WorldFiled applies its source-quality standard during research and excludes stories without an official or primary source from automatic production selections. Use this page to make editorial decisions and control what may be published. You do not need to complete a manual claim register to prepare drafts or prompts.</p>
       {msg && <div className={uncertain ? "panel state-warning" : "panel state-error"} role={uncertain ? "status" : "alert"}><p className={uncertain ? "status" : "status bad"}>{msg}</p>{uncertain && pending ? <div className="actions"><button className="primary" disabled={busy} onClick={() => void submitDecision(pending)}>{busy ? "CHECKING…" : "RETRY SAME DECISION"}</button><button disabled={busy} onClick={() => void load()}>Refresh shortlist</button></div> : <button onClick={() => void load()}>Refresh shortlist</button>}</div>}
       {!picks && !msg && <div className="panel state-loading" role="status"><p className="meta">Loading stories for review…</p></div>}
       {notInstalled && <div className="panel"><p className="caution">One-time setup needed: run supabase/migrations/002_scoring.sql in the Supabase SQL Editor, then click RUN RESEARCH.</p></div>}
@@ -108,7 +108,7 @@ export default function EditorialReview() {
       {picks?.map((s) => (
         <div className="panel story" key={s.id}>
           <p className="rank">#{s.rank} · EDITORIAL: {STATUS[s.editorialStatus ?? "pending"]}</p>
-          <p className={s.verificationStatus === "verified" ? "status good" : "status bad"}>FACTUAL VERIFICATION: {s.verificationStatus === "verified" ? "Complete — human-reviewed claim register" : s.verificationStatus === "in_progress" ? "In progress — claims still need review" : "Not complete — open the Evidence Room"} · <Link to={`/evidence/${s.id}`}>Verify this story →</Link></p>
+          <p className={s.hasPrimary ? "status good" : "status bad"}>SOURCE BASIS: {s.hasPrimary ? "Includes an official or primary source" : "No official or primary source attached"} · <Link to={`/evidence/${s.id}`}>Inspect source records →</Link></p>
           <h2><Link to={`/evidence/${s.id}`}>{s.headline}</Link></h2>
           <p className="meta">{s.category ?? "Uncategorised"} · {s.regions?.join(", ")} · {s.outlets === 1 ? "single outlet" : `${s.outlets} outlets`}{s.hasPrimary ? " · includes an official source" : ""}</p>
           <p className="why"><strong>Why selected:</strong> {s.reason}</p>
@@ -118,7 +118,7 @@ export default function EditorialReview() {
             <div className="confirm">
               <label className="inline">
                 <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
-                I have opened the sources in the Evidence Room. I understand the claims are not yet verified and I take responsibility for this decision.
+                I have reviewed the available source records and understand that editorial approval is a publishing decision, not a claim that every statement has independent corroboration.
               </label>
               <label>Notes (optional)<input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} /></label>
               <div className="actions">
@@ -128,7 +128,7 @@ export default function EditorialReview() {
             </div>
           ) : (
             <div className="actions">
-              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain || s.verificationStatus !== "verified"}>{s.verificationStatus === "verified" ? "Approve for editorial use…" : "Verify first to approve"}</button>
+              <button className="primary" onClick={() => { setOpen(s.id); setAck(false); }} disabled={s.editorialStatus === "approved" || uncertain}>Approve for editorial use…</button>
               <button onClick={() => decide(s.id, "rejected")} disabled={busy || uncertain}>Reject</button>
               <button onClick={() => void decide(s.id, "needs_research")} disabled={busy || uncertain}>Needs more research</button>
               <Link to={`/evidence/${s.id}`}>Open sources</Link>
