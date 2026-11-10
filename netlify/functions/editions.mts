@@ -207,6 +207,8 @@ async function decide(b: any) {
     if (b.acknowledged !== true) return json({ error: "acknowledgement_required", detail: "Approval needs you to confirm you reviewed the coherence check." }, 400);
     const r = await evaluateIds(ids);
     if ("missing" in r) return json({ error: "not_found", detail: "A development is no longer available.", missing: r.missing }, 404);
+    const missingPrimary = ids.filter((storyId) => !r.loaded.get(storyId)!.dev.sources.some((source: any) => source.tier === "primary"));
+    if (missingPrimary.length) return json({ error: "primary_source_required", detail: "Every story needs at least one official or primary source before an edition can be approved for publishing.", blocked: missingPrimary.map((storyId) => r.loaded.get(storyId)!.dev.headline) }, 409);
     const verdict = r.ev.coherence.verdict;
     if (verdict !== "COHERENT" && verdict !== "SINGLE DEVELOPMENT" && rows[0].structure !== "news_roundup" && notes.length < 10) return json({ error: "reason_required", detail: `The coherence check says ${verdict}. Write a short reason (at least 10 characters) to approve it anyway.` }, 400);
     const memberDecs = await latestDecisions(ids);
