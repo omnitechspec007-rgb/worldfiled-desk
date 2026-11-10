@@ -55,6 +55,14 @@ function postgrest(url: URL, init: any) {
       T("research_output_packages").push({ research_run_id: runId, edition_id: id, package_key: item.key, content_format: item.format, duration_seconds: item.durationSeconds });
       results.push({ id, key: item.key, format: item.format, durationSeconds: item.durationSeconds, title: item.title, storyIds: item.storyIds });
     }
+    T("audit_events").push({
+      id: crypto.randomUUID(),
+      event_type: "research_output_packages_prepared",
+      entity_type: "research_run",
+      entity_id: runId,
+      actor: "system",
+      detail: { package_count: packages.length, package_keys: packages.map((item: any) => item.key) },
+    });
     return new Response(JSON.stringify({ status: packages.length ? "prepared" : "empty", packageCount: packages.length, packages: results, replayed: false, requestChanged: false }), { status: 200 });
   }
   const rows = T(table); const prefer = init.headers?.Prefer ?? "";
