@@ -280,7 +280,7 @@ export default function EditionDesk() {
       if (options.duration) setDuration(options.duration);
       setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable: options.deliverable ?? deliverable, duration: options.duration ?? duration, pAngle, fmt, sound, visual, conflicts: [] }));
       await openSavedQuiet(data.id);
-      setMsg("Draft package saved. Next: verify every story in Verification and approval, then approve this edition. WorldFiled will unlock its copy-ready production prompt only after those human checks.");
+      setMsg("Draft package saved. WorldFiled is preparing the copy-ready production prompt now. Human editorial approval is required before publishing, not before draft preparation.");
       void loadDesk();
     } catch { setMsg("Could not save the production package. Your research results are unchanged."); }
     setBusy(false);
@@ -331,10 +331,10 @@ export default function EditionDesk() {
   const autoPromptSignature = [editionId ?? "", editionKind, deliverable, duration].join("|");
   useEffect(() => {
     const preflightReady = editionKind !== "video" || deliverable !== "static_roundup_6s" || roundupPreflight?.ready === true;
-    if (busy || !editionId || !approval?.current || res || !preflightReady || autoPromptKey.current === autoPromptSignature) return;
+    if (busy || !editionId || res || !preflightReady || autoPromptKey.current === autoPromptSignature) return;
     autoPromptKey.current = autoPromptSignature;
     void build();
-  }, [busy, editionId, approval?.current, editionKind, deliverable, duration, roundupPreflight?.ready, res]);
+  }, [busy, editionId, editionKind, deliverable, duration, roundupPreflight?.ready, res]);
 
   const copy = async () => { try { await navigator.clipboard.writeText(res!.prompt); setCopied(true); } catch { setMsg("Copy was blocked by the browser. Select the text and copy it manually."); } };
 
@@ -357,7 +357,7 @@ export default function EditionDesk() {
     </div>
   );
 
-  const canBuild = !!editionId && !!approval?.current;
+  const canBuild = !!editionId;
   const intelligence = buildEditorialIntelligence(desk?.developments ?? []);
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
@@ -382,7 +382,7 @@ export default function EditionDesk() {
       <div className="panel">
         <h2>What would you like to prepare?</h2>
         <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Six-second static text video · standalone card or 5–7-story roundup</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
-        <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
+        <p className="meta">The written briefing and video editions use the same source-screened research but keep separate story selections and prompt histories. A quiet news day should produce a shorter edition, never filler. Human approval controls publishing, not preparation.</p>
       </div>
       <div className="tabs">
         {([["automatic", "Automatic story selections"], ["developments", "All research results"], ["suggested", "Suggested story combinations"], ["mine", "Saved work"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
@@ -396,7 +396,7 @@ export default function EditionDesk() {
           <div className="confirm">
             <strong>{intelligence.eligibleCount} developments passed the current evidence and attribution screen</strong>
             <p className="meta">The engine requires fresh stories, a strong existing editorial recommendation, MODERATE evidence, at least two named outlets, no detected sensational wording, no known shared upstream origin, and at least one complete named-source/date/link record. Two outlet names do not prove independent reporting.</p>
-            <p className="meta">Select a package below to open it in the production workspace. Saving, factual clearance and current human approval are still required before a production prompt can be generated.</p>
+            <p className="meta">Select a package below to open it in the production workspace. Once saved, its production prompt is generated automatically. Stories without a primary source are held out of automatic selections.</p>
           </div>
 
           <h3>1. Standalone text-video picks</h3>
@@ -531,7 +531,7 @@ export default function EditionDesk() {
 
       <div id="workspace" className="panel">
         <h2>2. Review, order and build your {editionKind === "text" ? "text briefing" : "video bulletin"} ({ids.length} selected)</h2>
-        {editionId && <div className="confirm"><strong>Draft package saved.</strong><p>Next, <a href={"/review?ids=" + encodeURIComponent(ids.join(","))}>verify and approve the stories in this package</a>. Complete factual verification for every story. Then return here to approve the edition and create the copy-ready prompt. Neither approval nor publishing happens automatically.</p></div>}
+        {editionId && <div className="confirm"><strong>Draft package saved.</strong><p>Your copy-ready prompt is prepared automatically. You can review, edit and copy it here. Human editorial approval is required before publishing; it does not block draft preparation.</p></div>}
         {ids.length === 0 ? <p className="meta">Nothing selected yet. Tick developments in "1. Select developments", or open a suggested edition.</p> : (
           <>
             <div className="row">
@@ -577,7 +577,7 @@ export default function EditionDesk() {
                 {ev.uncertainties.length > 0 && <p className="caution">Uncertainties: {ev.uncertainties.join(" ")}</p>}
               </>
             )}
-            <div className="actions"><button className="primary" onClick={() => void save()} disabled={busy || !title.trim() || !ids.length}>{editionId ? "Save changes" : "Save edition (needed before approval)"}</button></div>
+            <div className="actions"><button className="primary" onClick={() => void save()} disabled={busy || !title.trim() || !ids.length}>{editionId ? "Save changes" : "Save edition"}</button></div>
 
             {editionId && (
               <div className="confirm">
@@ -594,7 +594,7 @@ export default function EditionDesk() {
             )}
 
             <h3>4. Create the {editionKind === "text" ? "written briefing" : deliverable === "static_roundup_6s" ? "six-second static roundup" : "video production prompt"}</h3>
-            {!canBuild && <p className="meta">Available once the saved edition has a current approval.</p>}
+            {!canBuild && <p className="meta">Available as soon as the edition is saved. Approval is required before publishing, not before preparing drafts.</p>}
             {canBuild && (
               <>
                 {editionKind === "video" && <div className="row">
