@@ -121,7 +121,8 @@ try {
   ok("claim decision RPC fails closed before source-content policy is installed", missingPolicy.status===409 && missingPolicy.body.error==="source_content_policies_not_installed");
   await admin.query("reset role");
   await admin.query("create table public.source_content_policies (source_id uuid primary key references public.source_registry(id) on delete restrict, policy text not null default 'metadata_only' check (policy in ('blocked','metadata_only','extraction_allowed')))");
-  await admin.query("grant select on public.source_content_policies to service_role");
+  const directPolicyAccess = (await admin.query("select has_table_privilege('service_role','public.source_content_policies','select') as allowed")).rows[0].allowed;
+  ok("source-policy table is not directly exposed to service_role", directPolicyAccess === false);
   await admin.query("insert into public.source_content_policies(source_id,policy) values($1,'extraction_allowed')", [registry3]);
   const registerPolicy = async (name, publisher) => {
     const registryId = (await admin.query("insert into source_registry(name,publisher,enabled,retrieval_status) values($1,$2,true,'healthy') returning id", [name, publisher])).rows[0].id;
