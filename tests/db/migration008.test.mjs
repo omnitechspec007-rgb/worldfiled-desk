@@ -111,10 +111,23 @@ try {
 
   // Claim-verification RPC integration: real tables, real transaction, and independent sessions.
   const story3 = (await admin.query("insert into stories(headline,cluster_key) values('Claim RPC test','test-claim-rpc') returning id")).rows[0].id;
-  const source3 = (await admin.query("insert into retrieved_sources(url,url_hash,title,publisher,content_status,extract) values($1,$2,'Official notice','Test agency','extracted','Evidence passage') returning id", ["https://example.org/claim-rpc", hash("https://example.org/claim-rpc")])).rows[0].id;
+  const registry3 = (await admin.query("insert into source_registry(name,publisher,enabled,retrieval_status) values('Claim RPC test registry','Test agency',true,'healthy') returning id")).rows[0].id;
+  const source3 = (await admin.query("insert into retrieved_sources(registry_id,url,url_hash,title,publisher,content_status,extract) values($1,$2,$3,'Official notice','Test agency','extracted','Evidence passage') returning id", [registry3, "https://example.org/claim-rpc", hash("https://example.org/claim-rpc")])).rows[0].id;
   const claim3 = (await admin.query("insert into claims(story_id,claim_text,claim_hash,category) values($1,'The agency published the policy on 5 November.',$2,'date') returning id", [story3, hash("The agency published the policy on 5 November.")])).rows[0].id;
   await admin.query("insert into claim_evidence(claim_id,source_id,passage,passage_hash,extraction_status,is_contradiction) values($1,$2,'The agency published the policy on 5 November.', $3,'extracted',false)", [claim3, source3, hash("evidence-passage-1")]);
   await admin.query("grant usage on schema public to service_role");
+  await admin.query("set role service_role");
+  const missingPolicy = (await admin.query("select public.record_claim_verification_decision($1,$2,$3,$4,'SUPPORTED','Missing policy','') as result", [randomUUID(), hash("missing-source-policy"), story3, claim3])).rows[0].result;
+  ok("claim decision RPC fails closed before source-content policy is installed", missingPolicy.status===409 && missingPolicy.body.error==="source_content_policies_not_installed");
+  await admin.query("reset role");
+  await admin.query("create table public.source_content_policies (source_id uuid primary key references public.source_registry(id) on delete restrict, policy text not null default 'metadata_only' check (policy in ('blocked','metadata_only','extraction_allowed')))");
+  await admin.query("grant select on public.source_content_policies to service_role");
+  await admin.query("insert into public.source_content_policies(source_id,policy) values($1,'extraction_allowed')", [registry3]);
+  const registerPolicy = async (name, publisher) => {
+    const registryId = (await admin.query("insert into source_registry(name,publisher,enabled,retrieval_status) values($1,$2,true,'healthy') returning id", [name, publisher])).rows[0].id;
+    await admin.query("insert into public.source_content_policies(source_id,policy) values($1,'extraction_allowed')", [registryId]);
+    return registryId;
+  };
   await admin.query("set role service_role");
   const claimKey = randomUUID();
   const claimDigest = hash(JSON.stringify({storyId:story3,claimId:claim3,outcome:"SUPPORTED",notes:"Checked official notice.",contradictionResolution:""}));
@@ -124,6 +137,14 @@ try {
   ok("claim decision RPC records a supported claim with checked passage", claimFirst.status===200 && claimFirst.replayed===false && claimFirst.body.result.outcome==="SUPPORTED");
   const claimReplay = (await claimCall(admin)).rows[0].result;
   ok("claim decision RPC replays the original result", claimReplay.status===200 && claimReplay.replayed===true && claimReplay.body.result.id===claimFirst.body.result.id);
+  await admin.query("reset role");
+  await admin.query("update source_content_policies set policy='metadata_only' where source_id=$1", [registry3]);
+  await admin.query("set role service_role");
+  const downgradedDecision = (await claimCall(admin, randomUUID(), hash("decision-after-policy-downgrade"), "SUPPORTED", "Rechecked after downgrade")).rows[0].result;
+  ok("claim decision RPC rejects a passage after its source policy is downgraded", downgradedDecision.status===409 && downgradedDecision.body.error==="no_accessible_supporting_evidence");
+  await admin.query("reset role");
+  await admin.query("update source_content_policies set policy='extraction_allowed' where source_id=$1", [registry3]);
+  await admin.query("set role service_role");
   const claimMismatch = (await claimCall(admin,claimKey,hash("different request"),"CONTRADICTED","Different")).rows[0].result;
   ok("claim decision rejects same key with changed request", claimMismatch.status===409);
   await admin.query("reset role");
@@ -217,7 +238,8 @@ try {
 
   // Evidence intake RPC: source ownership, exact fingerprint, story invalidation and audit are atomic.
   const story6=(await admin.query("insert into stories(headline,cluster_key) values('Evidence intake test','test-evidence-intake') returning id")).rows[0].id;
-  const source6=(await admin.query("insert into retrieved_sources(url,url_hash,title,publisher) values($1,$2,'Evidence source','Test publisher') returning id",["https://example.org/evidence-intake",hash("https://example.org/evidence-intake")])).rows[0].id;
+  const registry6=await registerPolicy("Evidence intake registry","Test publisher");
+  const source6=(await admin.query("insert into retrieved_sources(registry_id,url,url_hash,title,publisher) values($1,$2,$3,'Evidence source','Test publisher') returning id",[registry6,"https://example.org/evidence-intake",hash("https://example.org/evidence-intake")])).rows[0].id;
   await admin.query("insert into story_source_links(story_id,source_id,role) values($1,$2,'original')",[story6,source6]);
   const claim6=(await admin.query("insert into claims(story_id,claim_text,claim_hash) values($1,'The commission issued a statement on 7 November.',$2) returning id",[story6,hash("The commission issued a statement on 7 November.")])).rows[0].id;
   await admin.query("update stories set verification_status='verified' where id=$1",[story6]);
@@ -231,6 +253,14 @@ try {
     client.query("select public.add_claim_evidence($1,$2,$3,$4,$5,$6,$7,$8,$9) as result",[key,digest,story6,claim6,source,passage,hash(passage||("source:"+source+":no-passage")),location,contradiction]);
   const evidenceFirst=(await evidenceCall(admin)).rows[0].result;
   ok("evidence intake stores a source-linked passage and invalidates prior story clearance",evidenceFirst.status===200 && evidenceFirst.body.evidence.extraction_status==="extracted" && (await admin.query("select verification_status from stories where id=$1",[story6])).rows[0].verification_status==="in_progress");
+  await admin.query("reset role");
+  await admin.query("update source_content_policies set policy='metadata_only' where source_id=$1",[registry6]);
+  await admin.query("set role service_role");
+  const downgradedEvidence=(await evidenceCall(admin,randomUUID(),hash("evidence-after-policy-downgrade"),"A new passage after policy downgrade.","Paragraph 3")).rows[0].result;
+  ok("evidence intake refuses a new passage after the source policy is downgraded",downgradedEvidence.status===409 && downgradedEvidence.body.error==="source_not_approved_for_passage_evidence");
+  await admin.query("reset role");
+  await admin.query("update source_content_policies set policy='extraction_allowed' where source_id=$1",[registry6]);
+  await admin.query("set role service_role");
   const evidenceReplay=(await evidenceCall(admin)).rows[0].result;
   ok("evidence intake replays the original result",evidenceReplay.status===200 && evidenceReplay.replayed===true && evidenceReplay.body.evidence.id===evidenceFirst.body.evidence.id);
   const evidenceConflict=(await evidenceCall(admin,evidenceKey6,hash("changed request"),passage6,"Changed location",false)).rows[0].result;
@@ -248,7 +278,8 @@ try {
 
   // Evidence audit failure must roll back both the passage and story-clearance invalidation.
   const story7=(await admin.query("insert into stories(headline,cluster_key) values('Evidence rollback test','test-evidence-rollback') returning id")).rows[0].id;
-  const source7=(await admin.query("insert into retrieved_sources(url,url_hash,title) values($1,$2,'Rollback source') returning id",["https://example.org/evidence-rollback",hash("https://example.org/evidence-rollback")])).rows[0].id;
+  const registry7=await registerPolicy("Evidence rollback registry","Test publisher");
+  const source7=(await admin.query("insert into retrieved_sources(registry_id,url,url_hash,title) values($1,$2,$3,'Rollback source') returning id",[registry7,"https://example.org/evidence-rollback",hash("https://example.org/evidence-rollback")])).rows[0].id;
   await admin.query("insert into story_source_links(story_id,source_id,role) values($1,$2,'original')",[story7,source7]);
   const claim7=(await admin.query("insert into claims(story_id,claim_text,claim_hash) values($1,'The ministry issued a notice on 7 November.',$2) returning id",[story7,hash("The ministry issued a notice on 7 November.")])).rows[0].id;
   await admin.query("update stories set verification_status='verified' where id=$1",[story7]);
@@ -266,7 +297,8 @@ try {
 
   // Story clearance RPC: lock the story/claims, verify the latest evidence state, and audit atomically.
   const story4 = (await admin.query("insert into stories(headline,cluster_key) values('Clearance RPC test','test-clearance-rpc') returning id")).rows[0].id;
-  const source4 = (await admin.query("insert into retrieved_sources(url,url_hash,title,publisher,content_status,extract) values($1,$2,'Official clearance source','Test agency','extracted','Checked passage') returning id", ["https://example.org/clearance-rpc",hash("https://example.org/clearance-rpc")])).rows[0].id;
+  const registry4=await registerPolicy("Clearance RPC registry","Test agency");
+  const source4 = (await admin.query("insert into retrieved_sources(registry_id,url,url_hash,title,publisher,content_status,extract) values($1,$2,$3,'Official clearance source','Test agency','extracted','Checked passage') returning id", [registry4,"https://example.org/clearance-rpc",hash("https://example.org/clearance-rpc")])).rows[0].id;
   const claim4 = (await admin.query("insert into claims(story_id,claim_text,claim_hash,category) values($1,'A policy notice was published on 6 November.',$2,'date') returning id", [story4,hash("A policy notice was published on 6 November.")])).rows[0].id;
   await admin.query("insert into claim_evidence(claim_id,source_id,passage,passage_hash,extraction_status,is_contradiction,created_at) values($1,$2,'A policy notice was published on 6 November.',$3,'extracted',false,now()-interval '1 minute')", [claim4,source4,hash("clearance-evidence-1")]);
   await admin.query("set role service_role");
@@ -288,6 +320,14 @@ try {
   ok("story clearance succeeds only after all current claims have supporting passages and current decisions", cleared.status===200 && cleared.body.verificationStatus==="verified" && cleared.replayed===false);
   const clearanceReplay=(await clearanceCall(admin)).rows[0].result;
   ok("story clearance safely replays the original result", clearanceReplay.status===200 && clearanceReplay.replayed===true);
+  await admin.query("reset role");
+  await admin.query("update source_content_policies set policy='metadata_only' where source_id=$1",[registry4]);
+  await admin.query("set role service_role");
+  const downgradedClearance=(await clearanceCall(admin,randomUUID(),hash("clearance-after-policy-downgrade"))).rows[0].result;
+  ok("story clearance rechecks current source policy and rejects previously accepted evidence after downgrade",downgradedClearance.status===409 && downgradedClearance.body.error==="claims_unresolved");
+  await admin.query("reset role");
+  await admin.query("update source_content_policies set policy='extraction_allowed' where source_id=$1",[registry4]);
+  await admin.query("set role service_role");
   const clearanceConflict=(await clearanceCall(admin,clearanceKey,hash("changed-clearance"))).rows[0].result;
   ok("story clearance rejects same key with changed request", clearanceConflict.status===409);
   await admin.query("reset role");
@@ -297,7 +337,8 @@ try {
 
   // Completion audit failure rolls back the idempotency record and cannot report clearance.
   const story5=(await admin.query("insert into stories(headline,cluster_key) values('Clearance rollback test','test-clearance-rollback') returning id")).rows[0].id;
-  const source5=(await admin.query("insert into retrieved_sources(url,url_hash,title,publisher) values($1,$2,'Source','Test agency') returning id",["https://example.org/clearance-rollback",hash("https://example.org/clearance-rollback")])).rows[0].id;
+  const registry5=await registerPolicy("Clearance rollback registry","Test agency");
+  const source5=(await admin.query("insert into retrieved_sources(registry_id,url,url_hash,title,publisher) values($1,$2,$3,'Source','Test agency') returning id",[registry5,"https://example.org/clearance-rollback",hash("https://example.org/clearance-rollback")])).rows[0].id;
   const claim5=(await admin.query("insert into claims(story_id,claim_text,claim_hash) values($1,'The report was published on 7 November.',$2) returning id",[story5,hash("The report was published on 7 November.")])).rows[0].id;
   await admin.query("insert into claim_evidence(claim_id,source_id,passage,passage_hash,created_at) values($1,$2,'The report was published on 7 November.',$3,now()-interval '1 minute')",[claim5,source5,hash("rollback-evidence")]);
   await admin.query("insert into verification_results(claim_id,outcome,determined_by,reviewer_notes) values($1,'SUPPORTED','editor','Checked.')",[claim5]);
