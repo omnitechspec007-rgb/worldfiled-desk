@@ -87,6 +87,14 @@ begin
     return jsonb_build_object('status', 404, 'body', jsonb_build_object('error', 'source_not_found'));
   end if;
 
+  if nullif(btrim(coalesce(p_passage, '')), '') is not null
+     and not public.source_passage_policy_allows(p_source_id) then
+    return jsonb_build_object('status', 409, 'body', jsonb_build_object(
+      'error', 'source_not_approved_for_passage_evidence',
+      'detail', 'The source must currently be enabled, healthy and explicitly approved for passage evidence.'
+    ));
+  end if;
+
   evidence_status := case
     when nullif(btrim(coalesce(p_passage, '')), '') is null then 'inaccessible'
     else 'extracted'
