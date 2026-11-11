@@ -11,7 +11,7 @@ begin;
 create or replace function public.source_passage_policy_allows(p_source_id uuid)
 returns boolean
 language plpgsql
-security invoker
+security definer
 set search_path = pg_catalog, public
 as $function$
 declare
@@ -30,7 +30,6 @@ end;
 $function$;
 revoke all on function public.source_passage_policy_allows(uuid) from public, anon, authenticated;
 grant execute on function public.source_passage_policy_allows(uuid) to service_role;
-grant select on public.source_registry to service_role;
 
 create or replace function public.record_claim_verification_decision(
   p_idempotency_key uuid,
