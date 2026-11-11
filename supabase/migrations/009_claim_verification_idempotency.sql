@@ -5,6 +5,33 @@
 
 begin;
 
+-- Re-check current human-reviewed source policy in the same transaction as
+-- evidence, decisions and story clearance. Missing policy rows never grant permission.
+-- FOR SHARE prevents concurrent policy or registry updates during verification.
+create or replace function public.source_passage_policy_allows(p_source_id uuid)
+returns boolean
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $function$
+declare
+  policy_value text;
+begin
+  if p_source_id is null or to_regclass('public.source_content_policies') is null then return false; end if;
+  execute $query$
+    select p.policy from public.retrieved_sources rs
+    join public.source_content_policies p on p.source_id = rs.registry_id
+    join public.source_registry sr on sr.id = rs.registry_id
+    where rs.id = $1 and sr.enabled is true and sr.retrieval_status = 'healthy'
+    for share of p, sr
+  $query$ into policy_value using p_source_id;
+  return coalesce(policy_value = 'extraction_allowed', false);
+end;
+$function$;
+revoke all on function public.source_passage_policy_allows(uuid) from public, anon, authenticated;
+grant execute on function public.source_passage_policy_allows(uuid) to service_role;
+grant select on public.source_registry to service_role;
+
 create or replace function public.record_claim_verification_decision(
   p_idempotency_key uuid,
   p_request_hash text,
@@ -73,15 +100,21 @@ begin
     return jsonb_build_object('status', existing.response_status, 'body', existing.response_body, 'replayed', true);
   end if;
 
+  if p_outcome in ('SUPPORTED','PARTIALLY_SUPPORTED') and to_regclass('public.source_content_policies') is null then
+    return jsonb_build_object('status', 409, 'body', jsonb_build_object('error', 'source_content_policies_not_installed',
+      'detail', 'Current source passage permissions cannot be confirmed. No supported decision was recorded.'));
+  end if;
+
   select
-    coalesce(bool_or(passage is not null and btrim(passage) <> '' and extraction_status = 'extracted' and not is_contradiction), false),
-    coalesce(bool_or(passage is not null and btrim(passage) <> '' and extraction_status = 'extracted' and is_contradiction), false)
+    coalesce(bool_or(passage is not null and btrim(passage) <> '' and extraction_status = 'extracted' and not is_contradiction and public.source_passage_policy_allows(source_id)), false),
+    coalesce(bool_or(passage is not null and btrim(passage) <> '' and extraction_status = 'extracted' and is_contradiction and public.source_passage_policy_allows(source_id)), false)
   into has_support, has_contradiction
   from public.claim_evidence
   where claim_id = p_claim_id;
 
-  if p_outcome = 'SUPPORTED' and not has_support then
-    return jsonb_build_object('status', 400, 'body', jsonb_build_object('error', 'supported_claim_requires_checked_passage'));
+  if p_outcome in ('SUPPORTED','PARTIALLY_SUPPORTED') and not has_support then
+    return jsonb_build_object('status', 409, 'body', jsonb_build_object('error', 'no_accessible_supporting_evidence',
+      'detail', 'A supported decision requires an extracted passage from a currently enabled, healthy source with an extraction_allowed content policy.'));
   end if;
 
   if p_outcome = 'SUPPORTED' and has_contradiction
@@ -208,6 +241,11 @@ begin
     return jsonb_build_object('status', 404, 'body', jsonb_build_object('error', 'not_found'));
   end if;
 
+  if to_regclass('public.source_content_policies') is null then
+    return jsonb_build_object('status', 409, 'body', jsonb_build_object('error', 'source_content_policies_not_installed',
+      'detail', 'Current source passage permissions cannot be confirmed. Story clearance is blocked.'));
+  end if;
+
   select * into existing
   from public.idempotency_records
   where actor_key = 'editor'
@@ -257,6 +295,7 @@ begin
           and btrim(e.passage) <> ''
           and e.extraction_status = 'extracted'
           and e.is_contradiction = false
+          and public.source_passage_policy_allows(e.source_id)
       )
       or (
         exists (
@@ -266,6 +305,7 @@ begin
             and btrim(e.passage) <> ''
             and e.extraction_status = 'extracted'
             and e.is_contradiction = true
+            and public.source_passage_policy_allows(e.source_id)
         )
         and (
           d.reviewer_notes is null
