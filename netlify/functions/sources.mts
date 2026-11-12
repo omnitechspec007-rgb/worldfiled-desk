@@ -1,6 +1,6 @@
 // Read-only view of the source registry (health and region coverage). No manual editing:
 // sources are built in and tested automatically on every run.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 
 const json = (body: unknown, status = 200) =>
@@ -8,6 +8,7 @@ const json = (body: unknown, status = 200) =>
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
   try {
     const sources = await db(

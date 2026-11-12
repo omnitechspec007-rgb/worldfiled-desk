@@ -4,15 +4,15 @@
 // Evidence classes (what the prompt may assert):
 //   OFFICIALLY_DOCUMENTED        an official source documents this. It establishes what THAT source records or
 //                                announces. It does not by itself verify outcomes, causes or any other claim.
-//   INDEPENDENTLY_CORROBORATED   two or more different outlets report the same event. Independence is judged by
-//                                outlet only: whether they share a wire/original report is NOT established.
+//   MULTI_OUTLET_REPORTED        two or more publisher labels report the event. This is NOT proof of independent
+//                                reporting: ownership, syndication, wire services and shared origins are not fully traced.
 //   SINGLE_SOURCE                one outlet only. Must be framed as "reported by ...".
 //   CONFLICTING                  accounts disagree. Only set when the editor enters a conflict note (the app does
 //                                not detect conflicts automatically).
 //   UNKNOWN                      not supported by the retrieved material. Must not be stated as fact.
 // Separate tag: CREATIVE_INTERPRETATION = presentation choices (metaphor, layout), never a claim.
 
-export type ClaimClass = "OFFICIALLY_DOCUMENTED" | "INDEPENDENTLY_CORROBORATED" | "SINGLE_SOURCE" | "CONFLICTING" | "UNKNOWN";
+export type ClaimClass = "OFFICIALLY_DOCUMENTED" | "MULTI_OUTLET_REPORTED" | "SINGLE_SOURCE" | "CONFLICTING" | "UNKNOWN";
 
 export type EvSource = {
   outlet: string;
@@ -25,6 +25,9 @@ export type EvSource = {
   summary: string | null;
   publishedAt: string | null;
   retrievedAt: string | null;
+  contentStatus?: string | null;
+  enabled?: boolean;
+  retrievalStatus?: string | null;
 };
 export type EvStory = { headline: string; category: string | null; sources: EvSource[] };
 
@@ -37,6 +40,35 @@ export type PackSource = {
   published_at: string | null;
   retrieved_at: string | null;
   snippet: string;
+  content_depth: "metadata_only" | "snippet" | "full_text" | "unknown";
+  source_enabled: boolean | null;
+  retrieval_status: string;
+};
+export type ClaimRegisterEvidence = {
+  sourceId: string | null;
+  sourceTitle: string | null;
+  sourceUrl: string | null;
+  publisher: string | null;
+  publishedAt: string | null;
+  contentDepth: string | null;
+  sourceEnabled: boolean | null;
+  retrievalStatus: string | null;
+  contentPolicy: string;
+  passage: string | null;
+  passageLocation: string | null;
+  extractionStatus: string;
+  isContradiction: boolean;
+  createdAt: string | null;
+};
+export type ClaimRegisterEntry = {
+  claimId: string;
+  statement: string;
+  category: string | null;
+  outcome: string | null;
+  reviewerNotes: string | null;
+  decidedAt: string | null;
+  currentSupported: boolean;
+  evidence: ClaimRegisterEvidence[];
 };
 export type ClaimEntry = { id: string; statement: string; class: ClaimClass; basis: string; refs: string[] };
 export type EvidencePack = {
@@ -47,6 +79,7 @@ export type EvidencePack = {
   omitted_sources: { count: number; items: { outlet: string; reason: string }[] };
   evidence_limits: string;
   claim_classes: ClaimEntry[];
+  claim_register: ClaimRegisterEntry[];
   editor_notes: { conflict: string | null; decision: string | null };
 };
 
@@ -56,16 +89,51 @@ export const MAX_PACK_BYTES = 250_000;
 
 export const CLASS_MEANING: Record<ClaimClass, string> = {
   OFFICIALLY_DOCUMENTED: "an official source documents this. It proves only what that source itself records or announces, not that related claims, outcomes or causes are verified.",
-  INDEPENDENTLY_CORROBORATED: "reported by two or more different outlets. Independence is judged by outlet name only; sharing of a wire or original report is NOT ruled out.",
+  MULTI_OUTLET_REPORTED: "reported under two or more distinct publisher labels. This does NOT establish independent reporting, ownership independence, or separate original sourcing. Do not call it independently corroborated.",
   SINGLE_SOURCE: "reported by one outlet only. State it as 'reported by <outlet>', never as established fact.",
   CONFLICTING: "accounts disagree. Present each account, attributed, and do not choose one.",
   UNKNOWN: "not supported by the retrieved material. Do not state it as fact; leave it out or present it explicitly as a question.",
 };
 
 export const EVIDENCE_LIMITS =
-  "Only headlines and short feed snippets (at most 400 characters) were retrieved; full articles were NOT read. " +
-  "The app does not extract individual claims, trace original sources or detect conflicts automatically. " +
-  "Classes below apply to what the headline and snippet state, not to the full reporting.";
+  "The research-source block contains feed metadata and short snippets (at most 400 characters); those snippets are NOT full-article review and must never be used as verified factual support. " +
+  "The separate claim register contains passages attached by the editor, extraction status, source record, human decision and rationale. Only a current SUPPORTED decision linked to a current extracted passage from an enabled, healthy source can support public-facing factual copy. " +
+  "Publisher labels are not an ownership or editorial-independence map; shared ownership, syndication, wire services and original reporting chains are not fully traced. " +
+  "Source health is a technical feed check, not proof of accuracy. Each claim still requires its own evidence and human assessment. " +
+  "The app does not automatically discover every material claim, independently fetch every original record or guarantee that a passage entails the whole claim.";
+
+/** Canonical fingerprints used to invalidate saved prompts when their factual inputs change. */
+export function sourceSnapshotFingerprint(sources: PackSource[]): string {
+  return JSON.stringify([...sources].map((source) => ({
+    url: source.url,
+    title: source.title,
+    publishedAt: source.published_at,
+    retrievedAt: source.retrieved_at,
+    snippet: source.snippet,
+    contentDepth: source.content_depth,
+    sourceEnabled: source.source_enabled,
+    retrievalStatus: source.retrieval_status,
+  })).sort((a, b) => a.url.localeCompare(b.url)));
+}
+
+export function claimRegisterFingerprint(register: ClaimRegisterEntry[]): string {
+  return JSON.stringify([...register].map((claim) => ({
+    claimId: claim.claimId,
+    statement: claim.statement,
+    category: claim.category,
+    outcome: claim.outcome,
+    reviewerNotes: claim.reviewerNotes,
+    decidedAt: claim.decidedAt,
+    currentSupported: claim.currentSupported,
+    evidence: [...claim.evidence].map((e) => ({
+      sourceId: e.sourceId, sourceTitle: e.sourceTitle, sourceUrl: e.sourceUrl,
+      publisher: e.publisher, publishedAt: e.publishedAt, contentDepth: e.contentDepth,
+      sourceEnabled: e.sourceEnabled, retrievalStatus: e.retrievalStatus,
+      passage: e.passage, passageLocation: e.passageLocation,
+      extractionStatus: e.extractionStatus, isContradiction: e.isContradiction, createdAt: e.createdAt,
+    })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+  })).sort((a, b) => a.claimId.localeCompare(b.claimId)));
+}
 
 export class PackTooLarge extends Error {}
 
@@ -91,6 +159,7 @@ const validUrl = (u: string) => {
 const WIRE = /\b(reuters|associated press|afp|xinhua|pti|anadolu|press release|statement issued)\b/i;
 const toks = (t: string) => new Set(t.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3));
 const jac = (a: Set<string>, b: Set<string>) => { let i = 0; for (const x of a) if (b.has(x)) i++; return a.size + b.size - i === 0 ? 0 : i / (a.size + b.size - i); };
+const outletKey = (outlet: string) => cleanField(outlet, 120).toLocaleLowerCase() || "unknown";
 
 export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string | null; decisionNote?: string | null; refPrefix?: string } = {}): EvidencePack {
   const px = opts.refPrefix ?? "";
@@ -105,7 +174,7 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
   const ordered: EvSource[] = [];
   const seen = new Set<string>();
   for (const s of byNew.filter((x) => x.tier === "primary")) { ordered.push(s); seen.add(s.url); }
-  for (const s of byNew) if (!seen.has(s.url) && !ordered.some((o) => o.outlet === s.outlet)) { ordered.push(s); seen.add(s.url); }
+  for (const s of byNew) if (!seen.has(s.url) && !ordered.some((o) => outletKey(o.outlet) === outletKey(s.outlet))) { ordered.push(s); seen.add(s.url); }
   for (const s of byNew) if (!seen.has(s.url)) { ordered.push(s); seen.add(s.url); }
   const chosen = ordered.slice(0, MAX_SOURCES);
   for (const s of ordered.slice(MAX_SOURCES)) omitted.push({ outlet: cleanField(s.outlet, 60) || "Unknown", reason: `beyond the ${MAX_SOURCES}-source limit` });
@@ -119,11 +188,14 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
     published_at: s.publishedAt,
     retrieved_at: s.retrievedAt,
     snippet: cleanField(s.summary, MAX_SNIPPET),
+    content_depth: s.contentStatus === "full_text" ? "full_text" : s.contentStatus === "snippet" ? "snippet" : s.contentStatus === "metadata_only" ? "metadata_only" : "unknown",
+    source_enabled: typeof s.enabled === "boolean" ? s.enabled : null,
+    retrieval_status: s.retrievalStatus ?? "unknown",
   }));
 
   const primary = sources.filter((s) => s.type === "official or primary source");
   const reporting = sources.filter((s) => s.type === "news reporting");
-  const allReportingOutlets = new Set(all.filter((s) => s.tier === "reporting").map((s) => s.outlet));
+  const allReportingOutlets = new Set(all.filter((s) => s.tier === "reporting").map((s) => outletKey(s.outlet)));
   const claims: ClaimEntry[] = [];
   let n = 0;
   const add = (statement: string, cls: ClaimClass, basis: string, refs: string[]) => claims.push({ id: `${px}C${++n}`, statement, class: cls, basis, refs });
@@ -134,16 +206,16 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
   // Several outlets are NOT independent if they repeat one announcement: near-identical wording or wire/press-release origin.
   const sets = reporting.map((r) => toks(`${r.title} ${r.snippet}`));
   let maxSim = 0;
-  for (let i = 0; i < sets.length; i++) for (let j = i + 1; j < sets.length; j++) if (reporting[i].outlet !== reporting[j].outlet) maxSim = Math.max(maxSim, jac(sets[i], sets[j]));
+  for (let i = 0; i < sets.length; i++) for (let j = i + 1; j < sets.length; j++) if (outletKey(reporting[i].outlet) !== outletKey(reporting[j].outlet)) maxSim = Math.max(maxSim, jac(sets[i], sets[j]));
   const wireHit = reporting.some((r) => WIRE.test(`${r.title} ${r.snippet}`));
   const sharedOrigin = allReportingOutlets.size >= 2 && maxSim >= 0.7;
   if (allReportingOutlets.size >= 2 && !sharedOrigin) {
     add(
       `The event described by the headline ("${cleanField(story.headline, 200)}") is reported by ${allReportingOutlets.size} different outlets.`,
-      "INDEPENDENTLY_CORROBORATED",
-      "Matched by headline similarity. Independence judged by outlet name only; a shared wire or original report is not ruled out." +
-        (wireHit ? " Wire-service or press-release wording was found, so these outlets may share one origin." : "") +
-        " Details beyond the headline are not corroborated by this.",
+      "MULTI_OUTLET_REPORTED",
+      "The event appears under multiple distinct publisher labels. This is NOT a finding of independent reporting: ownership, syndication, wire-service use and shared original sourcing have not been fully traced." +
+        (wireHit ? " Wire-service or press-release wording was found, increasing the possibility of a shared origin." : "") +
+        " Do not describe this as independently corroborated. Details beyond the headline are not corroborated by this.",
       reporting.map((r) => r.ref)
     );
   } else if (sharedOrigin) {
@@ -155,7 +227,7 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
     );
   } else if (allReportingOutlets.size === 1) {
     const only = reporting[0];
-    add(`The event described by the headline is reported only by ${[...allReportingOutlets][0]}.`, "SINGLE_SOURCE", "One outlet in the retrieved material. No second outlet retrieved.", only ? [only.ref] : []);
+    add(`The event described by the headline is reported only by ${reporting[0]?.outlet || "Unknown"}.`, "SINGLE_SOURCE", "One outlet in the retrieved material. No second outlet retrieved.", only ? [only.ref] : []);
   }
   for (const r of reporting) {
     add(`${r.outlet} states: "${r.title}"`, "SINGLE_SOURCE", "Details in this headline and snippet are attributed to this outlet alone unless another source below states the same.", [r.ref]);
@@ -179,6 +251,7 @@ export function buildEvidencePack(story: EvStory, opts: { conflictNote?: string 
     omitted_sources: { count: omitted.length, items: omitted },
     evidence_limits: EVIDENCE_LIMITS,
     claim_classes: claims,
+    claim_register: [],
     editor_notes: { conflict, decision: cleanField(opts.decisionNote, 400) || null },
   };
   if (Buffer.byteLength(JSON.stringify(pack)) > MAX_PACK_BYTES) {
@@ -192,11 +265,25 @@ const day = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 
 /** Text block placed inside the prompt. Source text is fenced as untrusted data. */
 export function renderEvidence(p: EvidencePack): string {
   const src = p.sources
-    .map((s) => `[${s.ref}] ${s.outlet} | ${s.type} | published: ${day(s.published_at)}\n     title: ${s.title}\n     snippet: ${s.snippet || "(none collected)"}\n     link: ${s.url}`)
+    .map((s) => `[${s.ref}] ${s.outlet} | ${s.type} | published: ${day(s.published_at)}\n     source enabled: ${s.source_enabled === null ? "unknown" : s.source_enabled ? "yes" : "no"} | feed health: ${s.retrieval_status}\n     content depth: ${s.content_depth}\n     title: ${s.title}\n     snippet: ${s.snippet || "(none collected)"}\n     link: ${s.url}`)
     .join("\n");
   const cls = p.claim_classes
     .map((c) => `${c.id} [${c.class}] ${c.statement}\n     basis: ${c.basis}${c.refs.length ? `\n     sources: ${c.refs.join(", ")}` : ""}`)
     .join("\n");
+  const register = p.claim_register.length
+    ? p.claim_register.map((claim) => [
+        `- [${claim.claimId}] ${claim.statement}`,
+        `  latest editor outcome: ${claim.outcome ?? "UNKNOWN"} | current supported decision: ${claim.currentSupported ? "YES" : "NO"} | decision time: ${claim.decidedAt ?? "unknown"}`,
+        claim.reviewerNotes ? `  reviewer rationale: ${claim.reviewerNotes}` : "  reviewer rationale: (none recorded)",
+        ...claim.evidence.map((e) => [
+          `  evidence: ${e.isContradiction ? "CONTRADICTORY" : "SUPPORTING/CONTEXTUAL"} | extraction: ${e.extractionStatus} | content depth: ${e.contentDepth ?? "unknown"}`,
+          `  source status: ${e.sourceEnabled === null ? "unknown" : e.sourceEnabled ? "enabled" : "disabled"} | feed health: ${e.retrievalStatus ?? "unknown"} | passage policy: ${e.contentPolicy}`,
+          `  source: ${e.publisher ?? "Unknown publisher"} | ${e.sourceTitle ?? "Untitled"} | published: ${day(e.publishedAt)}`,
+          `  passage location: ${e.passageLocation ?? "not specified"} | source URL: ${e.sourceUrl ?? "unavailable"}`,
+          `  exact recorded passage: ${e.passage ?? "(no passage recorded)"}`,
+        ].join("\n")),
+      ].join("\n")).join("\n")
+    : "No claim-level evidence register was loaded for this development.";
   const omitted = p.omitted_sources.count
     ? `${p.omitted_sources.count} further source(s) exist and are NOT included: ${p.omitted_sources.items.map((o) => `${o.outlet} (${o.reason})`).join("; ")}.`
     : "No sources were left out.";
@@ -208,6 +295,9 @@ export function renderEvidence(p: EvidencePack): string {
     "",
     "SOURCES:",
     src,
+    "",
+    "CURRENT HUMAN CLAIM-VERIFICATION REGISTER (recorded claim statements, extracted passages and editor decisions):",
+    register,
     "UNTRUSTED_NEWS_DATA>>>",
     "",
     `Sources not included: ${omitted}`,

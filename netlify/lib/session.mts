@@ -55,3 +55,20 @@ export function isAuthenticated(req: Request): boolean {
   const expires = Number(payload);
   return Number.isFinite(expires) && expires > Date.now() / 1000;
 }
+
+/**
+ * Cookie-authenticated state-changing requests must originate from the same
+ * origin as the function URL. SameSite cookies are defence-in-depth, not the
+ * sole CSRF control. Requests without Origin fail closed.
+ */
+export function hasSameOrigin(req: Request): boolean {
+  const supplied = req.headers.get("origin");
+  if (!supplied) return false;
+  try {
+    const origin = new URL(supplied);
+    const target = new URL(req.url);
+    return origin.origin === target.origin && origin.protocol === "https:";
+  } catch {
+    return false;
+  }
+}

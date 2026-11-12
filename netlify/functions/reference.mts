@@ -3,7 +3,7 @@
 //   POST {action:"seed"}        load the verified/observed proposals (all PROPOSED), idempotent
 //   POST {action:"decide",id,status}   APPROVE or REJECT a PROPOSED rule (human action, audited)
 //   POST {action:"revise",id,statement}  save edited wording as a NEW PROPOSED version
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { SEED_RULES, SEED_VIDEOS } from "../lib/reference-seed.mts";
 import { cleanField } from "../lib/evidence-pack.mts";
@@ -16,6 +16,7 @@ const audit = (event_type: string, id: string, detail: unknown) =>
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method === "GET") {
       const videos = await db<any[]>("reference_videos?select=*&order=label.asc");

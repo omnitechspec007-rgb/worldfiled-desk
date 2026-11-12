@@ -61,34 +61,35 @@ check("prompt tells Claude not to install unlisted repositories", /Do not instal
 // ---------- evidence integrity ----------
 const single = story("Mine collapses in remote region", [src({ outlet: "OnlyPaper", title: "Mine collapse kills workers" })]);
 const sp = build(single);
-check("single outlet => SINGLE_SOURCE, no corroboration class", sp.pack.claim_classes.some((c) => c.class === "SINGLE_SOURCE") && !sp.pack.claim_classes.some((c) => c.class === "INDEPENDENTLY_CORROBORATED"));
+check("single outlet => SINGLE_SOURCE, no corroboration class", sp.pack.claim_classes.some((c) => c.class === "SINGLE_SOURCE") && !sp.pack.claim_classes.some((c) => c.class === "MULTI_OUTLET_REPORTED"));
 check("single-source prompt says so and demands 'reported by' framing", /not independently confirmed/.test(sp.out.prompt) && /reported by/.test(sp.out.prompt));
 check("single-source: UNKNOWN entry says no second outlet or official source", sp.pack.claim_classes.some((c) => c.class === "UNKNOWN" && /second outlet/.test(c.statement)));
 const multi = build(story("Ferry sinks", [src({ outlet: "One", title: "Ferry sinks off the northern coast, rescuers search", summary: "Rescue boats searched overnight after the vessel went down." }), src({ outlet: "Two", title: "Coastguard confirms passenger vessel lost in storm", summary: "Officials said the ship capsized in heavy seas." })]));
-const cc = multi.pack.claim_classes.find((c) => c.class === "INDEPENDENTLY_CORROBORATED");
-check("two outlets => corroborated, with independence caveat", !!cc && /outlet name only/.test(cc.basis) && /not ruled out/.test(cc.basis));
+const cc = multi.pack.claim_classes.find((c) => c.class === "MULTI_OUTLET_REPORTED");
+check("two publisher labels => multi-outlet reported, not independent corroboration", !!cc && /NOT a finding of independent reporting/.test(cc.basis) && /Do not describe this as independently corroborated/.test(cc.basis));
 const dupe = build(story("Ministry announces rule", [src({ outlet: "One", title: "Ministry announces new import rule effective Monday", summary: "The ministry announced a new import rule effective Monday." }), src({ outlet: "Two", title: "Ministry announces new import rule effective Monday", summary: "The ministry announced a new import rule effective Monday." })]));
-check("outlets repeating one announcement are NOT independent confirmation", !dupe.pack.claim_classes.some((c) => c.class === "INDEPENDENTLY_CORROBORATED") && dupe.pack.claim_classes.some((c) => /ONE source, not as independent/.test(c.basis)));
+check("outlets repeating one announcement are NOT independent confirmation", !dupe.pack.claim_classes.some((c) => c.class === "MULTI_OUTLET_REPORTED") && dupe.pack.claim_classes.some((c) => /ONE source, not as independent/.test(c.basis)));
 const wired = build(story("Ferry sinks", [src({ outlet: "One", title: "Ferry sinks, Reuters reports", summary: "Rescue boats searched overnight." }), src({ outlet: "Two", title: "Coastguard confirms vessel lost", summary: "Officials said the ship capsized." })]));
-check("wire wording adds a shared-origin warning to corroboration", /may share one origin/.test(wired.pack.claim_classes.find((c) => c.class === "INDEPENDENTLY_CORROBORATED")!.basis));
+check("wire wording adds a shared-origin warning without claiming independence", /increasing the possibility of a shared origin/.test(wired.pack.claim_classes.find((c) => c.class === "MULTI_OUTLET_REPORTED")!.basis));
 const pfx = buildEvidencePack(story("S", [src({ outlet: "A" })]), { refPrefix: "D2-" });
 check("reference prefix keeps refs unique across developments", pfx.sources[0].ref === "D2-S1" && pfx.claim_classes.every((c) => c.id.startsWith("D2-C")));
-check("corroboration does NOT cover details beyond the headline", /Details beyond the headline are not corroborated/.test(cc!.basis) && multi.pack.claim_classes.filter((c) => c.class === "SINGLE_SOURCE").length === 2);
+check("multi-outlet reporting does NOT verify details beyond the headline", /Details beyond the headline are not corroborated/.test(cc!.basis) && multi.pack.claim_classes.filter((c) => c.class === "SINGLE_SOURCE").length === 2);
 const off = build(story("Agency announces rule", [src({ outlet: "Agency", tier: "primary", title: "Rule announced" })]));
 const oc = off.pack.claim_classes.find((c) => c.class === "OFFICIALLY_DOCUMENTED");
 check("official source => OFFICIALLY_DOCUMENTED limited to what the source documents", !!oc && /does not verify any other claim/.test(oc.basis));
-check("official source alone is NOT labelled independently corroborated", !off.pack.claim_classes.some((c) => c.class === "INDEPENDENTLY_CORROBORATED"));
+check("official source alone is NOT labelled independently corroborated", !off.pack.claim_classes.some((c) => c.class === "MULTI_OUTLET_REPORTED"));
 const offPlusOne = build(story("Agency announces rule", [src({ outlet: "Agency", tier: "primary" }), src({ outlet: "Paper" })]));
 check("official + one outlet: still single-source for the outlet's details", offPlusOne.pack.claim_classes.some((c) => c.class === "SINGLE_SOURCE"));
 const conf = build(single, { conflict: "Outlet X says 12 dead, the ministry says 8." });
 check("editor conflict note => CONFLICTING entry labelled as the editor's", conf.pack.claim_classes.some((c) => c.class === "CONFLICTING" && /Entered by the editor/.test(c.basis)) && /do not choose/.test(conf.out.prompt));
 check("no conflict class unless the editor entered one", !sp.pack.claim_classes.some((c) => c.class === "CONFLICTING"));
 check("UNKNOWN always present", [sp, multi, off].every((x) => x.pack.claim_classes.some((c) => c.class === "UNKNOWN")));
-check("evidence limits stated in every prompt", [sp, multi, off].every((x) => /full articles were NOT read/.test(x.out.prompt)));
+check("evidence limits stated in every prompt", [sp, multi, off].every((x) => /feed metadata and short snippets/.test(x.out.prompt) && /NOT full-article review/.test(x.out.prompt) && /claim register/.test(x.out.prompt)));
 check("every source URL, outlet and date is in the prompt", multi.pack.sources.every((s) => multi.out.prompt.includes(s.url) && multi.out.prompt.includes(s.outlet)) && /published: 2026-10-30/.test(multi.out.prompt));
 check("rule: creative treatment may not promote unsupported claims", /may never turn a SINGLE_SOURCE, CONFLICTING or UNKNOWN item into an asserted fact/.test(sp.out.prompt));
 check("rule: illustrative elements must be labelled", /framed as illustrative/.test(sp.out.prompt));
 check("prompt requires a claim-to-source table with classes", /claim-to-source table/.test(sp.out.prompt) && /evidence class/.test(sp.out.prompt));
+check("single-story prompt includes strict anti-hallucination and anti-manipulation policy", /AI-SLOP \/ LOW-QUALITY OUTPUT DEFENCE/.test(sp.out.prompt) && /MANIPULATION, PROPAGANDA/.test(sp.out.prompt) && /When uncertain, abstain/.test(sp.out.prompt));
 
 // ---------- size and copyright-aware limits (never silent) ----------
 const many = story("Big story", Array.from({ length: 20 }, (_, i) => src({ outlet: `Outlet${i}`, summary: "x".repeat(900) })));

@@ -1,4 +1,4 @@
-import { clearSessionCookie, isAuthenticated, isConfigured, makeSessionCookie, passphraseMatches } from "../lib/session.mts";
+import { clearSessionCookie, hasSameOrigin, isAuthenticated, isConfigured, makeSessionCookie, passphraseMatches } from "../lib/session.mts";
 
 const json = (body: Record<string, unknown>, status = 200, extra: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), {
@@ -9,6 +9,8 @@ const json = (body: Record<string, unknown>, status = 200, extra: Record<string,
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default async (req: Request) => {
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
+
   if (!isConfigured()) {
     return json(
       {

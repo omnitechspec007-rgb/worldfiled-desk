@@ -2,8 +2,9 @@
 // Rule-based and deterministic. Every development keeps its own evidence, and nothing here invents a connection:
 // the connection text comes from the edition engine's recorded signals.
 import { createHash } from "node:crypto";
+import { INTEGRITY_POLICY } from "./integrity-policy.mts";
 import { brandBlock, brandChecklist, BRAND_VERSION } from "./brand.mts";
-import { CLASS_MEANING, cleanField, classCounts, renderEvidence, type EvidencePack } from "./evidence-pack.mts";
+import { claimRegisterFingerprint, CLASS_MEANING, cleanField, classCounts, renderEvidence, sourceSnapshotFingerprint, type EvidencePack } from "./evidence-pack.mts";
 import { DELIVERABLES, selectTools, type Deliverable, type ToolPlan } from "./production-tools.mts";
 import { distanceKm } from "./geo.mts";
 import type { Dev, Evaluation } from "./editions.mts";
@@ -58,9 +59,13 @@ export function pickRoles(members: EditionMember[], ev: Evaluation, deliverable:
   return roles.slice(0, 8);
 }
 
-/** Hash of the evidence the prompt was built from. Used to detect material updates after generation. */
+/** Hash the exact source and editor-reviewed claim snapshot used by the generated prompt. */
 export function evidenceHash(members: EditionMember[]): string {
-  const canon = members.map((m) => ({ id: m.dev.id, s: m.pack.sources.map((s) => [s.url, s.title, s.published_at, s.snippet]).sort() }));
+  const canon = members.map((m) => ({
+    id: m.dev.id,
+    sources: sourceSnapshotFingerprint(m.pack.sources),
+    claimRegister: claimRegisterFingerprint(m.pack.claim_register ?? []),
+  }));
   return createHash("sha256").update(JSON.stringify(canon)).digest("hex");
 }
 
@@ -129,6 +134,11 @@ export function buildEditionPrompt(input: EditionPromptInput) {
   const prompt = `You are being given a complete production assignment by the editor of THE WORLD, FILED. (tagline: "What happened. What changed. What matters."). This is ONE integrated editorial work about ${n} development${n === 1 ? "" : "s"}, not a collection of separate items. Read every section. Do not publish anything; the editor reviews your output.
 
 === RULES THAT OVERRIDE EVERYTHING ELSE ===
+${INTEGRITY_POLICY}
+
+- Use ONLY facts recorded in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER inside section 6 where the latest editor outcome is SUPPORTED and current supported decision is YES. A factual sentence must be directly supported by a specific recorded supporting passage whose individual evidence row is extracted, non-contradictory, and marked source enabled=yes and feed health=healthy. Do not use other passage rows in the register as support.
+- Headlines, feed snippets, publisher counts, heuristic evidence classes, editorial curiosity scores, geography inferred from publisher location and official announcements are RESEARCH CONTEXT ONLY. They are not clearance to assert a fact. Never convert them into public-facing factual claims.
+- If a development has no current-supported claim register entry, omit it from factual narration and on-screen text; identify it as held for verification. Do not substitute its research headline, summary or snippet. Do not pad the script or use another story's evidence.
 - Use ONLY the facts in section 6. Never invent numbers, dates, names, places, quotes, official statements, source links, legal provisions, scientific conclusions, geographic relationships or corroboration.
 - Every claim has an evidence class. You may not state a claim more strongly than its class allows. Separate, always labelled: EDITORIAL INTERPRETATION (our reading of the connection) and FUTURE POSSIBILITY (anything that "could" or "may" happen, only if a source says it). Creative treatment may never turn a SINGLE_SOURCE, CONFLICTING or UNKNOWN item into an asserted fact.
 - Several outlets repeating one announcement or one wire report are NOT independent confirmation. Do not write "confirmed by multiple sources" unless section 6 shows separate original sources.

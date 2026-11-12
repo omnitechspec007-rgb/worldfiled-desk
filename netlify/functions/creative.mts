@@ -5,14 +5,15 @@
 //   GET  ?id=ID                 one saved prompt; the text is withheld if its approval is no longer current
 // Two independent approval gates: this function checks the newest human decision, and the database
 // trigger on creative_prompts checks it again at insert time.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
-import { buildEvidencePack, classCounts, PackTooLarge, type EvStory } from "../lib/evidence-pack.mts";
+import { buildEvidencePack, claimRegisterFingerprint, classCounts, PackTooLarge, sourceSnapshotFingerprint, type EvStory } from "../lib/evidence-pack.mts";
 import { recommendTreatment, getTreatment, TREATMENTS } from "../lib/treatments.mts";
 import { DELIVERABLES, type Deliverable } from "../lib/production-tools.mts";
 import { buildArchitectPrompt, PromptTooLarge, type StyleRuleIn } from "../lib/prompt-architect.mts";
 import { brandChecklist, BRAND_VERSION } from "../lib/brand.mts";
 import { scoreStory, type StoryInput } from "../lib/scoring.mts";
+import { editionClaimClearance, editionClaimClearanceByStory, loadStories } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -25,13 +26,14 @@ async function latestDecision(storyId: string) {
 
 async function loadStory(storyId: string) {
   const rows = await db<any[]>(
-    `stories?id=eq.${storyId}&select=id,headline,category,created_at,story_source_links(retrieved_sources(title,url,published_at,retrieved_at,extract,source_registry(name,country_scope,reliability_note)))`
+    `stories?id=eq.${storyId}&select=id,headline,category,created_at,story_source_links(retrieved_sources(title,url,published_at,retrieved_at,content_status,extract,source_registry(name,country_scope,reliability_note,enabled,retrieval_status)))`
   );
   const st = rows[0];
   if (!st) return null;
   const sources = (st.story_source_links ?? [])
     .map((l: any) => l.retrieved_sources)
     .filter(Boolean)
+    .filter((s: any) => s.source_registry?.enabled === true && s.source_registry?.retrieval_status === "healthy")
     .map((s: any) => ({
       outlet: s.source_registry?.name ?? "Unknown",
       region: (s.source_registry?.country_scope ?? "").split(" · ")[0] || "Unknown",
@@ -41,10 +43,14 @@ async function loadStory(storyId: string) {
       summary: (s.extract ?? null) as string | null,
       publishedAt: (s.published_at ?? null) as string | null,
       retrievedAt: (s.retrieved_at ?? null) as string | null,
+      contentStatus: (s.content_status ?? null) as string | null,
+      enabled: typeof s.source_registry?.enabled === "boolean" ? s.source_registry.enabled : undefined,
+      retrievalStatus: typeof s.source_registry?.retrieval_status === "string" ? s.source_registry.retrieval_status : null,
     }));
   const story: EvStory = { headline: st.headline, category: st.category, sources };
   const scoringInput: StoryInput = { id: st.id, headline: st.headline, category: st.category, createdAt: st.created_at, sources };
-  return { story, scoringInput };
+  const verifiedLoaded = await loadStories([storyId]);
+  return { story, scoringInput, claimRegister: verifiedLoaded.get(storyId)?.claimRegister ?? [] };
 }
 
 async function approvedRules(): Promise<{ rules: StyleRuleIn[]; installed: boolean }> {
@@ -59,6 +65,22 @@ async function approvedRules(): Promise<{ rules: StyleRuleIn[]; installed: boole
   }
 }
 
+async function currentClaimClearance(storyId: string) {
+  try {
+    return await editionClaimClearance([storyId]);
+  } catch (error) {
+    return {
+      ready: false,
+      blocked: [{
+        storyId,
+        reason: error instanceof DbError && error.upstream === 404
+          ? "Claim-verification records are not installed; factual clearance cannot be confirmed."
+          : "The current claim-verification state could not be loaded. Public-facing news output remains blocked.",
+      }],
+    };
+  }
+}
+
 function curiosityOf(scoringInput: StoryInput) {
   const s = scoreStory(scoringInput);
   return { score: Math.round(s.curiosity), patterns: s.patterns.map((p) => ({ label: p.label, why: p.why })) };
@@ -66,6 +88,7 @@ function curiosityOf(scoringInput: StoryInput) {
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     const url = new URL(req.url);
     if (req.method === "GET") {
@@ -87,11 +110,15 @@ export default async (req: Request) => {
 
 async function preview(storyId: string) {
   const dec = await latestDecision(storyId);
-  if (dec?.decision !== "approved") return json({ error: "not_approved" }, 409);
+  if (dec?.decision !== "approved") return json({ error: "not_approved", detail: "This story is not currently approved for drafting." }, 409);
+  const clearance = await currentClaimClearance(storyId);
+  if (!clearance.ready) return json({ error: "verification_blocked", detail: "A public-facing creative prompt cannot be prepared until this story's material claims are verified and its claim register is complete.", blockedClaims: clearance.blocked }, 409);
   const loaded = await loadStory(storyId);
   if (!loaded) return json({ error: "not_found" }, 404);
+  if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "No currently enabled and healthy source remains attached to this story. It cannot be used for public news output." }, 409);
   const rec = recommendTreatment(loaded.story);
   const pack = buildEvidencePack(loaded.story, { decisionNote: dec.notes });
+  pack.claim_register = loaded.claimRegister;
   return json({
     storyId,
     headline: loaded.story.headline,
@@ -118,13 +145,17 @@ async function generate(req: Request) {
   const parentId = typeof b.parentId === "string" && UUID.test(b.parentId) ? b.parentId : null;
 
   const dec = await latestDecision(storyId);
-  if (dec?.decision !== "approved") return json({ error: "not_approved" }, 409);
+  if (dec?.decision !== "approved") return json({ error: "not_approved", detail: "This story is not currently approved for drafting." }, 409);
+  const clearance = await currentClaimClearance(storyId);
+  if (!clearance.ready) return json({ error: "verification_blocked", detail: "A public-facing creative prompt cannot be prepared until this story's material claims are verified and its claim register is complete.", blockedClaims: clearance.blocked }, 409);
   const loaded = await loadStory(storyId);
   if (!loaded) return json({ error: "not_found" }, 404);
+  if (!loaded.story.sources.length) return json({ error: "no_eligible_sources", detail: "No currently enabled and healthy source remains attached to this story. It cannot be used for public news output." }, 409);
 
   const rec = recommendTreatment(loaded.story);
   const treatment = (typeof b.treatmentKey === "string" && getTreatment(b.treatmentKey)) || rec.treatment;
   const pack = buildEvidencePack(loaded.story, { conflictNote: typeof b.conflictNote === "string" ? b.conflictNote : null, decisionNote: dec.notes });
+  pack.claim_register = loaded.claimRegister;
   const { rules, installed: rulesInstalled } = await approvedRules();
   const out = buildArchitectPrompt({
     pack,
@@ -192,7 +223,7 @@ async function generate(req: Request) {
 async function history() {
   let rows: any[];
   try {
-    rows = await db<any[]>("creative_prompts?select=id,story_id,version,treatment_key,created_at,approval_decision_id,created_by&order=created_at.desc&limit=60");
+    rows = await db<any[]>("creative_prompts?select=id,story_id,version,treatment_key,created_at,approval_decision_id,created_by,evidence_snapshot&order=created_at.desc&limit=60");
   } catch (e) {
     if (e instanceof DbError && e.upstream === 404) return json({ notInstalled: true, prompts: [] });
     throw e;
@@ -200,6 +231,9 @@ async function history() {
   const ids = [...new Set(rows.map((r) => r.story_id))];
   const names = new Map<string, string>();
   const current = new Map<string, string | null>();
+  let claimCurrent = new Map<string, { ready: boolean }>();
+  try { claimCurrent = await editionClaimClearanceByStory(ids); } catch { /* fail closed: history remains visible but never current */ }
+  const loadedCurrent = await loadStories(ids);
   for (let i = 0; i < ids.length; i += 30) {
     const part = ids.slice(i, i + 30).join(",");
     for (const s of await db<any[]>(`stories?id=in.(${part})&select=id,headline`)) names.set(s.id, s.headline);
@@ -215,7 +249,16 @@ async function history() {
       version: r.version,
       treatment: r.treatment_key,
       createdAt: r.created_at,
-      approvalCurrent: current.get(r.story_id) === r.approval_decision_id && !!r.approval_decision_id,
+      approvalCurrent: (() => {
+        const loaded = loadedCurrent.get(r.story_id);
+        const snapshot = r.evidence_snapshot;
+        if (!loaded || !snapshot || !(snapshot.sources ?? []).length || claimCurrent.get(r.story_id)?.ready !== true) return false;
+        const currentPack = buildEvidencePack(loaded.story);
+        currentPack.claim_register = loaded.claimRegister;
+        const evidenceCurrent = sourceSnapshotFingerprint(currentPack.sources) === sourceSnapshotFingerprint(snapshot.sources ?? [])
+          && claimRegisterFingerprint(currentPack.claim_register) === claimRegisterFingerprint(snapshot.claim_register ?? []);
+        return current.get(r.story_id) === r.approval_decision_id && !!r.approval_decision_id && evidenceCurrent;
+      })(),
     })),
   });
 }
@@ -226,7 +269,18 @@ async function one(id: string) {
   const r = rows[0];
   if (!r) return json({ error: "not_found" }, 404);
   const dec = await latestDecision(r.story_id);
-  const current = dec?.decision === "approved" && dec.id === r.approval_decision_id;
+  const clearance = await currentClaimClearance(r.story_id);
+  const loaded = await loadStory(r.story_id);
+  const currentPack = loaded ? buildEvidencePack(loaded.story, { decisionNote: dec?.notes }) : null;
+  if (currentPack && loaded) currentPack.claim_register = loaded.claimRegister;
+  const evidenceCurrent = Boolean(
+    clearance.ready
+    && currentPack
+    && (r.evidence_snapshot?.sources ?? []).length > 0
+    && sourceSnapshotFingerprint(currentPack.sources) === sourceSnapshotFingerprint(r.evidence_snapshot.sources ?? [])
+    && claimRegisterFingerprint(currentPack.claim_register) === claimRegisterFingerprint(r.evidence_snapshot?.claim_register ?? [])
+  );
+  const current = dec?.decision === "approved" && dec.id === r.approval_decision_id && evidenceCurrent;
   return json({
     id: r.id,
     storyId: r.story_id,
@@ -235,11 +289,17 @@ async function one(id: string) {
     createdAt: r.created_at,
     brandVersion: r.brand_spec_version,
     approvalCurrent: current,
+    factualClearanceCurrent: clearance.ready,
+    evidenceCurrent,
     roles: r.roles,
     rationale: r.rationale,
     tools: r.tools,
     evidenceClasses: classCounts(r.evidence_snapshot),
     prompt: current ? r.prompt_text : null,
-    withheld: current ? undefined : "This story's approval is no longer current (it was rejected, sent back for research, or approved again later). The prompt is kept as history but cannot be copied. Re-approve the story and regenerate.",
+    withheld: current ? undefined : !clearance.ready
+      ? "This story no longer has current factual clearance. The saved prompt remains in history but its text is withheld until the material claims are verified again."
+      : !evidenceCurrent
+        ? "The source snapshot or verified claim register changed after this prompt was written. The saved prompt remains in history but cannot be copied; review the updated evidence and regenerate it."
+        : "This story's human editorial approval is no longer current. The saved prompt remains in history but cannot be copied. Re-approve and regenerate.",
   });
 }

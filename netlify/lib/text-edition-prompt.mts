@@ -1,5 +1,6 @@
 // Evidence-bounded prompt builder for the daily written news edition.
 import { brandBlock, brandChecklist, BRAND_VERSION } from "./brand.mts";
+import { INTEGRITY_POLICY } from "./integrity-policy.mts";
 import { CLASS_MEANING, cleanField, classCounts, renderEvidence } from "./evidence-pack.mts";
 import { evidenceHash, MAX_EDITION_SNAPSHOT_BYTES, MAX_EDITION_PROMPT_CHARS, EditionPromptTooLarge, type EditionMember } from "./edition-prompt.mts";
 import type { Evaluation } from "./editions.mts";
@@ -37,7 +38,11 @@ export function buildTextEditionPrompt(input: {
     "You are the senior editor and fact-checking desk for THE WORLD, FILED. Prepare the TEXT EDITION of the daily global news briefing. This is a written publication, not a video script. Do not publish it; return a complete editorial draft for human review.",
     "",
     "=== NON-NEGOTIABLE EVIDENCE RULES ===",
-    "- Use ONLY facts in the evidence blocks in section 5. Do not invent context, dates, numbers, names, quotes, causes, legal details, locations or consequences.",
+    INTEGRITY_POLICY,
+    "- Use ONLY entries in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER in section 5 where the latest editor outcome is SUPPORTED and current supported decision is YES. Each factual sentence must be supported by a specific recorded passage whose individual evidence row is extracted, non-contradictory, and marked source enabled=yes and feed health=healthy. Other passage rows are not publishable support.",
+    "- Headlines, feed snippets, publisher counts, heuristic evidence classes and editorial scores are research context only. They are never permission to state a fact in public copy.",
+    "- If a selected development has no current-supported claim-register entry, omit it from the briefing and list it under 'What we could not verify'. Never substitute its research headline, summary or snippet, and never pad the edition.",
+    "- Do not invent context, dates, numbers, names, quotes, causes, legal details, locations or consequences.",
     "- Attribute material claims to supplied source refs (D#-S#). Distinguish official records, independently corroborated reporting, single-source reporting, conflicting accounts and unknown information.",
     "- Several outlets repeating one wire report or announcement are not automatically independent corroboration.",
     "- Single-outlet developments (" + (flagged.join(", ") || "none flagged") + ") must be described as reported, not independently confirmed.",

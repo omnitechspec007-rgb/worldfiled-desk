@@ -40,6 +40,16 @@ check("every development headline is attributed in the evidence section", devs.e
 check("connection presented as inferred, not verified; no coordination claim", /not verified/.test(p) && /coordinated/.test(p) && /EDITORIAL INTERPRETATION/.test(p));
 check("hypothesis label on the curiosity mechanism", /EDITORIAL HYPOTHESIS/.test(p) && /never overrides the evidence/.test(p));
 check("shared-origin rule included (outlets repeating one report are not independent)", /NOT independent confirmation/.test(p));
+const multiOutletPack = buildEvidencePack({ headline: "A regional development changes cross-border transport rules", category: "Public policy", sources: [
+  { outlet: "Northstar News", region: "Europe", tier: "reporting", url: "https://northstar.example/a", title: "Regional transport authority changes cross-border permit rules", summary: "Officials say new permit requirements will begin next month for freight operators." , publishedAt: ago(2), retrievedAt: ago(1) },
+  { outlet: "Continental Ledger", region: "Europe", tier: "reporting", url: "https://ledger.example/a", title: "Freight operators face revised border documentation", summary: "A separate report says carriers must submit updated documents under the regional transport policy.", publishedAt: ago(2), retrievedAt: ago(1) }
+] });
+check("multiple publisher labels are never automatically called independently corroborated", multiOutletPack.claim_classes.some((x) => x.class === "MULTI_OUTLET_REPORTED" && /NOT a finding of independent reporting/.test(x.basis)) && !multiOutletPack.claim_classes.some((x) => (x.class as string) === "INDEPENDENTLY_CORROBORATED"));
+const samePublisherPack = buildEvidencePack({ headline: "One publisher has two regional feed entries", category: "Public policy", sources: [
+  { outlet: "BBC News", region: "Europe", tier: "reporting", url: "https://bbc.example/a", title: "Regional authority changes transport rules", summary: "New permit rules apply to freight operators.", publishedAt: ago(2), retrievedAt: ago(1) },
+  { outlet: "bbc news ", region: "Africa", tier: "reporting", url: "https://bbc.example/b", title: "Transport authority updates border permits", summary: "Carriers will need new documents under the revised rules.", publishedAt: ago(2), retrievedAt: ago(1) }
+] });
+check("publisher labels differing only by case or whitespace count as one outlet", samePublisherPack.claim_classes.some((x) => x.class === "SINGLE_SOURCE" && /reported only by BBC News/.test(x.statement)));
 check("all evidence classes defined, FUTURE POSSIBILITY separated", /OFFICIALLY_DOCUMENTED/.test(p) && /FUTURE POSSIBILITY/.test(p));
 check("roles chosen for this edition, fact-checker last word", out.roles.length >= 4 && out.roles.length <= 8 && /fact-checker has the last word/.test(p) && out.roles.some((r) => /international/.test(r.role)));
 check("roles are selected, not a fixed list (single country differs)", pickRoles(members().slice(0, 1), evaluateEdition([devs[0]], { now: NOW }), "script_storyboard").some((r) => /Senior news correspondent/.test(r.role)));
@@ -55,6 +65,34 @@ check("approved style rules included only when approved", !/Approved style rules
 check("editor angle and conflict notes carried through", /Editor's chosen angle: "ask why"/.test(base({ angle: "ask why" }).prompt) && /Editor-noted conflicts/.test(base({ conflictNotes: ["Sources differ on the date."] }).prompt));
 check("snapshot records every development and what was omitted", out.snapshot.developments.length === 3 && "evidence_limits" in out.snapshot && "omitted_total" in out.snapshot);
 check("evidence hash is stable and changes when evidence changes", out.evidenceHash === evidenceHash(members()) && (() => { const m = members(); m[1].pack.sources[0].snippet += " updated"; return evidenceHash(m) !== out.evidenceHash; })());
+check("evidence hash includes verified claim statements and supporting passages", (() => {
+  const m = members();
+  m[0].pack.claim_register = [{
+    claimId: "claim-1", statement: "The ministry issued a new policy.", category: "factual",
+    outcome: "SUPPORTED", reviewerNotes: "Checked against the original circular.", decidedAt: ago(1), currentSupported: true,
+    evidence: [{
+      sourceId: "source-1", sourceTitle: "Original circular", sourceUrl: "https://official.example/circular",
+      publisher: "Official publisher", publishedAt: ago(2), contentDepth: "full_text", sourceEnabled: true,
+      retrievalStatus: "healthy", passage: "The circular states the policy begins on 1 November.",
+      passageLocation: "paragraph 4", extractionStatus: "extracted", isContradiction: false, createdAt: ago(1),
+    }],
+  }];
+  const baseline = evidenceHash(m);
+  const changedStatement = members(); changedStatement[0].pack.claim_register = structuredClone(m[0].pack.claim_register);
+  changedStatement[0].pack.claim_register[0].statement = "The ministry revised the policy.";
+  const changedPassage = members(); changedPassage[0].pack.claim_register = structuredClone(m[0].pack.claim_register);
+  changedPassage[0].pack.claim_register[0].evidence[0].passage = "The circular states the policy begins on 2 November.";
+  const changedOutcome = members(); changedOutcome[0].pack.claim_register = structuredClone(m[0].pack.claim_register);
+  changedOutcome[0].pack.claim_register[0].outcome = "PARTIALLY_SUPPORTED";
+  const changedEligibility = members(); changedEligibility[0].pack.claim_register = structuredClone(m[0].pack.claim_register);
+  changedEligibility[0].pack.claim_register[0].evidence[0].sourceEnabled = false;
+  return evidenceHash(m) === baseline
+    && evidenceHash(changedStatement) !== baseline
+    && evidenceHash(changedPassage) !== baseline
+    && evidenceHash(changedOutcome) !== baseline
+    && evidenceHash(changedEligibility) !== baseline;
+})());
+
 check("prompt ties to member set: different members give a different prompt and hash", (() => { const two2 = members().slice(0, 2); const o = buildEditionPrompt({ title: "t", members: two2, evaluation: evaluateEdition(devs.slice(0, 2), { now: NOW }), deliverable: "script_storyboard", durationSeconds: 60, approvedRules: [] }); return o.evidenceHash !== out.evidenceHash && o.prompt !== p; })());
 check("oversized prompt is refused, not shortened", (() => { try { buildEditionPrompt({ title: "t", members: members(), evaluation: ev, deliverable: "script_storyboard", durationSeconds: 60, angle: "", approvedRules: Array.from({ length: 4000 }, (_, i) => ({ rule_key: "k" + i, version: 1, category: "c", statement: "x".repeat(60) })) }); return false; } catch (e) { return e instanceof EditionPromptTooLarge; } })());
 // weak/unrelated edition: connection must not be forced
@@ -85,7 +123,7 @@ check("no-map edition explains why and forbids decorative map", /map is NOT reco
 const textOut = buildTextEditionPrompt({ title: "Daily world briefing", members: members(), evaluation: ev, approvedRules: [] });
 check("text edition uses its own written-news format, not a video transcript", /TEXT EDITION/.test(textOut.prompt) && /LEAD STORIES/.test(textOut.prompt) && /NEWS BRIEFS/.test(textOut.prompt) && /claim register/.test(textOut.prompt));
 check("text edition preserves all developments and source evidence refs", M.every((m) => textOut.prompt.includes(m.dev.headline)) && textOut.snapshot.developments.length === M.length && /D1-S1/.test(textOut.prompt) && /D3-S1/.test(textOut.prompt));
-check("text edition includes evidence limits, single-source cautions and no-invention rules", /ONLY facts/.test(textOut.prompt) && /not independently confirmed/.test(textOut.prompt) && /Do not fill evidence gaps with memory/.test(textOut.prompt));
+check("text edition includes claim-register-only factual rules, single-source cautions and no-invention rules", /Use ONLY entries in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/.test(textOut.prompt) && /not independently confirmed/.test(textOut.prompt) && /Do not fill evidence gaps with memory/.test(textOut.prompt) && /feed snippets.*research context only/i.test(textOut.prompt));
 check("text edition has no video runtime, storyboard or voiceover directions", !/PRODUCTION BLUEPRINT|VOICE CONFIGURATION|scene by scene|narration script/i.test(textOut.prompt));
 check("text edition uses a distinct saved-history label and immutable evidence snapshot", textOut.rationale.edition_kind === "text" && textOut.snapshot.developments.length === M.length && textOut.evidenceHash === evidenceHash(members()));
 const longVideo = buildEditionPrompt({ title: "Daily video", members: members(), evaluation: ev, deliverable: "script_storyboard", durationSeconds: 600, approvedRules: [] });

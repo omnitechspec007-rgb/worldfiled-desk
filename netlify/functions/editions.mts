@@ -6,18 +6,19 @@
 //   POST {action:"decide", id, decision, notes?, acknowledged}    human decision (approval needs acknowledged:true)
 //   POST {action:"archive", id}
 // Nothing is ever silently removed from a selection: the evaluation reports weak members; only the editor removes them.
-import { isAuthenticated } from "../lib/session.mts";
+import { hasSameOrigin, isAuthenticated } from "../lib/session.mts";
 import { db, DbError } from "../lib/db.mts";
 import { evaluateEdition, suggestEditions, membersKey, STRUCTURE_LABEL, type Structure, type Dev } from "../lib/editions.mts";
-import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
+import { loadPool, loadStories, memberIds, latestEditionDecision, latestDecisions, editionClaimClearance, UUID, MAX_MEMBERS } from "../lib/edition-data.mts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 const STRUCTS = Object.keys(STRUCTURE_LABEL) as Structure[];
 
-const devSummary = (d: Dev, decision: string | null, flag?: { fresh: boolean; why: string | null; ageHours: number | null }) => ({
+const devSummary = (d: Dev, decision: string | null, flag?: { fresh: boolean; why: string | null; ageHours: number | null }, verificationStatus = "unverified") => ({
   fresh: flag?.fresh ?? true, notFreshWhy: flag?.why ?? null, ageHours: flag?.ageHours ?? null,
-  sources: d.sources.map((x) => ({ outlet: x.outlet, region: x.region, tier: x.tier, title: x.title, url: x.url, publishedAt: x.publishedAt ?? null, snippet: (x.summary ?? "").slice(0, 300) })),
+  sources: d.sources.map((x) => ({ outlet: x.outlet, region: x.region, tier: x.tier, title: x.title, url: x.url, publishedAt: x.publishedAt ?? null, snippet: (x.summary ?? "").slice(0, 300), depth: x.contentStatus ?? "unknown", enabled: x.enabled ?? null, retrievalStatus: x.retrievalStatus ?? "unknown" })),
+  verificationStatus,
   id: d.id, headline: d.headline, category: d.category, decision,
   type: d.a.typeLabel, recommendation: d.a.recommendation, recommendationWhy: d.a.recommendationWhy,
   curiosityScore: d.a.curiosityScore, evidenceStrength: d.a.evidenceStrength, corroborated: d.a.corroborated,
@@ -30,6 +31,7 @@ const evalSummary = (e: ReturnType<typeof evaluateEdition>) => ({ ...e, pairs: e
 
 export default async (req: Request) => {
   if (!isAuthenticated(req)) return json({ error: "unauthorized" }, 401);
+  if (req.method === "POST" && !hasSameOrigin(req)) return json({ error: "origin_mismatch" }, 403);
   try {
     if (req.method === "GET") {
       const u = new URL(req.url);
@@ -78,7 +80,7 @@ async function desk() {
   return json({
     generatedAt: new Date(now).toISOString(),
     note: "Suggestions use fixed, visible rules on headlines and feed snippets only. The connection between developments is an editorial inference for you to judge; it is not verified.",
-    developments: all.map((l) => devSummary(l.dev, decisions.get(l.dev.id)?.decision ?? null, flags.get(l.dev.id))).sort((a, b) => Number(b.fresh) - Number(a.fresh) || b.curiosityScore - a.curiosityScore),
+    developments: all.map((l) => devSummary(l.dev, decisions.get(l.dev.id)?.decision ?? null, flags.get(l.dev.id), l.verificationStatus)).sort((a, b) => Number(b.fresh) - Number(a.fresh) || b.curiosityScore - a.curiosityScore),
     suggestions: sug.editions.map(stripped),
     weakConnections: sug.weakConnections.map(stripped),
     unmatched: sug.unmatched,
@@ -113,7 +115,7 @@ async function evaluate(u: URL) {
   const r = await evaluateIds(ids, u.searchParams.get("structure") ?? undefined);
   if ("missing" in r) return json({ error: "not_found", detail: "Some developments are no longer available.", missing: r.missing }, 404);
   const decs = await latestDecisions(ids);
-  return json({ evaluation: r.out, developments: ids.map((i) => devSummary(r.loaded.get(i)!.dev, decs.get(i)?.decision ?? null)) });
+  return json({ evaluation: r.out, developments: ids.map((i) => devSummary(r.loaded.get(i)!.dev, decs.get(i)?.decision ?? null, undefined, r.loaded.get(i)!.verificationStatus)) });
 }
 
 async function detail(id: string) {
@@ -133,7 +135,7 @@ async function detail(id: string) {
     approval: { decision: dec?.decision ?? null, notes: dec?.notes ?? null, decidedAt: dec?.created_at ?? null, current: dec?.decision === "approved" && dec.members_hash === membersKey(ids) && blocked.length === 0, membersChangedSinceApproval: dec?.decision === "approved" && dec.members_hash !== membersKey(ids), blockedMembers: blocked },
     decisions,
     evaluation: "out" in r ? r.out : null,
-    developments: "loaded" in r ? ids.map((i) => devSummary(r.loaded.get(i)!.dev, memberDecs.get(i)?.decision ?? null)) : [],
+    developments: "loaded" in r ? ids.map((i) => devSummary(r.loaded.get(i)!.dev, memberDecs.get(i)?.decision ?? null, undefined, r.loaded.get(i)!.verificationStatus)) : [],
     missing: "missing" in r ? r.missing : [],
     savedAssessment: { coherence: e.coherence, curiosity: e.curiosity },
   });
@@ -141,12 +143,15 @@ async function detail(id: string) {
 
 async function save(b: any) {
   const ids = Array.isArray(b.ids) ? parseIds(b.ids.map(String).join(",")) : null;
-  const title = typeof b.title === "string" ? b.title.trim().slice(0, 300) : "";
+  if (typeof b.title !== "string" || b.title.trim().length > 300) return json({ error: "bad_title", detail: "Edition title is required and limited to 300 characters. Nothing was truncated or saved." }, 400);
+  if (b.angle !== undefined && b.angle !== null && typeof b.angle !== "string") return json({ error: "bad_angle" }, 400);
+  if (typeof b.angle === "string" && b.angle.trim().length > 1000) return json({ error: "field_too_long", detail: "Editorial angle is limited to 1,000 characters. Nothing was truncated or saved." }, 400);
+  const title = b.title.trim();
   const editionKind = b.editionKind === "text" ? "text" : "video";
   const limit = editionKind === "text" ? 18 : 12;
   if (!ids || !title || ids.length > limit) return json({ error: "bad_request", detail: "A title and 1 to " + limit + " distinct developments are required for this edition type. New video selections are capped at 8 in the editor; the API retains compatibility with older saved editions up to 12." }, 400);
   const id = typeof b.id === "string" && UUID.test(b.id) ? b.id : null;
-  const angle = typeof b.angle === "string" ? b.angle.trim().slice(0, 1000) : "";
+  const angle = typeof b.angle === "string" ? b.angle.trim() : "";
   const r = await evaluateIds(ids, typeof b.structure === "string" ? b.structure : undefined);
   if ("missing" in r) return json({ error: "not_found", detail: "Some developments are no longer available.", missing: r.missing }, 404);
   const structure = r.out.structure as Structure;
@@ -194,6 +199,14 @@ async function decide(b: any) {
     const memberDecs = await latestDecisions(ids);
     const blocked = ids.filter((i) => ["rejected", "needs_research"].includes(memberDecs.get(i)?.decision ?? ""));
     if (blocked.length) return json({ error: "member_blocked", detail: "A development in this edition was rejected or sent back for research. Remove it or re-approve it first.", blocked }, 409);
+    const awaitingStoryApproval = ids.filter((i) => memberDecs.get(i)?.decision !== "approved");
+    if (awaitingStoryApproval.length) return json({
+      error: "story_editorial_approval_required",
+      detail: "Every development must first be explicitly approved in Editorial Review. This clears a story for drafting, not factual verification.",
+      awaitingApproval: awaitingStoryApproval,
+    }, 409);
+    const clearance = await editionClaimClearance(ids);
+    if (!clearance.ready) return json({ error: "verification_blocked", detail: "Every story in an edition must have a complete claim register, checked supporting passages and current supported editor decisions before edition approval.", blockedClaims: clearance.blocked }, 409);
   }
   try {
     await db("edition_decisions", { method: "POST", prefer: "return=minimal", body: { edition_id: id, decision, decided_by: "editor", notes: notes || null } });

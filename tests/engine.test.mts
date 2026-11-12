@@ -46,6 +46,25 @@ function matches(row: any, params: URLSearchParams) {
 function postgrest(url: URL, init: any) {
   const table = url.pathname.split("/rest/v1/")[1];
   const m = init.method ?? "GET";
+  if (table === "rpc/record_story_editorial_decision" && m === "POST") {
+    const b = JSON.parse(init.body);
+    const records = T("idempotency_records");
+    const prior = records.find((x) => x.actor_key === "editor" && x.endpoint_key === "story_editorial_decision" && x.idempotency_key === b.p_idempotency_key);
+    if (prior) {
+      if (prior.request_hash !== b.p_request_hash) return new Response(JSON.stringify({ status: 409, body: { error: "idempotency_key_reused" } }), { status: 200 });
+      return new Response(JSON.stringify({ status: prior.response_status, body: prior.response_body, replayed: true }), { status: 200 });
+    }
+    const story = T("stories").find((x) => x.id === b.p_story_id);
+    if (!story) return new Response(JSON.stringify({ status: 404, body: { error: "not_found" } }), { status: 200 });
+    const previous = story.editorial_status;
+    const decision = { id: crypto.randomUUID(), story_id: b.p_story_id, decision: b.p_decision, decided_by: "editor", notes: b.p_notes || null, created_at: new Date(Date.now() + seq++).toISOString() };
+    T("editorial_decisions").push(decision);
+    story.editorial_status = b.p_decision;
+    T("audit_events").push({ id: ++seq, event_type: "story_" + b.p_decision, entity_type: "story", entity_id: b.p_story_id, actor: "editor", detail: { previous, notes: b.p_notes || null, acknowledged: b.p_acknowledged } });
+    const response = { ok: true, status: b.p_decision };
+    records.push({ actor_key: "editor", endpoint_key: "story_editorial_decision", idempotency_key: b.p_idempotency_key, request_hash: b.p_request_hash, response_status: 200, response_body: response, completed_at: new Date().toISOString() });
+    return new Response(JSON.stringify({ status: 200, body: response, replayed: false }), { status: 200 });
+  }
   if (failNext && failNext.table === table && failNext.method === m) { const st = failNext.status ?? 500; failNext = null; return new Response("{}", { status: st }); }
   if (missing.has(table)) return new Response("{}", { status: 404 });
   const rows = T(table);
@@ -123,8 +142,8 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
 }) as any;
 
 // ---------- helpers ----------
-const call = (fn: any, body: any, c: string | null = cookie) =>
-  fn(new Request("https://x/", { method: "POST", headers: { "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
+const call = (fn: any, body: any, c: string | null = cookie, idem?: string) =>
+  fn(new Request("https://x/", { method: "POST", headers: { origin: "https://x", "content-type": "application/json", ...(c ? { cookie: c } : {}), ...(fn === decideFn && c ? { "idempotency-key": idem ?? crypto.randomUUID() } : {}) }, body: JSON.stringify(body) }));
 const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("https://x/?" + q, { method: "GET", headers: c ? { cookie: c } : {} }));
 const start = async (key = crypto.randomUUID().replace(/-/g, "")) => (await (await call(runsFn, { idempotencyKey: key })).json());
 async function runToEnd(runId: string, max = 40) {
@@ -174,6 +193,21 @@ assert.equal(st("Euronews").retrieval_status, "degraded"); assert(/older items s
 assert.equal(st("France 24").retrieval_status, "failing"); ok("network error flagged failing");
 assert.equal(st("Dawn").enabled, false); ok("failed sources are disabled");
 assert.equal(end.run.status, "completed");
+
+// A failed feed can be retried on a subsequent research run, but its old records stay out
+// of clustering until a fresh, healthy retrieval explicitly enables it again.
+const dawnRegistryId = st("Dawn").id;
+behaviour[hostFor("Dawn")] = "ok";
+fetched.length = 0;
+const retryRun = await start();
+const retryEnd = await runToEnd(retryRun.run.id);
+assert.equal(retryEnd.run.status, "completed");
+assert(fetched.some((url) => hostOf(url) === hostFor("Dawn")), "the later research run should retry the failing feed");
+assert.equal(st("Dawn").retrieval_status, "healthy");
+assert.equal(st("Dawn").enabled, true);
+assert(T("retrieved_sources").some((source) => source.registry_id === dawnRegistryId));
+assert(T("story_source_links").some((link) => link.source_id === T("retrieved_sources").find((source) => source.registry_id === dawnRegistryId)?.id));
+ok("previously failing sources are retried later and re-enter the research pool only after healthy retrieval");
 const finalRun = T("research_runs")[0]; assert(/sources had problems/.test(finalRun.error_summary)); ok("run reports how many sources had problems");
 
 console.log("Total failure is not reported as success");
@@ -246,16 +280,35 @@ assert.equal((await call(decideFn, { storyId: sid, decision: "publish", acknowle
 assert.equal(T("editorial_decisions").length, 0); ok("refused attempts leave no decision record");
 assert.equal((await call(creativeFn, { storyId: sid })).status, 409); assert.equal(T("creative_prompts").length, 0); assert.equal((await get(creativeFn, `storyId=${sid}`)).status, 409); ok("unapproved story: no prompt and no recommendation");
 assert.equal((await call(creativeFn, { storyId: sid }, null)).status, 401); assert.equal((await get(creativeFn, "history=1", null)).status, 401); assert.equal((await call(referenceFn, { action: "seed" }, null)).status, 401); ok("architect, history and reference library require sign-in");
-assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" })).status, 200);
+assert.equal((await call(decideFn, { storyId: sid, decision: "approved", acknowledged: true, notes: "Checked sources" }, cookie, crypto.randomUUID())).status, 200);
 assert.equal(T("stories").find((x) => x.id === sid).editorial_status, "approved"); assert.equal(T("editorial_decisions").length, 1); assert(T("audit_events").some((a) => a.event_type === "story_approved" && a.entity_id === sid)); ok("approval saved with notes, status updated and audit event written");
-console.log("Creative Prompt Architect (approved story)");
+
+// Synthetic test-only evidence register: a production prompt must have an extracted passage,
+// a claim-level SUPPORTED decision made after that passage, and the story-level completeness ack.
+const approvedStory = T("stories").find((x) => x.id === sid);
+approvedStory.verification_status = "verified";
+const linkedSource = T("story_source_links").find((x) => x.story_id === sid)?.source_id;
+assert(linkedSource, "the test story must have at least one linked source");
+const linkedRegistryId = T("retrieved_sources").find((x) => x.id === linkedSource)?.registry_id;
+assert(linkedRegistryId, "the linked source must have a publisher registry row");
+T("source_content_policies").push({ source_id: linkedRegistryId, policy: "extraction_allowed" });
+const evidenceAt = new Date(Date.now() - 60_000).toISOString();
+T("claims").push({
+  id: crypto.randomUUID(),
+  story_id: sid,
+  claim_text: "Synthetic claim statement for this engine test.",
+  category: "factual",
+  claim_evidence: [{ id: crypto.randomUUID(), source_id: linkedSource, passage: "Synthetic extracted passage checked against the source record for this test.", passage_location: "test paragraph", extraction_status: "extracted", is_contradiction: false, created_at: evidenceAt, retrieved_sources: { ...T("retrieved_sources").find((x) => x.id === linkedSource), source_registry: T("source_registry").find((x) => x.id === T("retrieved_sources").find((y) => y.id === linkedSource)?.registry_id) } }],
+  verification_results: [{ id: crypto.randomUUID(), outcome: "SUPPORTED", reviewer_notes: "Synthetic test-only claim review.", created_at: new Date().toISOString() }],
+});
+console.log("Creative Prompt Architect (approved and factually cleared story)");
 const pv = await (await get(creativeFn, `storyId=${sid}`)).json();
 assert(pv.recommended.key && pv.recommended.roles.length >= 4 && pv.recommended.reason && pv.allTreatments.length >= 6 && pv.deliverables.length === 3 && pv.evidence.sources >= 1); ok("preview recommends a treatment, team and reason, and saves nothing");
 assert.equal(T("creative_prompts").length, 0);
 const g1r = await call(creativeFn, { storyId: sid, deliverable: "script_storyboard", durationSeconds: 60, angle: "Test angle" }); const g1 = await g1r.json();
 assert.equal(g1r.status, 200); assert.equal(g1.saved, true); assert.equal(g1.version, 1); ok("approved story: prompt generated and saved as version 1");
 const firstUrl = T("retrieved_sources").find((r) => T("story_source_links").some((l) => l.story_id === sid && l.source_id === r.id)).url;
-assert(g1.prompt.includes(firstUrl) && g1.prompt.includes("Use ONLY the facts in section B") && g1.prompt.includes("THE WORLD, FILED.") && g1.prompt.includes("Test angle")); ok("prompt carries the real source link, evidence rules, brand and angle");
+assert(g1.prompt.includes(firstUrl) && /Use ONLY entries in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/.test(g1.prompt) && g1.prompt.includes("Synthetic claim statement for this engine test.") && g1.prompt.includes("Synthetic extracted passage checked against the source record for this test.") && g1.prompt.includes("THE WORLD, FILED.") && g1.prompt.includes("Test angle")); ok("prompt carries the exact verified claim and passage, source link, strengthened evidence rules, brand and angle");
 assert(g1.tools.needed.length === 0 && /No additional tool/.test(g1.tools.note)); ok("script deliverable needs no extra tool");
 const row1 = T("creative_prompts")[0]; const dec1 = T("editorial_decisions").filter((d) => d.story_id === sid).pop();
 assert.equal(row1.approval_decision_id, dec1.id); assert(row1.evidence_snapshot.sources.length >= 1 && row1.evidence_snapshot.omitted_sources && row1.evidence_snapshot.evidence_limits && row1.evidence_snapshot.claim_classes.length >= 2); ok("saved record links to the approval it relied on and stores the evidence snapshot");

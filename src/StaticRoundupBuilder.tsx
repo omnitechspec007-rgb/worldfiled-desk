@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { canExportRoundup } from "./roundup-export-policy.mts";
 
 type RoundupStory = {
   id: string;
@@ -8,7 +9,7 @@ type RoundupStory = {
   source?: string;
 };
 
-type Props = { title: string; stories: RoundupStory[] };
+type Props = { title: string; stories: RoundupStory[]; exportReady: boolean; preflightNote: string };
 
 const W = 1080;
 const H = 1920;
@@ -104,7 +105,9 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
   const bottom = 1788;
   const gap = cards.length > 8 ? 10 : 13;
   const cardH = (bottom - top - gap * Math.max(0, cards.length - 1)) / Math.max(1, cards.length);
-  const compact = cards.length > 8;
+  // Fit typography to available card height, not just the number of stories.
+  // This keeps seven- and eight-story editions from colliding with source labels.
+  const compact = cardH < 230;
   cards.forEach((story, index) => {
     const y = top + index * (cardH + gap);
     ctx.save();
@@ -126,18 +129,18 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
     const label = story.location ? story.location.toUpperCase().slice(0, 34) : "WORLD UPDATE";
     ctx.fillText(String(index + 1).padStart(2, "0") + "  /  " + label, padX, labelY);
 
-    const headlineSize = compact ? 27 : cards.length > 6 ? 29 : 32;
+    const headlineSize = compact ? 25 : 32;
     ctx.fillStyle = "#0B1F38";
     ctx.font = "700 " + headlineSize + "px Inter, Arial, sans-serif";
-    const headlineY = y + (compact ? 61 : 68);
-    const titleCount = drawText(ctx, story.headline, padX, headlineY, 900, headlineSize * 1.16, compact ? 1 : 2);
+    const headlineY = y + (compact ? 57 : 68);
+    const titleCount = drawText(ctx, story.headline, padX, headlineY, 900, headlineSize * 1.12, compact ? 1 : 2);
 
-    const summarySize = compact ? 21 : 23;
+    const summarySize = compact ? 19 : 23;
     ctx.fillStyle = "#31465B";
     ctx.font = "500 " + summarySize + "px Inter, Arial, sans-serif";
-    const summaryY = headlineY + titleCount * headlineSize * 1.16 + (compact ? 25 : 28);
+    const summaryY = headlineY + titleCount * headlineSize * 1.12 + (compact ? 16 : 22);
     const maxSummaryLines = compact ? 1 : 2;
-    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.25, maxSummaryLines);
+    drawText(ctx, story.summary, padX, summaryY, 900, summarySize * 1.2, maxSummaryLines);
     if (story.source) {
       ctx.fillStyle = "#68798A";
       ctx.font = "500 14px Inter, Arial, sans-serif";
@@ -157,7 +160,7 @@ function renderPoster(canvas: HTMLCanvasElement, title: string, date: string, ca
   ctx.textAlign = "left";
 }
 
-export default function StaticRoundupBuilder({ title, stories }: Props) {
+export default function StaticRoundupBuilder({ title, stories, exportReady, preflightNote }: Props) {
   const storySignature = JSON.stringify(stories);
   const initial = useMemo(() => stories.slice(0, 10).map((s) => ({
     ...s,
@@ -190,9 +193,6 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
 
   useEffect(() => () => { if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current); }, []);
 
-  const updateCard = (id: string, key: "headline" | "summary", value: string) => {
-    setCards((current) => current.map((c) => c.id === id ? { ...c, [key]: value } : c));
-  };
   const moveCard = (index: number, direction: -1 | 1) => {
     setCards((current) => {
       const target = index + direction;
@@ -203,8 +203,13 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
     });
   };
   const removeCard = (id: string) => setCards((current) => current.filter((card) => card.id !== id));
+  const exportEnabled = canExportRoundup(exportReady, cards.length);
 
   const downloadPoster = () => {
+    if (!exportEnabled) {
+      setNotice(cards.length === 0 ? "Export blocked: add at least one story card before exporting." : "Export blocked: " + preflightNote);
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const a = document.createElement("a");
@@ -218,6 +223,10 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
   };
 
   const exportVideo = async () => {
+    if (!exportEnabled) {
+      setNotice(cards.length === 0 ? "Export blocked: add at least one story card before exporting." : "Export blocked: " + preflightNote);
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     if (!("MediaRecorder" in window) || !canvas.captureStream) {
@@ -309,7 +318,7 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
 
       <div className="panel">
         <h3>Story cards ({cards.length})</h3>
-        <p className="meta">Edit, reorder or remove stories. Keep each one factual and short; the preview shows the actual final layout. Source names are included where available. A shorter edition is acceptable when fewer stories merit inclusion.</p>
+        <p className="meta">These cards are populated from the exact current-supported claim statements in the Evidence Room. Factual wording is locked here so it cannot drift away from the verified record. Reorder or remove stories; to change a claim, revise its evidence and decision in the Evidence Room, then regenerate this edition. A shorter roundup is preferable to padding.</p>
         {cards.map((card, index) => (
           <div className="roundup-card-editor" key={card.id}>
             <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
@@ -320,16 +329,17 @@ export default function StaticRoundupBuilder({ title, stories }: Props) {
                 <button type="button" onClick={() => removeCard(card.id)} aria-label={`Remove story ${index + 1}`}>Remove</button>
               </div>
             </div>
-            <label>Headline<input value={card.headline} maxLength={150} onChange={(e) => updateCard(card.id, "headline", e.target.value)} /></label>
-            <label>Supporting text<textarea value={card.summary} maxLength={190} rows={2} onChange={(e) => updateCard(card.id, "summary", e.target.value)} /></label>
+            <label>Verified claim<input value={card.headline} readOnly aria-label={`Verified claim for story ${index + 1}`} /></label>
+            <label>Additional verified context<textarea value={card.summary} readOnly rows={2} aria-label={`Additional verified context for story ${index + 1}`} /></label>
             <p className="meta">{card.source ? "Source: " + card.source : "No source label available; verify the evidence in the edition before export."}</p>
           </div>
         ))}
       </div>
       {notice && <p className="status">{notice}</p>}
+      <p className={exportReady ? "status good" : "status bad"}>{exportReady ? "EXPORT CLEARANCE CONFIRMED: " : "EXPORT LOCKED: "}{preflightNote}</p>
       <div className="actions">
-        <button onClick={downloadPoster}>Download static poster (PNG)</button>
-        <button className="primary" disabled={rendering || cards.length === 0} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
+        <button disabled={!exportEnabled} onClick={downloadPoster}>Download static poster (PNG)</button>
+        <button className="primary" disabled={!exportEnabled || rendering} onClick={() => void exportVideo()}>{rendering ? "RENDERING SIX SECONDS…" : "EXPORT SIX-SECOND VIDEO"}</button>
       </div>
       <p className="meta">Export currently uses WebM, which is supported by modern Chrome and Edge. MP4 conversion is not performed in this browser-only release. The poster is the same single frame used for all six seconds.</p>
     </div>

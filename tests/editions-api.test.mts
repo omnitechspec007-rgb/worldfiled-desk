@@ -1,6 +1,7 @@
 // Edition Desk API tests against a simulated Supabase (PostgREST-style). The simulation emulates the migration-004
 // triggers; the real SQL is tested separately on a real Postgres (tests/db/migration004.test.mjs).
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
 
 process.env.EDITOR_PASSPHRASE = "blue lantern river 42";
 process.env.SESSION_SECRET = "z".repeat(40);
@@ -13,6 +14,10 @@ const epFn = (await import(`${root}functions/edition-prompt.mts`)).default;
 const { membersKey } = await import(`${root}lib/editions.mts`);
 const cookie = session.makeSessionCookie().split(";")[0];
 let n = 0; const ok = (m: string) => console.log("PASS " + m); void n;
+const editionDeskSource = readFileSync(new URL("../src/EditionDesk.tsx", import.meta.url), "utf8");
+assert.ok(editionDeskSource.includes("</div>\n      <div className=\"tabs\">"), "Edition Desk panel and tabs must be separated by a real line break");
+assert.ok(!editionDeskSource.includes("</div>\\n      <div className=\"tabs\">"), "A literal \\n escape must not leak into rendered JSX text");
+ok("Edition Desk layout uses a real line break before its tabs");
 
 const UNIQUE: Record<string, string[]> = { edition_developments: ["edition_id", "story_id"], edition_prompts: ["edition_id", "version"] };
 let tables: Record<string, any[]> = {}; let failNext: { table: string; method: string; status: number } | null = null; let missing = new Set<string>(); let seq = 0;
@@ -37,6 +42,26 @@ function postgrest(url: URL, init: any) {
     const ord = p.get("order"); if (ord) { const [c, d] = ord.split(",")[0].split("."); out = [...out].sort((a, b) => (typeof a[c] === "number" ? a[c] - b[c] : String(a[c] ?? "").localeCompare(String(b[c] ?? ""))) * (d === "desc" ? -1 : 1)); }
     const lim = Number(p.get("limit") ?? 0); if (lim) out = out.slice(0, lim);
     if (table === "stories") out = out.map((st) => ({ ...st, story_source_links: T("story_source_links").filter((l) => l.story_id === st.id).map((l) => { const rs = T("retrieved_sources").find((r) => r.id === l.source_id); return { retrieved_sources: rs ? { ...rs, source_registry: T("source_registry").find((g) => g.id === rs.registry_id) } : null }; }) }));
+    // Synthetic, current claim registers keep this edition workflow test focused on editions.
+    // Claim-level edge cases are covered by claim-clearance and claim-verification tests.
+    if (table === "claims") out = T("stories").filter((st) => matches({ story_id: st.id }, p)).map((st) => {
+      const link = T("story_source_links").find((x) => x.story_id === st.id);
+      const source = link ? T("retrieved_sources").find((x) => x.id === link.source_id) : null;
+      const registry = source ? T("source_registry").find((x) => x.id === source.registry_id) : null;
+      return {
+        id: "claim-" + st.id, story_id: st.id,
+        claim_text: "Synthetic verified claim statement for test: " + st.headline,
+        category: "factual",
+        claim_evidence: [{
+          id: "evidence-" + st.id, source_id: link?.source_id ?? null,
+          passage: "Checked synthetic supporting passage for edition workflow test.",
+          passage_location: "paragraph 2", extraction_status: "extracted", is_contradiction: false,
+          created_at: new Date(new Date(st.created_at).getTime() + 60_000).toISOString(),
+          retrieved_sources: source ? { ...source, source_registry: registry } : null,
+        }],
+        verification_results: [{ id: "decision-" + st.id, outcome: "SUPPORTED", reviewer_notes: "Synthetic editor decision for edition workflow test.", created_at: new Date(new Date(st.created_at).getTime() + 120_000).toISOString() }]
+      };
+    });
     return new Response(JSON.stringify(out), { status: 200 });
   }
   if (m === "POST") {
@@ -64,14 +89,23 @@ function postgrest(url: URL, init: any) {
   return new Response("{}", { status: 405 });
 }
 globalThis.fetch = (async (input: any, init: any = {}) => { const u = new URL(String(input)); if (u.hostname !== "abc.supabase.co") throw new Error("unexpected fetch " + u); return postgrest(u, init); }) as any;
-const call = (fn: any, body: any, c: string | null = cookie) => fn(new Request("https://x/", { method: "POST", headers: { "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
+const call = (fn: any, body: any, c: string | null = cookie) => fn(new Request("https://x/", { method: "POST", headers: { origin: "https://x", "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
 const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("https://x/?" + q, { method: "GET", headers: c ? { cookie: c } : {} }));
+
+const inputCheckId = "11111111-1111-4111-8111-111111111111";
+let inputCheck = await call(edFn, { action: "save", ids: [inputCheckId], title: "x".repeat(301) });
+assert.equal(inputCheck.status, 400);
+assert.equal((await inputCheck.json()).error, "bad_title");
+inputCheck = await call(edFn, { action: "save", ids: [inputCheckId], title: "Valid title", angle: "x".repeat(1001) });
+assert.equal(inputCheck.status, 400);
+assert.equal((await inputCheck.json()).error, "field_too_long");
+ok("edition titles and editorial angles reject overlong input rather than silently truncating it");
 
 // ---------- seed: recent stories with sources ----------
 const H = 3600_000; const at = (h: number) => new Date(Date.now() - h * H).toISOString();
-const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "" }; T("source_registry").push(r); } return r; };
+const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "", enabled: true, retrieval_status: "healthy" }; T("source_registry").push(r); T("source_content_policies").push({ source_id: r.id, policy: "extraction_allowed" }); } return r; };
 function story(headline: string, category: string, srcs: [string, string, string, boolean?][]) {
-  const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending" }; T("stories").push(st);
+  const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending", verification_status: "verified" }; T("stories").push(st);
   srcs.forEach(([outlet, title, extract, official], i) => {
     const rs = { id: crypto.randomUUID(), registry_id: reg(outlet, !!official).id, title, url: `https://${outlet.toLowerCase().replace(/\W/g, "")}.example/${st.id.slice(0, 6)}/${i}`, published_at: at(5), retrieved_at: at(1), extract };
     T("retrieved_sources").push(rs); T("story_source_links").push({ story_id: st.id, source_id: rs.id });
@@ -113,10 +147,31 @@ console.log("Approval");
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "approved" })).status, 400); assert.equal(T("edition_decisions").length, 0); ok("approval without acknowledgement is refused");
 const weakSv = await (await call(edFn, { action: "save", title: "Mixed bag", ids: [jp, sp], structure: "multi_country" })).json();
 assert.equal((await call(edFn, { action: "decide", id: weakSv.id, decision: "approved", acknowledged: true })).status, 400); ok("claiming a thematic structure for an unconnected pair requires a written reason");
-assert.equal((await call(edFn, { action: "decide", id: weakSv.id, decision: "approved", acknowledged: true, notes: "Editor accepts the weak link deliberately." })).status, 200); ok("…and is allowed with a reason (the editor decides)");
+const prematureApproval = await call(edFn, { action: "decide", id: weakSv.id, decision: "approved", acknowledged: true, notes: "Editor accepts the weak link deliberately." });
+assert.equal(prematureApproval.status, 409);
+assert.equal((await prematureApproval.json()).error, "story_editorial_approval_required");
+ok("edition approval is blocked until every member is explicitly cleared in Editorial Review");
+decide(jp, "approved"); decide(sp, "approved");
+assert.equal((await call(edFn, { action: "decide", id: weakSv.id, decision: "approved", acknowledged: true, notes: "Editor accepts the weak link deliberately." })).status, 200); ok("after story-level approval and verified claim registers, the edition can be approved");
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "publish", acknowledged: true })).status, 400); assert.equal((await call(edFn, { action: "decide", id: "bad", decision: "approved", acknowledged: true })).status, 400); ok("unknown decision and bad id rejected");
 console.log("Edition Prompt Architect");
 assert.equal((await call(epFn, { editionId: eid })).status, 409); assert.equal((await get(epFn, `editionId=${eid}`)).status, 409); assert.equal(T("edition_prompts").length, 0); ok("unapproved edition: no prompt and no preview");
+const researchBriefResponse = await call(epFn, { mode: "verification_brief", ids: ids3, title: "Before approval verification brief" });
+const researchBrief = await researchBriefResponse.json();
+assert.equal(researchBriefResponse.status, 200);
+assert.equal(researchBrief.saved, false);
+assert.equal(researchBrief.publicNewsOutput, false);
+assert.match(researchBrief.prompt, /INTERNAL RESEARCH ASSIGNMENT ONLY/);
+assert.match(researchBrief.prompt, /Do NOT write a news article/);
+assert.match(researchBrief.prompt, /READY FOR HUMAN CLAIM REVIEW is not VERIFIED/);
+assert.equal(T("edition_prompts").length, 0, "research verification prompt must not be written into production prompt history");
+ok("verification assignment is available before editorial approval, is not saved, and forbids public-facing news copy");
+const workflowBeforeApproval = await (await get(epFn, `mode=workflow_status&editionId=${eid}`)).json();
+assert.equal(workflowBeforeApproval.editorialApproval.current, false);
+assert.equal(workflowBeforeApproval.factualVerification.ready, true);
+assert.equal(workflowBeforeApproval.productionPromptAllowed, false);
+assert.match(workflowBeforeApproval.blockers.join(" "), /explicit approval in Editorial Review|human approval/i);
+ok("workflow status reports editorial approval and factual verification as separate gates; production remains blocked");
 decide(jp, "approved"); decide(fi, "approved"); decide(cl, "approved");
 assert.equal((await call(edFn, { action: "decide", id: eid, decision: "approved", acknowledged: true, notes: "Reviewed" })).status, 200);
 assert.equal(T("edition_decisions").find((x) => x.edition_id === eid).members_hash, membersKey(ids3)); assert(T("audit_events").some((a) => a.event_type === "edition_decision")); ok("approval saved, stamped with the exact member list, audited");
@@ -126,12 +181,24 @@ assert.equal(g1r.status, 200); assert(g1.saved && g1.version === 1); const row1 
 assert.equal(row1.members_hash, membersKey(ids3)); assert.equal(row1.approval_decision_id, T("edition_decisions").find((x) => x.edition_id === eid).id); assert(row1.evidence_hash.length === 64); ok("prompt saved as version 1, tied to the exact members, approval and evidence hash");
 const urlJp = T("retrieved_sources").find((r) => T("story_source_links").some((l) => l.story_id === jp && l.source_id === r.id)).url;
 assert(g1.prompt.includes(urlJp) && /D1-S1/.test(g1.prompt) && /D2-S1/.test(g1.prompt) && /D3-S1/.test(g1.prompt) && g1.prompt.includes("Compare the approaches") && g1.prompt.includes("THE WORLD, FILED.")); ok("integrated prompt carries each development's real source links, namespaced refs, angle and brand");
+assert.match(g1.prompt, /CURRENT HUMAN CLAIM-VERIFICATION REGISTER/);
+assert.match(g1.prompt, /Synthetic verified claim statement for test/);
+assert.match(g1.prompt, /Checked synthetic supporting passage for edition workflow test/);
+assert.match(g1.prompt, /only facts recorded in the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/i);
+assert.match(g1.prompt, /source status: enabled \| feed health: healthy/);
+const verifiedClaimsResponse = await get(epFn, `mode=workflow_status&editionId=${eid}`);
+const verifiedClaims = await verifiedClaimsResponse.json();
+assert.equal(verifiedClaims.verifiedClaimsByStory[jp][0].statement, "Synthetic verified claim statement for test: " + T("stories").find((s) => s.id === jp).headline);
+ok("public prompt and static-roundup data are grounded in exact current-supported claims and eligible passages");
 assert(row1.evidence_snapshot.developments.length === 3 && row1.evidence_snapshot.developments.every((x: any) => x.pack.sources.every((s: any) => s.snippet.length <= 400 && !("full_text" in s)))); ok("stored evidence: per-development, snippets capped, no full text");
 assert(T("audit_events").some((a) => a.event_type === "edition_prompt_created" && a.entity_id === eid)); ok("generation is audited");
 const g2 = await (await call(epFn, { editionId: eid, deliverable: "narrated_video", durationSeconds: 120, parentId: g1.id, conflictNotes: ["Sources differ on the date."] })).json(); assert.equal(g2.version, 2); assert(/Sources differ on the date/.test(g2.prompt) && /\[CONFLICTING\]/.test(g2.prompt)); assert.equal(T("edition_prompts")[1].parent_id, g1.id); ok("second version keeps history, links its parent, and carries the editor's conflict note");
 assert.equal(T("edition_prompts")[0].prompt_text, g1.prompt); ok("earlier version is preserved unchanged");
 const g3 = await (await call(epFn, { editionId: eid, deliverable: "nonsense", durationSeconds: 5000 })).json(); assert.equal(g3.saved, true); ok("unknown options fall back to safe defaults");
-let hist = await (await get(epFn, "history=1")).json(); assert(hist.prompts.length === 3 && hist.prompts.every((h: any) => h.current && h.title)); ok("history lists versions, all current");
+const historyResponse = await get(epFn, "history=1");
+let hist = await historyResponse.json();
+assert.ok(Array.isArray(hist.prompts), "Edition prompt history failed: " + JSON.stringify(hist));
+assert(hist.prompts.length === 3 && hist.prompts.every((h: any) => h.current && h.title)); ok("history lists versions, all current and checks source/claim snapshots");
 assert((await (await get(epFn, `id=${g1.id}`)).json()).prompt.includes(urlJp)); ok("a current prompt can be opened and copied");
 
 console.log("Invalidation");
@@ -162,6 +229,7 @@ const mev = await (await get(edFn, `ids=${mine.join(",")}`)).json();
 assert.equal(mev.evaluation.structure, "news_roundup"); assert.equal(mev.evaluation.roundup, true); assert(/do not share a genuine theme/.test(mev.evaluation.check.belongTogether)); assert.equal(mev.evaluation.ids.length, 4); ok("four hand-picked unrelated developments (one older than the window) are accepted and recommended as a multi-topic news roundup, no theme invented");
 assert(mev.developments.every((x: any) => x.sources.length >= 1 && x.sources.every((y: any) => y.url && y.publishedAt)) && mev.developments.length === 4); ok("the workspace data carries each selected development's sources, links and dates");
 const own = await (await call(edFn, { action: "save", title: "My daily briefing", ids: mine })).json(); assert(own.saved); assert.equal(T("editions").find((e) => e.id === own.id).structure, "news_roundup"); ok("manual selection saved as an edition");
+for (const storyId of mine) decide(storyId, "approved"); ok("every selected story receives explicit Editorial Review approval before drafting");
 assert.equal((await call(edFn, { action: "decide", id: own.id, decision: "approved", acknowledged: true })).status, 200); ok("a roundup can be approved without inventing a reason: it claims no connection");
 const myp = await (await call(epFn, { editionId: own.id, deliverable: "script_storyboard", durationSeconds: 120 })).json();
 assert(myp.saved && myp.structure.key === "news_roundup"); for (const id of mine) assert(myp.prompt.includes(T("stories").find((x) => x.id === id).headline)); assert((myp.prompt.match(/=== 1\. BRAND/g) ?? []).length === 1); ok("ONE integrated prompt covers all four selected developments");

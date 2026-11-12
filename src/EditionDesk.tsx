@@ -1,14 +1,15 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import StaticRoundupBuilder from "./StaticRoundupBuilder";
+import { recommendEditionRuntime, recommendFormatOpportunity } from "./format-opportunity";
 
 type Loc = { country: string; basis: string };
 type Dev = {
   id: string; headline: string; decision: string | null; type: string; recommendation: string; recommendationWhy: string; curiosityScore: number;
-  evidenceStrength: { label: string; why: string }; corroborated: boolean; whatChanged: string; whyInteresting: string[]; audienceQuestion: string;
+  evidenceStrength: { label: string; why: string; score: number; max: number }; corroborated: boolean; whatChanged: string; whyInteresting: string[]; audienceQuestion: string;
   surprisingElement: string | null; humanConsequences: string | null; possibleImplications: string | null; missingEvidence: string[]; sensationalismFlags: string[];
   hypothesisNote: string; themes: string[]; locations: Loc[]; geographicInterest: string; outlets: number;
-  fresh: boolean; notFreshWhy: string | null; ageHours: number | null;
-  sources: { outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string }[];
+  fresh: boolean; notFreshWhy: string | null; ageHours: number | null; verificationStatus: string;
+  sources: { outlet: string; region: string; tier: string; title: string; url: string; publishedAt: string | null; snippet: string; depth?: string; enabled?: boolean | null; retrievalStatus?: string | null }[];
 };
 type Comp = { name: string; points: number; max: number; why: string };
 type Evaluation = {
@@ -28,6 +29,8 @@ type Desk = {
   saved: { installed: boolean; editions: { id: string; title: string; editionKind: "video" | "text"; structureLabel: string; verdict: string | null; score: number | null; members: number; updatedAt: string; decision: string | null; approvalCurrent: boolean }[] };
 };
 type Approval = { decision: string | null; notes: string | null; current: boolean; membersChangedSinceApproval: boolean; blockedMembers: string[] };
+type WorkflowStatus = { storyEditorialReview: { ready: boolean; awaitingApproval: string[]; rejectedOrReturned: string[] }; editorialApproval: { current: boolean; decision?: string | null; membersCurrent?: boolean }; factualVerification: { ready: boolean; blocked: { storyId?: string; claimId?: string; reason: string }[] }; verifiedClaimsByStory: Record<string, { claimId: string; statement: string; sources: { publisher?: string | null; url?: string | null; title?: string | null }[] }[]>; verificationBriefAllowed: boolean; productionPromptAllowed: boolean; blockers: string[]; note: string };
+type VerificationBrief = { prompt: string; storyCount: number; sourceCount: number; directoryReviewedOn: string; note: string };
 type CreativePreview = {
   format: { key: string; label: string; why: string; overridden: boolean }; formats: { key: string; label: string; description: string }[];
   voice: { engine: string; voice: string; status: string; approval: string; licence: string; configured: boolean };
@@ -46,7 +49,8 @@ function DevDetail({ d }: { d: Dev }) {
   return (
     <div>
       <h3>Sources</h3>
-      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <ul className="comps">{d.sources.map((x) => <li key={x.url}><a href={x.url} target="_blank" rel="noreferrer">{x.title || x.url}</a> · {x.outlet} ({x.tier === "primary" ? "official/primary" : "reporting"}) · {x.publishedAt ? new Date(x.publishedAt).toLocaleString() : "date unknown"} · content: {x.depth ?? "unknown"} · source: {x.enabled === true ? "enabled" : x.enabled === false ? "disabled" : "unknown"} · feed: {x.retrievalStatus ?? "unknown"}{x.snippet ? <div className="meta">{x.snippet}</div> : null}</li>)}</ul>
+      <p className="caution">Factual state: {d.verificationStatus === "verified" ? "Verified in the claim register" : "NOT VERIFIED — research lead only"}. Source health and publisher count do not establish the truth of this development.</p>
       <h3>Editorial reasoning</h3>
       <p className="why"><strong>What changed:</strong> {d.whatChanged}</p>
       <p className="why"><strong>Why it may be interesting:</strong> {d.whyInteresting.join("; ") || "nothing specific found"}</p>
@@ -68,6 +72,7 @@ export default function EditionDesk() {
   const [q, setQ] = useState("");
   const [showOlder, setShowOlder] = useState(false);
   const [recFilter, setRecFilter] = useState("");
+  const [formatFilter, setFormatFilter] = useState<"all" | "static_text_card" | "long_video" | "research_first">("all");
   const [msg, setMsg] = useState("");
   const [inspect, setInspect] = useState<string | null>(null);
   // coverage window (from the Planner): classify developments as new / update / renewed / held over / already published
@@ -89,15 +94,19 @@ export default function EditionDesk() {
   const [prevScore, setPrevScore] = useState<{ score: number | null; verdict: string } | null>(null);
   const [devs, setDevs] = useState<Dev[]>([]);
   const [approval, setApproval] = useState<Approval | null>(null);
+  const [workflow, setWorkflow] = useState<WorkflowStatus | null>(null);
+  const [verificationBrief, setVerificationBrief] = useState<VerificationBrief | null>(null);
   const [ack, setAck] = useState(false);
   const [notes, setNotes] = useState("");
   const [deliverable, setDeliverable] = useState("static_roundup_6s");
   const [duration, setDuration] = useState(600);
+  const [durationAuto, setDurationAuto] = useState(true);
   const [pAngle, setPAngle] = useState("");
   const [fmt, setFmt] = useState("");
   const [sound, setSound] = useState("subtle");
   const [visual, setVisual] = useState("adaptive");
   const [cpv, setCpv] = useState<CreativePreview | null>(null);
+  const [roundupPreflight, setRoundupPreflight] = useState<{ ready: boolean; note: string } | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [res, setRes] = useState<PromptResult | null>(null);
   const [copied, setCopied] = useState(false);
@@ -106,7 +115,7 @@ export default function EditionDesk() {
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const draftKey = "worldfiled:edition-desk:draft:v1";
-  const workspaceSnapshot = JSON.stringify({ ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts });
+  const workspaceSnapshot = JSON.stringify({ ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, durationAuto, pAngle, fmt, sound, visual, conflicts });
 
   // Keep the in-progress workspace locally so refreshes do not discard work.
   // Server approvals and generated prompts are deliberately not restored.
@@ -125,6 +134,7 @@ export default function EditionDesk() {
           setTab(["developments", "suggested", "mine"].includes(draft.tab) ? draft.tab : "developments");
           setDeliverable(typeof draft.deliverable === "string" ? draft.deliverable : "static_roundup_6s");
           setDuration([480, 600, 720].includes(draft.duration) ? draft.duration : 600);
+          setDurationAuto(draft.durationAuto !== false);
           setPAngle(typeof draft.pAngle === "string" ? draft.pAngle : "");
           setFmt(typeof draft.fmt === "string" ? draft.fmt : "");
           setSound(draft.sound === "minimal" ? "minimal" : "subtle");
@@ -143,13 +153,13 @@ export default function EditionDesk() {
     if (!draftHydrated) return;
     try {
       localStorage.setItem(draftKey, JSON.stringify({
-        ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts,
+        ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, durationAuto, pAngle, fmt, sound, visual, conflicts,
         savedAt: new Date().toISOString(),
       }));
     } catch {
       setMsg("Browser storage is unavailable; keep this tab open until you save the edition.");
     }
-  }, [draftHydrated, ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts]);
+  }, [draftHydrated, ids, editionKind, selections, title, angle, structure, tab, deliverable, duration, durationAuto, pAngle, fmt, sound, visual, conflicts]);
 
   useEffect(() => { if (draftHydrated) setSelections((s) => ({ ...s, [editionKind]: ids })); }, [ids, editionKind, draftHydrated]);
 
@@ -205,8 +215,8 @@ export default function EditionDesk() {
     lastEv.current = null; setPrevScore(null);
     const kind = s.editionKind ?? editionKind;
     setEditionKind(kind); setSelections((prev) => ({ ...prev, [kind]: s.ids }));
-    setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setRes(null); setAck(false); setNotes(""); setMsg("");
-    setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, pAngle, fmt, sound, visual, conflicts }));
+    setIds(s.ids); setTitle(s.title); setAngle(s.angle ?? ""); setStructure(s.structure ?? ""); setEditionId(id); setApproval(null); setWorkflow(null); setVerificationBrief(null); setRes(null); setAck(false); setNotes(""); setMsg("");
+    setSavedSnapshot(JSON.stringify({ ids: s.ids, editionKind: kind, selections: { ...selections, [kind]: s.ids }, title: s.title, angle: s.angle ?? "", structure: s.structure ?? "", tab, deliverable, duration, durationAuto, pAngle, fmt, sound, visual, conflicts }));
     setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 50);
   };
   const openSaved = async (id: string) => {
@@ -223,13 +233,13 @@ export default function EditionDesk() {
   const remove = (id: string) => setIds((a) => a.filter((x) => x !== id));
   const add = (id: string) => setIds((a) => (a.includes(id) || a.length >= selectionLimit ? a : [...a, id]));
   const toggle = (id: string) => setIds((a) => (a.includes(id) ? a.filter((x) => x !== id) : a.length >= selectionLimit ? a : [...a, id]));
-  const clearSel = () => { setIds([]); setSelections((s) => ({ ...s, [editionKind]: [] })); setEditionId(null); setApproval(null); setRes(null); };
+  const clearSel = () => { setIds([]); setSelections((s) => ({ ...s, [editionKind]: [] })); setEditionId(null); setApproval(null); setWorkflow(null); setVerificationBrief(null); setRes(null); };
   const switchEditionKind = (kind: "video" | "text") => {
     if (kind === editionKind) return;
     setSelections((s) => ({ ...s, [editionKind]: ids }));
     setIds(selections[kind] ?? []);
     setEditionKind(kind);
-    setEditionId(null); setApproval(null); setRes(null); setAck(false); setTitle(""); setAngle(""); setStructure(""); setNotes(""); setConflicts([]); setPAngle(""); setFmt(""); setCpv(null); setMsg("Switched edition profile. Your other profile selection is kept separately; save and approve each edition independently.");
+    setEditionId(null); setApproval(null); setWorkflow(null); setVerificationBrief(null); setRes(null); setAck(false); setTitle(""); setAngle(""); setStructure(""); setNotes(""); setConflicts([]); setPAngle(""); setFmt(""); setCpv(null); setMsg("Switched edition profile. Your other profile selection is kept separately; save and approve each edition independently.");
   };
   const applySequence = () => ev && setIds(ev.sequence.map((s) => s.id));
 
@@ -256,6 +266,36 @@ export default function EditionDesk() {
     setBusy(false);
   };
   useEffect(() => {
+    if (!editionId) { setWorkflow(null); return; }
+    let active = true;
+    setWorkflow(null);
+    fetch(`${api}edition-prompt?mode=workflow_status&editionId=${encodeURIComponent(editionId)}`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail ?? "Could not check clearance.");
+        if (active) setWorkflow(data);
+      })
+      .catch(() => { if (active) setWorkflow(null); });
+    return () => { active = false; };
+  }, [editionId, ids.join(","), approval?.current]);
+
+  useEffect(() => {
+    if (!editionId || editionKind !== "video" || deliverable !== "static_roundup_6s") { setRoundupPreflight(null); return; }
+    let active = true;
+    setRoundupPreflight(null);
+    fetch(`${api}edition-prompt?editionId=${encodeURIComponent(editionId)}&deliverable=static_roundup_6s`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!active) return;
+        setRoundupPreflight(r.ok && data.exportReady === true
+          ? { ready: true, note: data.note ?? "Server-side factual and editorial clearance confirmed." }
+          : { ready: false, note: data.detail ?? data.note ?? "Export is blocked until this edition passes current approval and factual verification." });
+      })
+      .catch(() => { if (active) setRoundupPreflight({ ready: false, note: "Could not confirm current server-side clearance. Export is disabled until the check succeeds." }); });
+    return () => { active = false; };
+  }, [editionId, editionKind, deliverable, approval?.current, ids.join(",")]);
+
+  useEffect(() => {
     if (!editionId || editionKind === "text" || deliverable === "static_roundup_6s") { setCpv(null); return; }
     const q = `editionId=${editionId}&durationSeconds=${duration}&format=${fmt}&sound=${sound}&visual=${visual}`;
     fetch(`${api}edition-prompt?${q}`).then(async (r) => { if (r.ok) setCpv((await r.json()).creative ?? null); else setCpv(null); }).catch(() => setCpv(null));
@@ -272,6 +312,28 @@ export default function EditionDesk() {
     setBusy(false);
   };
   const copy = async () => { try { await navigator.clipboard.writeText(res!.prompt); setCopied(true); } catch { setMsg("Copy was blocked by the browser. Select the text and copy it manually."); } };
+  const prepareVerificationBrief = async () => {
+    if (!ids.length) return;
+    setBusy(true); setMsg(""); setVerificationBrief(null);
+    try {
+      const r = await post("edition-prompt", { mode: "verification_brief", ids, title, angle, conflictNotes: conflicts });
+      const data = await r.json();
+      if (!r.ok) setMsg(data.detail ?? "Could not prepare the verification assignment.");
+      else setVerificationBrief(data);
+    } catch {
+      setMsg("Could not prepare the verification assignment. Your selection is preserved.");
+    }
+    setBusy(false);
+  };
+  const copyVerificationBrief = async () => {
+    if (!verificationBrief) return;
+    try {
+      await navigator.clipboard.writeText(verificationBrief.prompt);
+      setMsg("Verification assignment copied. It contains research instructions only, not news copy.");
+    } catch {
+      setMsg("Copy was blocked by the browser. Select the verification prompt and copy it manually.");
+    }
+  };
 
   const shown = (s: Sug) => !rejectedLinks.includes(s.key);
   const devById = (id: string) => desk?.developments.find((d) => d.id === id);
@@ -292,15 +354,48 @@ export default function EditionDesk() {
     </div>
   );
 
-  const canBuild = !!editionId && !!approval?.current;
+  const canBuild = !!editionId && workflow?.productionPromptAllowed === true;
+  const selectedRuntimeInputs = ids.flatMap((id) => {
+    const d = devs.find((item) => item.id === id) ?? desk?.developments.find((item) => item.id === id);
+    return d ? [{
+      curiosityScore: d.curiosityScore,
+      evidenceStrength: d.evidenceStrength,
+      sourceCount: d.sources.length,
+      fresh: d.fresh,
+      recommendation: d.recommendation,
+      whyInteresting: d.whyInteresting,
+      humanConsequences: d.humanConsequences,
+      possibleImplications: d.possibleImplications,
+      sensationalismFlags: d.sensationalismFlags,
+    }] : [];
+  });
+  const runtimeRecommendation = recommendEditionRuntime(selectedRuntimeInputs);
+  useEffect(() => {
+    if (durationAuto && editionKind === "video" && runtimeRecommendation) {
+      setDuration(runtimeRecommendation.minutes * 60);
+    }
+  }, [durationAuto, editionKind, runtimeRecommendation?.minutes]);
+
   const roundupStories = ids.map((id) => {
     const d = devs.find((x) => x.id === id) ?? devById(id);
-    return d ? { id: d.id, headline: d.headline, summary: d.whatChanged || d.whyInteresting[0] || "Consult the linked source material for the verified details.", location: d.locations.map((x) => x.country).join(", "), source: d.sources[0]?.outlet ?? "" } : null;
+    const claims = workflow?.verifiedClaimsByStory?.[id] ?? [];
+    // Poster space is limited. Use only complete, concise, current-supported claim statements;
+    // never cut a longer claim mid-sentence or substitute the research headline.
+    const primary = claims.find((claim) => claim.statement.trim().length > 0 && claim.statement.length <= 120);
+    const supportingClaim = claims.find((claim) => claim.claimId !== primary?.claimId && claim.statement.trim().length > 0 && claim.statement.length <= 170);
+    const supporting = primary?.sources?.find((source) => source.publisher || source.url);
+    return d && primary ? {
+      id: d.id,
+      headline: primary.statement,
+      summary: supportingClaim?.statement ?? "Verified claim · supporting passage recorded in Evidence Room.",
+      // Do not infer the event location from a publisher or a metadata-only feed item.
+      source: supporting?.publisher ?? "Verified source in Evidence Room",
+    } : null;
   }).filter((x) => x !== null);
   return (
     <section>
       <h1>Edition Desk</h1>
-      <p className="meta">Two independently curated daily products from one researched story pool. The six-second video is one static, text-led international news poster; the written briefing remains a separate product. {desk?.note}</p>
+      <p className="meta">Research results are sorted into static text-card opportunities and longer narrated-video prospects. Curiosity is an editorial hypothesis—not audience analytics or truth—and stronger evidence plus story depth are required before a longer treatment is recommended. Verification preparation is separate from public news production. {desk?.note}</p>
       {msg && <p className={`status ${/Could not|not saved|no longer|refus/i.test(msg) ? "bad" : "good"}`}>{msg}</p>}
       {desk && !desk.saved.installed && <div className="panel"><p className="status bad">DATABASE SETUP REQUIRED: run migration 004, then migration 006, before saving and generating daily video or text editions. You can still explore suggestions and check coherence.</p></div>}
 
@@ -308,7 +403,8 @@ export default function EditionDesk() {
         <h2>Daily edition profile</h2>
         <div className="row"><label>Build profile<select value={editionKind} onChange={(e) => switchEditionKind(e.target.value as "video" | "text")}><option value="video">Static news roundup · 8-10 stories · 6 seconds</option><option value="text">Written news briefing · target 12-18 stories · 5-8 minute read</option></select></label></div>
         <p className="meta">Both editions use the same researched developments, but keep separate story selections, ordering, approvals and prompt histories. Select and approve each profile independently. A quiet news day should produce a shorter edition, never filler.</p>
-      </div>\n      <div className="tabs">
+      </div>
+      <div className="tabs">
         {([["developments", "1. Select developments"], ["suggested", "Suggested editions (shortcut)"], ["mine", "My editions"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "primary" : ""} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {!desk && !msg && <p className="meta">Loading…</p>}
@@ -325,11 +421,14 @@ export default function EditionDesk() {
 
       {desk && tab === "developments" && (() => {
         const recs = [...new Set(desk.developments.map((d) => d.recommendation))];
-        const list = desk.developments.filter((d) => (win && winInfo ? !!winInfo.map[d.id] || ids.includes(d.id) : (showOlder || d.fresh || ids.includes(d.id))) && (!recFilter || d.recommendation === recFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
+        const opportunity = (d: Dev) => recommendFormatOpportunity({ curiosityScore: d.curiosityScore, evidenceStrength: d.evidenceStrength, sourceCount: d.sources.length, fresh: d.fresh, recommendation: d.recommendation, whyInteresting: d.whyInteresting, humanConsequences: d.humanConsequences, possibleImplications: d.possibleImplications, sensationalismFlags: d.sensationalismFlags, verificationStatus: d.verificationStatus, editorialDecision: d.decision });
+        const laneCounts = { cards: desk.developments.filter((d) => opportunity(d).lane === "static_text_card").length, long: desk.developments.filter((d) => opportunity(d).lane === "long_video").length, held: desk.developments.filter((d) => opportunity(d).lane === "research_first").length };
+        const list = desk.developments.filter((d) => (win && winInfo ? !!winInfo.map[d.id] || ids.includes(d.id) : (showOlder || d.fresh || ids.includes(d.id))) && (!recFilter || d.recommendation === recFilter) && (formatFilter === "all" || opportunity(d).lane === formatFilter) && (!q.trim() || d.headline.toLowerCase().includes(q.trim().toLowerCase())));
         return (
           <div className="panel">
-            <h2>Select the developments for your {editionKind === "text" ? "text briefing" : "static news roundup"}</h2>
-            <p className="meta">Tick any developments from the research results, in any combination. You do not need them to be related: unrelated stories become a multi-topic news roundup. Static video target: 8-10 stories (maximum 10). Text target: 12-18 (maximum 18). These are editorial guides, not quotas.</p>
+            <h2>Research results and format opportunities</h2>
+            <p className="meta">Select developments for a static text-card roundup or a longer narrated video. The recommendation weighs freshness, curiosity potential, evidence depth and narrative substance. It is a planning hypothesis, not proof of truth or a prediction of viewer behaviour.</p>
+            <div className="confirm"><strong>Current research pool:</strong><p className="meta">Static text-card candidates: {laneCounts.cards} · Longer narrated-video prospects: {laneCounts.long} · Research first / held: {laneCounts.held}</p></div>
             <div className="confirm" style={{ position: "sticky", top: 0, zIndex: 2 }}>
               <strong>{ids.length} / {selectionLimit} selected</strong>
               <div className="actions">
@@ -345,23 +444,24 @@ export default function EditionDesk() {
               </select></label>
               <label>Search<input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="words in the headline" /></label>
               <label>Recommendation<select value={recFilter} onChange={(e) => setRecFilter(e.target.value)}><option value="">All</option>{recs.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+              <label>Format lane<select value={formatFilter} onChange={(e) => setFormatFilter(e.target.value as typeof formatFilter)}><option value="all">All opportunities</option><option value="static_text_card">Static text-card candidates</option><option value="long_video">Longer narrated-video prospects</option><option value="research_first">Research first / hold</option></select></label>
               <label className="inline"><input type="checkbox" checked={showOlder} onChange={(e) => setShowOlder(e.target.checked)} /> Also show older and rejected ({desk.developments.filter((d) => !d.fresh).length})</label>
             </div>
             {win && winInfo && <p className="meta">Window: {winInfo.local} ({winInfo.hours} h). Includes the start, excludes the end. Only stories with reporting in this window are listed. <a href="/planner">Open the Planner</a>{winInfo.overlaps.length ? ` · Overlaps earlier coverage: ${winInfo.overlaps.map((o) => o.label).join(", ")}` : ""}</p>}
             {list.length === 0 && <p>No developments match. Run research from the Dashboard, or change the filters.</p>}
             <table>
-              <thead><tr><th></th><th>Development</th><th>Recommendation</th><th>Curiosity (hypothesis)</th><th>Evidence</th><th>Places</th><th></th></tr></thead>
+              <thead><tr><th></th><th>Development</th><th>Recommendation</th><th>Format opportunity</th><th>Curiosity (hypothesis)</th><th>Evidence</th><th>Places</th><th></th></tr></thead>
               <tbody>
                 {list.map((d) => (
                   <Fragment key={d.id}>
                     <tr className={ids.includes(d.id) ? "picked" : ""}>
                       <td><input type="checkbox" aria-label={`Select ${d.headline}`} checked={ids.includes(d.id)} disabled={d.decision === "rejected"} onChange={() => toggle(d.id)} /></td>
                       <td>{winInfo?.map[d.id] && <span className={`chip ${winInfo.map[d.id].candidate ? "" : "bad"}`} title={winInfo.map[d.id].reason}>{({ NEW: "New", UPDATE: "Update", RENEWED: "Renewed", HELD_OVER: "Held over", ALREADY_PUBLISHED: "Already published", NEVER_VERIFIED: "Never verified", REJECTED_EARLIER: "Left out earlier", REJECTED: "Rejected" } as Record<string, string>)[winInfo.map[d.id].cls] ?? winInfo.map[d.id].cls}</span>} {d.headline}{winInfo?.map[d.id] && <div className="meta">{winInfo.map[d.id].reason}</div>}<div className="meta">{d.type} · {d.outlets} outlet{d.outlets === 1 ? "" : "s"} · {d.ageHours !== null ? `${d.ageHours}h old` : "age unknown"} · {d.decision === "rejected" ? "REJECTED (cannot be selected)" : d.decision ?? "not yet reviewed"}{!d.fresh && d.decision !== "rejected" ? ` · ${d.notFreshWhy}` : ""}</div></td>
-                      <td>{d.recommendation}</td><td>{d.curiosityScore}/100</td><td>{d.evidenceStrength.label}{d.corroborated ? "" : " · single outlet"}</td>
+                      <td>{d.recommendation}</td><td>{(() => { const fit = opportunity(d); return <><strong>{fit.label}</strong><div className="meta">{fit.score}/100 · {fit.reason}</div>{fit.suggestedRuntimeMinutes && <div className="meta">Potential runtime: {fit.suggestedRuntimeMinutes} minutes</div>}</>; })()}</td><td>{d.curiosityScore}/100</td><td>{d.evidenceStrength.label}{d.corroborated ? "" : " · multiple labels do not prove independence"}</td>
                       <td>{d.locations.map((l) => l.country).join(", ") || "none established"}</td>
                       <td><button onClick={() => setInspect(inspect === d.id ? null : d.id)}>{inspect === d.id ? "Hide" : "Evidence"}</button></td>
                     </tr>
-                    {inspect === d.id && <tr><td colSpan={7}><DevDetail d={d} /></td></tr>}
+                    {inspect === d.id && <tr><td colSpan={8}><DevDetail d={d} /></td></tr>}
                   </Fragment>
                 ))}
               </tbody>
@@ -431,33 +531,63 @@ export default function EditionDesk() {
                 {ev.uncertainties.length > 0 && <p className="caution">Uncertainties: {ev.uncertainties.join(" ")}</p>}
               </>
             )}
+            <h3>3. Prepare the verification assignment</h3>
+            <p className="meta">Available before editorial approval and factual clearance. This creates an internal research prompt to inspect original records, independent sourcing, contradictions and evidence gaps. It does not generate news copy, a report, a script or a publishable summary.</p>
+            <div className="actions"><button className="primary" onClick={() => void prepareVerificationBrief()} disabled={busy || !ids.length}>{busy ? "PREPARING…" : "Prepare verification prompt"}</button></div>
+            {verificationBrief && <div className="confirm">
+              <p className="status">Internal verification assignment prepared — {verificationBrief.storyCount} developments, {verificationBrief.sourceCount} source records. Source directory reviewed {verificationBrief.directoryReviewedOn}.</p>
+              <p className="meta">{verificationBrief.note}</p>
+              <textarea readOnly value={verificationBrief.prompt} rows={16} />
+              <div className="actions"><button onClick={() => void copyVerificationBrief()}>Copy verification prompt</button><button onClick={() => setVerificationBrief(null)}>Close</button></div>
+            </div>}
             <div className="actions"><button className="primary" onClick={() => void save()} disabled={busy || !title.trim() || !ids.length}>{editionId ? "Save changes" : "Save edition (needed before approval)"}</button></div>
 
             {editionId && (
               <div className="confirm">
-                <h3>3. Approve this edition</h3>
+                <h3>4. Human editorial approval</h3>
                 <p className="meta">{approval?.current ? "Approved for exactly these developments." : approval?.membersChangedSinceApproval ? "The developments changed after approval: approve again." : approval?.decision ? `Latest decision: ${approval.decision.replace(/_/g, " ")}.` : "Not decided yet."}</p>
+                {workflow && !workflow.storyEditorialReview.ready && <p className="caution">First complete Editorial Review for every selected story. Story approval means cleared for drafting, not verified.</p>}
+                {workflow && !workflow.factualVerification.ready && <p className="caution">Edition approval is not available until all material claims have current verification decisions and the story-level completeness acknowledgement.</p>}
                 <label className="inline"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> I reviewed the coherence check and the evidence for each development.</label>
                 <label>Notes{ev && !ev.roundup && ev.coherence.verdict !== "COHERENT" && ev.coherence.verdict !== "SINGLE DEVELOPMENT" ? " (required: you chose a thematic structure for a weak connection)" : " (optional)"}<input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></label>
                 <div className="actions">
-                  <button className="primary" disabled={busy || !ack} onClick={() => void decide("approved")}>Approve edition</button>
+                  <button className="primary" disabled={busy || !ack || !workflow || !workflow.storyEditorialReview.ready || !workflow.factualVerification.ready || workflow.storyEditorialReview.rejectedOrReturned.length > 0} onClick={() => void decide("approved")}>Approve edition</button>
                   <button disabled={busy} onClick={() => void decide("needs_changes")}>Needs changes</button>
                   <button disabled={busy} onClick={() => void decide("rejected")}>Reject</button>
+                  <button disabled={busy} onClick={() => { setWorkflow(null); fetch(`${api}edition-prompt?mode=workflow_status&editionId=${encodeURIComponent(editionId)}`).then((r) => r.ok ? r.json() : null).then((data) => setWorkflow(data)).catch(() => setWorkflow(null)); }}>Refresh gate status</button>
                 </div>
               </div>
             )}
 
-            <h3>4. Create the {editionKind === "text" ? "written briefing" : deliverable === "static_roundup_6s" ? "six-second static roundup" : "video production prompt"}</h3>
-            {!canBuild && <p className="meta">Available once the saved edition has a current approval.</p>}
+            <h3>5. Public-facing production prompt</h3>
+            {workflow ? <>
+              <p className={canBuild ? "status good" : "status bad"}>{canBuild ? "Current human editorial approval and factual verification are confirmed. Production prompt preparation is available." : "PUBLIC NEWS OUTPUT IS HELD. You can prepare verification above, but public-facing news content cannot be produced yet."}</p>
+              {!canBuild && workflow.blockers.map((reason, i) => <p className="caution" key={i}>{reason}</p>)}
+              {!canBuild && workflow.storyEditorialReview.awaitingApproval.map((id) => <p className="caution" key={`awaiting-${id}`}>{devById(id)?.headline ?? id}: awaiting your decision in Editorial Review.</p>)}
+              {workflow.factualVerification.blocked.slice(0, 8).map((item, i) => <p className="caution" key={`claim-${i}`}>{item.claimId ? `Claim ${item.claimId}: ` : ""}{item.reason}</p>)}
+            </> : <p className="meta">Checking current editorial approval and factual verification… Production remains locked until the check is confirmed.</p>}
+            {!canBuild && <p className="meta">The verification prompt can be prepared now. Public-facing news prompts require three separate gates: explicit story-level Editorial Review approval, factual verification of every material claim, and current approval of this exact edition.</p>}
             {canBuild && (
               <>
                 {editionKind === "video" && <div className="row">
-                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="static_roundup_6s">Static text-led news roundup · 6 seconds</option><option value="script_storyboard">Script and storyboard (legacy)</option><option value="animated_html">Animated HTML (legacy)</option><option value="narrated_video">Narrated video (legacy)</option></select></label>
-                  <label>Length<select value={duration} onChange={(e) => setDuration(Number(e.target.value))}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
+                  <label>Deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}><option value="static_roundup_6s">Static text-led news roundup · 6 seconds</option><option value="script_storyboard">Narrated news script and storyboard</option><option value="animated_html">Animated HTML preview</option><option value="narrated_video">Long-form narrated news video</option></select></label>
+                  <label>Length<select value={duration} onChange={(e) => { setDuration(Number(e.target.value)); setDurationAuto(false); }}><option value={480}>8 minutes</option><option value={600}>10 minutes</option><option value={720}>12 minutes</option></select></label>
                 </div>}
+                {editionKind === "video" && deliverable !== "static_roundup_6s" && (
+                  runtimeRecommendation ? (
+                    <div>
+                      <p className="meta">Runtime {durationAuto ? "automatically recommended" : "selected manually"}: {runtimeRecommendation.minutes} minutes from the {runtimeRecommendation.storiesConsidered} strongest selected long-video prospects (average curiosity {runtimeRecommendation.averageCuriosity}/100; evidence {runtimeRecommendation.averageEvidence}/5). {runtimeRecommendation.reason}</p>
+                      {!durationAuto && <div className="actions"><button type="button" onClick={() => setDurationAuto(true)}>Use recommended length ({runtimeRecommendation.minutes} minutes)</button></div>}
+                      {durationAuto && <p className="meta">Choose a different length to override this recommendation.</p>}
+                    </div>
+                  ) : <p className="caution">No selected story currently meets the long-form interest and evidence threshold. A shorter update or static text-card roundup may be more appropriate; do not pad the programme.</p>
+                )}
                 {editionKind === "text" && <p className="meta">Written edition: target 12-18 stories and 1,500-2,200 words (about 5-8 minutes). Evidence quality takes priority over length; the prompt will not invent context or pad weak stories.</p>}
                 {editionKind === "video" && deliverable === "static_roundup_6s" && (
-                  <StaticRoundupBuilder title={title} stories={roundupStories} />
+                  <>
+                    {roundupStories.length < ids.length && <p className="caution">Only {roundupStories.length} of {ids.length} selected stories have a concise current-supported claim statement that fits this poster. Longer claims are not cut or replaced with research headlines. Refine the claim in the Evidence Room, add supporting passages and re-verify it, or leave that story out.</p>}
+                    <StaticRoundupBuilder title={title} stories={roundupStories} exportReady={roundupPreflight?.ready === true && roundupStories.length > 0} preflightNote={roundupPreflight?.note ?? "Checking current approval and factual clearance…"} />
+                  </>
                 )}
                 {!(editionKind === "video" && deliverable === "static_roundup_6s") && <>
                 {editionKind === "video" && deliverable !== "static_roundup_6s" && cpv && (

@@ -37,6 +37,24 @@ function postgrest(url: URL, init: any) {
     const ord = p.get("order"); if (ord) { const [c, d] = ord.split(",")[0].split("."); out = [...out].sort((a, b) => (typeof a[c] === "number" ? a[c] - b[c] : String(a[c] ?? "").localeCompare(String(b[c] ?? ""))) * (d === "desc" ? -1 : 1)); }
     const lim = Number(p.get("limit") ?? 0); if (lim) out = out.slice(0, lim);
     if (table === "stories") out = out.map((st) => ({ ...st, story_source_links: T("story_source_links").filter((l) => l.story_id === st.id).map((l) => { const rs = T("retrieved_sources").find((r) => r.id === l.source_id); return { retrieved_sources: rs ? { ...rs, source_registry: T("source_registry").find((g) => g.id === rs.registry_id) } : null }; }) }));
+    // Synthetic, current claim registers isolate the creative workflow tests from claim-edge cases.
+    // Claim-clearance and claim-verification suites exercise unsupported, stale and contradictory evidence.
+    if (table === "claims") out = T("stories").filter((st) => matches({ story_id: st.id }, p)).map((st) => {
+      const link = T("story_source_links").find((x) => x.story_id === st.id);
+      const source = link ? T("retrieved_sources").find((x) => x.id === link.source_id) : null;
+      const registry = source ? T("source_registry").find((x) => x.id === source.registry_id) : null;
+      return {
+        id: "claim-" + st.id, story_id: st.id, claim_text: "Synthetic verified claim for creative workflow test: " + st.headline, category: "factual",
+        claim_evidence: [{
+          id: "evidence-" + st.id, source_id: link?.source_id ?? null,
+          passage: "Checked synthetic supporting passage for creative workflow test.",
+          passage_location: "test paragraph", extraction_status: "extracted", is_contradiction: false,
+          created_at: new Date(new Date(st.created_at).getTime() - 60_000).toISOString(),
+          retrieved_sources: source ? { ...source, source_registry: registry } : null,
+        }],
+        verification_results: [{ id: "decision-" + st.id, outcome: "SUPPORTED", reviewer_notes: "Synthetic editor decision for creative workflow test.", created_at: st.created_at }]
+      };
+    });
     return new Response(JSON.stringify(out), { status: 200 });
   }
   if (m === "POST") {
@@ -60,14 +78,16 @@ function postgrest(url: URL, init: any) {
   return new Response("{}", { status: 405 });
 }
 globalThis.fetch = (async (input: any, init: any = {}) => { const u = new URL(String(input)); if (u.hostname !== "abc.supabase.co") throw new Error("unexpected fetch " + u); return postgrest(u, init); }) as any;
-const call = (fn: any, body: any, c: string | null = cookie) => fn(new Request("https://x/", { method: "POST", headers: { "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
+const call = (fn: any, body: any, c: string | null = cookie) => fn(new Request("https://x/", { method: "POST", headers: { origin: "https://x", "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body) }));
 const get = (fn: any, q: string, c: string | null = cookie) => fn(new Request("https://x/?" + q, { method: "GET", headers: c ? { cookie: c } : {} }));
 
 // ---------- seed ----------
 const H = 3600_000; const NOW = Date.now(); const at = (h: number) => new Date(NOW - h * H).toISOString();
-const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "" }; T("source_registry").push(r); } return r; };
+const reg = (name: string, official = false) => { let r = T("source_registry").find((x) => x.name === name); if (!r) { r = { id: crypto.randomUUID(), name, country_scope: "Europe · test", reliability_note: official ? "tier:primary" : "", enabled: true, retrieval_status: "healthy" }; T("source_registry").push(r); T("source_content_policies").push({ source_id: r.id, policy: "extraction_allowed" }); } return r; };
 function story(headline: string, category: string, srcs: [string, string, string, boolean?][]) {
-  const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending" }; T("stories").push(st);
+  // Synthetic fixture: claim and story-level clearance are both complete.
+  const st = { id: crypto.randomUUID(), headline, category, created_at: at(2), editorial_status: "pending", verification_status: "verified" };
+  T("stories").push(st);
   srcs.forEach(([outlet, title, extract, official], i) => { const rs = { id: crypto.randomUUID(), registry_id: reg(outlet, !!official).id, title, url: `https://${outlet.toLowerCase().replace(/\W/g, "")}.example/${st.id.slice(0, 6)}/${i}`, published_at: at(5), retrieved_at: at(1), extract }; T("retrieved_sources").push(rs); T("story_source_links").push({ story_id: st.id, source_id: rs.id }); });
   return st.id;
 }
@@ -79,6 +99,7 @@ const E = crypto.randomUUID(); T("editions").push({ id: E, title: "Roundup", sta
 const hashNow = () => hashOf(E);
 T("edition_decisions").push({ id: crypto.randomUUID(), edition_id: E, decision: "approved", decided_by: "ed", members_hash: hashNow(), created_at: new Date(Date.now() + seq++).toISOString() });
 const decide = (sid: string, decision: string) => T("editorial_decisions").push({ id: crypto.randomUUID(), story_id: sid, decision, decided_by: "ed", created_at: new Date(Date.now() + seq++).toISOString() });
+[jp, al, rt].forEach((storyId) => decide(storyId, "approved"));
 
 console.log("Creative setup API");
 assert.equal((await get(cfn, "", null)).status, 401); assert.equal((await call(cfn, { action: "save-voice" }, null)).status, 401); ok("creative setup requires sign-in");
@@ -107,8 +128,29 @@ assert(g1.saved && g1.version === 1); const row1 = T("edition_prompts")[0];
 assert(/^[0-9a-f]{64}$/.test(row1.rationale.creative.config_hash) && row1.rationale.creative.voice.engine && row1.rationale.creative.scenes.length >= 5); ok("a saved prompt records the voice snapshot, scenes and config hash in its history record");
 assert(/PRONUNCIATION CHECK REQUIRED/.test(g1.prompt) && /Ogunlesi/.test(g1.prompt) && g1.creative.pronunciationCheckRequired.includes("Ogunlesi")); ok("the uncertain name appears in the prompt and in the reply");
 assert(/Voice: Laomedeia/.test(g1.prompt) && /Controls verified for this engine by the editor: none/.test(g1.prompt) && /you confirmed this is available/.test(g1.prompt)); ok("the prompt shows the saved configuration actually used (voice, no verified controls, confirmed tools)");
+assert.match(g1.prompt, /CURRENT HUMAN CLAIM-VERIFICATION REGISTER/);
+assert.match(g1.prompt, /Synthetic verified claim for creative workflow test/);
+assert.match(g1.prompt, /Checked synthetic supporting passage for creative workflow test/);
+assert.match(g1.prompt, /Use ONLY (?:entries in|facts recorded in) the CURRENT HUMAN CLAIM-VERIFICATION REGISTER/i);
+ok("edition prompt uses the recorded claim register and exact extracted passages as its factual source");
 let hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts[0].current === true); ok("history: current");
 await call(cfn, { action: "save-lexicon", entry: { name: "Unrelatedname", status: "PROPOSED", pronunciation: "x" } }); hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts[0].current === true); ok("a lexicon entry for a name this prompt does not use does not invalidate it");
+const jpStory = T("stories").find((story) => story.id === jp)!;
+jpStory.verification_status = "in_progress";
+hist = await (await get(pfn, "history=1")).json();
+assert.equal(hist.prompts[0].current, false);
+assert(hist.prompts[0].reasons.some((reason: string) => /claim registers/.test(reason)));
+const reopenedClaimPrompt = await (await get(pfn, `id=${g1.id}`)).json();
+assert.equal(reopenedClaimPrompt.valid, false);
+assert.equal(reopenedClaimPrompt.prompt, null);
+assert.equal(reopenedClaimPrompt.validity.claimClearanceCurrent, false);
+assert(/claim registers/.test(reopenedClaimPrompt.withheld));
+assert.equal((await call(pfn, { editionId: E })).status, 409);
+ok("a newly added or reopened material claim invalidates saved prompt history, withholds its text and blocks new generation");
+jpStory.verification_status = "verified";
+hist = await (await get(pfn, "history=1")).json();
+assert.equal(hist.prompts[0].current, true);
+ok("restoring current story clearance makes the unchanged saved prompt current again");
 await call(cfn, { action: "save-lexicon", entry: { name: "Ogunlesi", status: "CONFIRMED_HUMAN", pronunciation: "oh-goon-LAY-see", source: "checked with a Nigerian broadcaster guide" } });
 hist = await (await get(pfn, "history=1")).json(); assert.equal(hist.prompts[0].current, false); assert(hist.prompts[0].reasons.some((x: string) => /pronunciation entry/.test(x))); ok("confirming a name this prompt uses makes the older prompt NOT current (it is kept as history)");
 let one = await (await get(pfn, `id=${g1.id}`)).json(); assert.equal(one.valid, false); assert.equal(one.prompt, null); assert(/kept as history/.test(one.withheld)); assert.equal(T("edition_prompts").length, 1); ok("opening the stale prompt withholds its text, shows why, and deletes nothing");
@@ -120,7 +162,7 @@ await call(cfn, { action: "save-voice", voice: { ...(await (await get(cfn, "")).
 const g3 = await (await call(pfn, { editionId: E, deliverable: "narrated_video", durationSeconds: 120, format: "global_roundup", sound: "minimal", visual: "typographic" })).json();
 assert(g3.saved && /No music bed/.test(g3.prompt) && g3.creative.format.key === "global_roundup"); ok("editor options (format, sound, visual) are applied");
 const legacy = { id: crypto.randomUUID(), edition_id: E, version: 9, members: [jp, al, rt], members_hash: hashNow(), approval_decision_id: T("edition_decisions")[0].id, rationale: { structure: "news_roundup" }, prompt_text: "x".repeat(300), title: "legacy", structure: "news_roundup", deliverable: "script_storyboard", created_at: new Date(Date.now() + 99999).toISOString() };
-T("edition_prompts").push(legacy); hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts.find((p: any) => p.version === 9).current === true); ok("a prompt saved before this feature (no config hash) is left as it was");
+T("edition_prompts").push(legacy); hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts.find((p: any) => p.version === 9).current === false); ok("legacy prompt without evidence snapshot remains history only");
 decide(al, "rejected"); hist = await (await get(pfn, "history=1")).json(); assert(hist.prompts.every((p: any) => p.current === false)); ok("existing invalidation still works: a rejected member makes prompts not current");
 assert.equal((await call(pfn, { editionId: E })).status, 409); ok("and a new prompt is refused while a member is rejected");
 console.log("\nALL CREATIVE API CHECKS PASSED");
